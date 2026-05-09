@@ -1,0 +1,413 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { auth, db, handleFirestoreError, OperationType, storage } from '../lib/firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import imageCompression from 'browser-image-compression';
+import { 
+  collection, 
+  addDoc,
+  updateDoc,
+  setDoc,
+  doc, 
+  getDoc,
+  query, 
+  orderBy, 
+  onSnapshot, 
+  serverTimestamp,
+  increment 
+} from 'firebase/firestore';
+import { useAuthStore } from '../store/useAuthStore';
+import { Send, Image as ImageIcon, Smile } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { motion } from 'motion/react';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { soundService } from '../lib/sounds';
+
+interface Message {
+  id: string;
+  senderId: string;
+  content: string;
+  createdAt: ReturnType<typeof serverTimestamp>;
+  type: 'TEXT' | 'IMAGE';
+}
+
+export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatId: string, otherPartyName: string, isAdminSupport?: boolean }) {
+  const { user } = useAuthStore();
+  const { t } = useTranslation();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  const collectionPath = isAdminSupport ? 'supportTickets' : 'chats';
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showEmojiPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmojiPicker]);
+
+  useEffect(() => {
+    if (!chatId || !user) return;
+    
+    useAuthStore.getState().setActiveChatId(chatId);
+
+    // Reset unread count for current user when opening chat and keep it 0 if it changes
+    const unsubChatDoc = onSnapshot(doc(db, collectionPath, chatId), (docSnap) => {
+        if (docSnap.exists()) {
+           const data = docSnap.data();
+           if ((data.unreadCount?.[user.uid] || 0) > 0) {
+              updateDoc(doc(db, collectionPath, chatId), {
+                 [`unreadCount.${user.uid}`]: 0
+              }).catch(() => {});
+           }
+        }
+    });
+
+    const q = query(
+      collection(db, collectionPath, chatId, 'messages'),
+      orderBy('createdAt', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Message[];
+      
+      // Play sound for new messages NOT from current user
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          // Check if it's a new message (not initial load if we want to be strict, 
+          // but usually snapshots return initial state first)
+          // We check if it's from someone else
+          if (data.senderId && data.senderId !== user?.uid) {
+             // Only play if it's not the initial batch or if the timestamp is very recent
+             // but cleaner is to avoid playing on initial load if possible
+             const isRecent = data.createdAt?.seconds && (Date.now() / 1000 - data.createdAt.seconds < 10);
+             if (isRecent && useAuthStore.getState().profile?.notificationsEnabled) {
+               const role = useAuthStore.getState().role;
+               soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
+             }
+          }
+        }
+      });
+
+      setMessages(msgs);
+    }, (error) => {
+      if (!auth.currentUser) {
+        console.warn('Expected Auth sync error during logout: ', error);
+      } else {
+        handleFirestoreError(error, OperationType.LIST, `${collectionPath}/${chatId}/messages`);
+      }
+    });
+
+    return () => {
+       unsubscribe();
+       unsubChatDoc();
+       useAuthStore.getState().setActiveChatId(null);
+    };
+  }, [chatId, user, collectionPath]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) e.preventDefault();
+    console.log('Attempting to send message:', newMessage);
+    if (!newMessage.trim() || !user || isSending) {
+      console.log('SendMessage aborted: message empty, user null, or already sending');
+      return;
+    }
+
+    setIsSending(true);
+    
+    // Optimistically clear the input UI
+    const msgContent = newMessage;
+    setNewMessage('');
+    setShowEmojiPicker(false);
+    
+    try {
+      const msgData = {
+        senderId: user?.uid,
+        senderName: user?.displayName || 'Utente',
+        content: msgContent,
+        type: 'TEXT',
+        createdAt: serverTimestamp(),
+      };
+
+      // Do NOT await addDoc immediately to unblock UI
+      // We run the Firestore writing asynchronously
+      const sendPromise = async () => {
+         await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+         
+         const docRef = doc(db, collectionPath, chatId);
+         const docSnap = await getDoc(docRef);
+         
+         const updates: Record<string, unknown> = {
+           lastMessage: msgContent,
+           updatedAt: serverTimestamp(),
+           lastMessageAt: serverTimestamp()
+         };
+
+         if (!docSnap.exists() && chatId.startsWith('direct_') && !isAdminSupport) {
+            const parts = chatId.replace('direct_', '').split('_');
+            updates.participants = parts;
+            updates.participantCount = 2;
+            updates.type = 'DIRECT';
+            updates.createdAt = serverTimestamp();
+         }
+
+         if (docSnap.exists()) {
+           const data = docSnap.data();
+           if (!isAdminSupport) {
+             const participants = data.participants || [];
+             participants.forEach((pId: string) => {
+               if (pId !== user?.uid) {
+                 updates[`unreadCount.${pId}`] = increment(1);
+               }
+             });
+           }
+         } else if (chatId.startsWith('direct_') && !isAdminSupport) {
+            const parts = chatId.replace('direct_', '').split('_');
+            const otherUserId = parts.find(id => id !== user?.uid);
+            if (otherUserId) {
+               updates[`unreadCount.${otherUserId}`] = 1;
+            }
+         }
+
+         await setDoc(docRef, updates, { merge: true });
+      };
+
+      sendPromise().catch(err => {
+         console.warn("Message send error:", err);
+         // You could potentially add error handling or a retry mechanism here
+      }).finally(() => {
+         setIsSending(false);
+      });
+      
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
+      setIsSending(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    
+    setIsSending(true);
+    setUploadProgress(0);
+
+    try {
+      const options = {
+        maxSizeMB: 0.4,
+        maxWidthOrHeight: 800,
+        useWebWorker: false,
+        fileType: 'image/jpeg'
+      };
+      
+      const compressedFile = await imageCompression(file, options);
+      
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+         const base64string = reader.result as string;
+         setUploadProgress(null);
+
+         const msgData = {
+           senderId: user?.uid,
+           senderName: user?.displayName || 'Utente',
+           content: base64string,
+           type: 'IMAGE',
+           createdAt: serverTimestamp(),
+         };
+
+         const sendPromise = async () => {
+             await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+             
+             const docRef = doc(db, collectionPath, chatId);
+             const docSnap = await getDoc(docRef);
+             
+             const updates: Record<string, unknown> = {
+               lastMessage: '📷 Foto',
+               updatedAt: serverTimestamp(),
+               lastMessageAt: serverTimestamp()
+             };
+
+             if (!docSnap.exists() && chatId.startsWith('direct_') && !isAdminSupport) {
+                const parts = chatId.replace('direct_', '').split('_');
+                updates.participants = parts;
+                updates.participantCount = 2;
+                updates.type = 'DIRECT';
+                updates.createdAt = serverTimestamp();
+             }
+
+             if (docSnap.exists()) {
+               const data = docSnap.data();
+               if (!isAdminSupport) {
+                 const participants = data.participants || [];
+                 participants.forEach((pId: string) => {
+                   if (pId !== user?.uid) {
+                     updates[`unreadCount.${pId}`] = increment(1);
+                   }
+                 });
+               }
+             } else if (chatId.startsWith('direct_') && !isAdminSupport) {
+                const parts = chatId.replace('direct_', '').split('_');
+                const otherUserId = parts.find(id => id !== user?.uid);
+                if (otherUserId) {
+                   updates[`unreadCount.${otherUserId}`] = 1;
+                }
+             }
+
+             await setDoc(docRef, updates, { merge: true });
+          };
+
+          sendPromise().catch(err => {
+             console.warn("Message send error:", err);
+          }).finally(() => {
+             setIsSending(false);
+          });
+      };
+      
+      reader.onerror = () => {
+         console.error("Upload failed");
+         setUploadProgress(null);
+         setIsSending(false);
+      };
+      
+      reader.readAsDataURL(compressedFile);
+      
+    } catch (error) {
+      console.error('Image compression or upload error:', error);
+      setUploadProgress(null);
+      setIsSending(false);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const onEmojiClick = (emojiData: any) => {
+    setNewMessage(prev => prev + emojiData.emoji);
+  };
+
+  return (
+    <div className={`flex flex-col h-full ${isAdminSupport ? 'bg-transparent' : 'bg-white'} relative`}>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+        {messages.map((msg) => {
+          const isMe = msg.senderId === user?.uid;
+            return (
+              <motion.div 
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                key={msg.id} 
+                className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+              >
+                {!isMe && !chatId.startsWith('direct_') && (msg as Message & { senderName?: string }).senderName && (
+                  <span className="text-[9px] font-black uppercase text-grey ml-2 mb-1 tracking-widest italic">
+                    {(msg as Message & { senderName?: string }).senderName}
+                  </span>
+                )}
+                <div className={`
+                  max-w-[85%] p-4 rounded-3xl text-sm shadow-sm
+                  ${isMe 
+                    ? 'bg-primary text-white rounded-tr-none' 
+                    : 'bg-white text-black rounded-tl-none border border-grey/5'}
+                `}>
+                  {msg.type === 'IMAGE' ? (
+                    <img src={msg.content} alt="Foto inviata" className="w-full max-w-[250px] rounded-2xl mb-1" loading="lazy" />
+                  ) : (
+                    msg.content
+                  )}
+                  <div className={`text-[8px] mt-1 opacity-60 font-bold ${isMe ? 'text-right' : 'text-left'}`}>
+                    {(msg.createdAt as any)?.toDate ? (msg.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
+                  </div>
+                </div>
+              </motion.div>
+            );
+        })}
+        <div ref={scrollRef} />
+      </div>
+
+      {/* Input */}
+      {uploadProgress !== null && (
+        <div className="absolute bottom-full left-0 w-full bg-white border-t border-grey/10 px-4 py-2 text-[10px] font-bold text-primary flex items-center justify-between z-10 transition-colors">
+           <span>Invio foto in corso...</span>
+           <span>{Math.round(uploadProgress)}%</span>
+        </div>
+      )}
+      <form onSubmit={sendMessage} className="p-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white text-black border-t border-grey/10  flex gap-2 items-center transition-colors relative z-20">
+        <div className="flex items-center">
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 bg-black text-white rounded-full hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
+              disabled={isSending}
+            >
+              <ImageIcon size={18} />
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              accept="image/jpeg, image/png, image/webp" 
+              className="hidden" 
+              onChange={handlePhotoUpload} 
+            />
+            <div className="relative">
+                <button 
+                  type="button" 
+                  className={`p-2 transition-colors ${showEmojiPicker ? 'text-primary' : 'text-grey hover:text-primary'}`}
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                >
+                  <Smile size={20} />
+                </button>
+                {showEmojiPicker && (
+                    <div ref={pickerRef} className="absolute bottom-full left-0 z-50 mb-4 shadow-2xl">
+                        <EmojiPicker 
+                            onEmojiClick={onEmojiClick}
+                            theme={Theme.LIGHT}
+                            searchDisabled
+                            skinTonesDisabled
+                            width={300}
+                            height={400}
+                        />
+                    </div>
+                )}
+            </div>
+        </div>
+        <input 
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder={t('chat.placeholder')}
+          className="flex-1 bg-white text-black border border-grey/10 shadow-sm rounded-full px-4 py-2 text-base focus:outline-none focus:ring-1 focus:ring-primary/20 "
+        />
+        <button 
+          type="submit"
+          disabled={!newMessage.trim() || isSending}
+          className="w-10 h-10 bg-primary text-black rounded-full flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform cursor-pointer"
+        >
+          {isSending ? (
+            <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+          ) : (
+            <Send size={18} />
+          )}
+        </button>
+      </form>
+    </div>
+  );
+}

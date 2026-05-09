@@ -1,0 +1,9 @@
+{
+  "name": "DoctorBike Italia",
+  "description": "On-demand bike mechanical assistance and social cycling community platform. SMS alerts, real-time tracking, and AI-powered bike diagnostics.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ],
+  "majorCapabilities": []
+}

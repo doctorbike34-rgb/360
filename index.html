@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>DoctorBike Italia - SOS Meccanico</title>
+    <meta name="theme-color" content="#00847d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/bike.svg" />
+  </head>
+  <body class="bg-white">
+    <div id="root">
+      <!-- Initial Splash Screen -->
+      <div id="initial-loader" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: white; z-index: 9999; font-family: sans-serif;">
+        <div style="width: 60px; height: 60px; border: 5px solid #f3f3f3; border-top: 5px solid #00847d; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <p style="margin-top: 20px; font-weight: 900; color: #00847d; text-transform: uppercase; letter-spacing: 2px; font-style: italic;">DoctorBike</p>
+        <p style="margin-top: 8px; font-size: 10px; color: #64748b; font-weight: bold;">Avvio assistenza...</p>
+        <style>
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

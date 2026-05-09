@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Public and private user profile data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["CYCLIST", "MECHANIC", "ADMIN", "PEER_MECHANIC"] },
+        "balance": { "type": "number" },
+        "isOnline": { "type": "boolean" },
+        "plan": { "type": "string", "enum": ["BASE", "PRO", "ULTIMATE"] },
+        "points": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role", "createdAt"]
+    },
+    "SOSRequest": {
+      "title": "SOS Request",
+      "description": "Emergency roadside assistance request",
+      "type": "object",
+      "properties": {
+        "cyclistId": { "type": "string" },
+        "mechanicId": { "type": "string" },
+        "faultType": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "ACCEPTED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "DISPUTED"] },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "estimatedPrice": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["ESCROW", "RELEASED", "REFUNDED"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "Message within a chat session",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["TEXT", "IMAGE", "LOCATION"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Main user records"
+    },
+    "/sosRequests/{sosId}": {
+      "schema": "SOSRequest",
+      "description": "Active and past SOS requests"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Individual chat messages"
+    }
+  }
+}

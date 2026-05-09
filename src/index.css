@@ -1,0 +1,171 @@
+@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@700;900&family=Nunito:wght@400;600;700&family=Source+Sans+Pro:wght@400;600&display=swap');
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme {
+  --font-display: "Nunito", sans-serif;
+  --font-sans: "Source Sans Pro", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-primary: #00847D;
+  --color-accent: #009E94;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-dark: #222222;
+  --color-dark-light: #333333;
+  --color-grey: #64748b;
+  --color-light-bg: #FFFFFF;
+
+  --spacing-safe-top: env(safe-area-inset-top);
+  --spacing-safe-bottom: env(safe-area-inset-bottom);
+  --spacing-safe-left: env(safe-area-inset-left);
+  --spacing-safe-right: env(safe-area-inset-right);
+}
+
+@layer utilities {
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .px-safe { 
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .mt-safe { margin-top: env(safe-area-inset-top); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+
+  /* Map Marker Dimensions */
+  .marker-size-lg { width: 28px; height: 28px; }
+  .marker-size-md { width: 22px; height: 22px; }
+  .marker-size-xl { width: 38px; height: 38px; }
+  
+  .avatar-size-lg { width: 24px; height: 24px; }
+  .avatar-size-md { width: 20px; height: 20px; }
+  .avatar-size-sm { width: 18px; height: 18px; }
+  
+  .status-dot-lg { width: 8px; height: 8px; }
+  .status-dot-md { width: 6px; height: 6px; }
+
+  .shadow-accent-lg {
+    shadow-color: rgba(249, 115, 22, 0.5);
+    box-shadow: 0 4px 15px rgba(249, 115, 22, 0.5);
+  }
+}
+
+@layer base {
+  :root {
+    --color-bg: #FFFFFF;
+    --color-text: #000000;
+    --color-card: #FFFFFF;
+  }
+
+  /* Force white theme even if .dark class is present */
+  .dark {
+    --color-bg: #FFFFFF;
+    --color-text: #000000;
+    --color-card: #FFFFFF;
+    --color-light-bg: #FFFFFF;
+  }
+}
+
+body {
+  @apply bg-white text-black;
+  font-family: var(--font-sans);
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, select {
+  @apply text-black bg-white border-grey/20;
+  color: #000000 !important;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.no-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.no-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 10px;
+}
+.no-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(150, 150, 150, 0.3) transparent;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  @apply tracking-tight font-black italic uppercase;
+}
+
+.sos-button {
+  @apply bg-danger text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg active:scale-95 transition-transform;
+}
+
+.glass-card {
+  @apply bg-white/80 dark:bg-dark-light/80 backdrop-blur-md rounded-2xl border border-white/20 dark:border-white/10 shadow-sm p-4 transition-colors;
+}
+
+/* Custom Marker Styles */
+.user-marker {
+  @apply w-4 h-4 bg-primary border-2 border-white rounded-full shadow-md;
+}
+
+@keyframes marker-pulse {
+  0% { transform: scale(1); opacity: 1; border-width: 2px; }
+  50% { transform: scale(1.4); opacity: 0.6; border-width: 1px; }
+  100% { transform: scale(1.8); opacity: 0; border-width: 0px; }
+}
+
+.pulse-primary::after {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-primary;
+  animation: marker-pulse 2s infinite;
+  z-index: -1;
+}
+
+.pulse-accent::after {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-accent;
+  animation: marker-pulse 2s infinite;
+  z-index: -1;
+}
+
+.pulse-warning::after {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-warning;
+  animation: marker-pulse 2s infinite;
+  z-index: -1;
+}
+
+.pulse-blue::after {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-blue-500;
+  animation: marker-pulse 2s infinite;
+  z-index: -1;
+}
+
+.sos-highlight {
+  @apply ring-4 ring-danger ring-offset-2 animate-bounce;
+}
+
+/* Focus Mode Styles applied via Tailwind */
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > form:nth-of-type(1) > div:nth-of-type(4) > div:nth-of-type(2) > span:nth-of-type(1) {
+  background-color: #ffffff;
+}
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > form:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(2) > span:nth-of-type(1) {
+  background-color: #fff7f7;
+}
+
+/* Removed Focus Mode Styles */
+

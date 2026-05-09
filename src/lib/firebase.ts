@@ -1,0 +1,123 @@
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  doc, 
+  getDocFromServer 
+} from 'firebase/firestore';
+import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
+import firebaseConfig from '../../firebase-applet-config.json';
+import { useAuthStore } from '../store/useAuthStore';
+
+if (!firebaseConfig || !firebaseConfig.apiKey) {
+  console.error("Firebase configuration is missing or invalid in firebase-applet-config.json");
+}
+
+export const app = initializeApp(firebaseConfig);
+export const storage = getStorage(app);
+
+// Modern Firestore Cache Configuration
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({}) // Standard single-tab persistence is more robust for startup speed
+}, firebaseConfig.firestoreDatabaseId);
+
+// Connection test as required by instructions
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration.");
+    }
+  }
+}
+// testConnection(); // Commented out to avoid potential startup issues causing white screen
+
+export const auth = getAuth(app);
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const isQuotaError = error instanceof Error && (error.message.includes('Quota exceeded') || error.message.includes('quota limits'));
+  
+  if (isQuotaError) {
+    useAuthStore.getState().setQuotaError(true);
+    console.warn(`Firestore Quota Exceeded for ${path}. Action: ${operationType}.`);
+    return;
+  }
+
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+let messaging: Messaging | null = null;
+let supportedChecked = false;
+let isSupportedFCM = false;
+
+export const getFCM = async () => {
+  if (!supportedChecked) {
+    try {
+      isSupportedFCM = await isSupported();
+    } catch (e) {
+      isSupportedFCM = false;
+    }
+    supportedChecked = true;
+  }
+  
+  if (isSupportedFCM && !messaging && typeof window !== 'undefined') {
+    try {
+      // FCM also requires ServiceWorker API
+      if (!('serviceWorker' in navigator)) throw new Error('Missing ServiceWorker API');
+      
+      messaging = getMessaging(app);
+    } catch (e) {
+      console.warn('FCM initialization failed', e);
+      isSupportedFCM = false;
+      messaging = null;
+    }
+  }
+  return messaging;
+};

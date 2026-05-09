@@ -1,0 +1,171 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'google.com');
+    }
+    function isAdmin() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'doctorbike34@gmail.com' ||
+          request.auth.token.email.lower() == 'doctorbike@gmail.com' ||
+          request.auth.token.email.lower() == 'doctorbike@email.it'
+        ))
+      );
+    }
+    function isVerified() { 
+      return isSignedIn(); 
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+
+    // --- Validation Helpers ---
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'role', 'createdAt']) &&
+             data.uid is string &&
+             data.role in ['CYCLIST', 'MECHANIC', 'ADMIN', 'PEER_MECHANIC'] &&
+             (data.createdAt == request.time || data.createdAt is timestamp);
+    }
+
+    function isValidMechanic(data) {
+      return data.keys().hasAll(['userId', 'isAvailable', 'businessName']) &&
+             data.userId is string &&
+             data.businessName is string;
+    }
+
+    function isValidSOS(data) {
+      return data.keys().hasAll(['cyclistId', 'faultType', 'status', 'createdAt']) &&
+             data.cyclistId == request.auth.uid &&
+             data.status == 'PENDING' &&
+             data.faultType is string;
+    }
+
+    function isValidRoadReport(data) {
+      return data.keys().hasAll(['reporterId', 'reporterName', 'category', 'description', 'severity', 'location', 'status', 'upvotes', 'createdAt', 'updatedAt']) &&
+             data.reporterId == request.auth.uid &&
+             data.category in ['pothole', 'damaged_path', 'obstacle', 'missing_signage', 'flooding', 'other'] &&
+             data.severity in ['low', 'medium', 'high'] &&
+             data.status in ['open', 'confirmed', 'in_review', 'resolved', 'rejected'] &&
+             data.location.lat is number && data.location.lng is number;
+    }
+
+    // --- Collection Rules ---
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) || isAdmin();
+      // Users can modify themselves, but cannot give themselves ADMIN. 
+      // Other users can ONLY modify transaction-related fields for app features.
+      allow update: if isAdmin() || (
+        isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['role']) || incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC'])
+      ) || (
+        isSignedIn() && (!isOwner(userId)) && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'peerMechanicEarnings', 'peerMechanicJobsCompleted', 'points', 'weeklyPoints', 'badges'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /mechanics/{mechId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(mechId) && isValidMechanic(incoming());
+      allow update: if isOwner(mechId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /platformStats/{statId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /aiConfig/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /sosRequests/{sosId} {
+      allow read: if isSignedIn();
+      allow create: if isVerified() && isValidSOS(incoming());
+      allow update: if isAdmin() || (isSignedIn() && (
+        (existing().status == 'PENDING' && incoming().status == 'ACCEPTED' && incoming().mechanicId == request.auth.uid) ||
+        (isOwner(existing().cyclistId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'photos', 'isReviewed', 'mechanicConfirmed', 'updatedAt', 'paymentStatus'])) ||
+        (isOwner(existing().mechanicId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'mechanicConfirmed', 'updatedAt', 'acceptedAt']))
+      ));
+      allow delete: if isAdmin();
+    }
+
+    match /chats/{chatId} {
+      allow read, update: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn();
+      match /messages/{msgId} {
+        allow read, create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow update: if isSignedIn() && request.auth.uid == existing().senderId;
+      }
+    }
+
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().organizerId == request.auth.uid;
+      allow update: if isSignedIn() && (isOwner(existing().organizerId) || incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'participantCount'])) || isAdmin();
+      allow delete: if isOwner(existing().organizerId) || isAdmin();
+    }
+
+    match /roadReports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || (isSignedIn() && (
+        isOwner(existing().reporterId) || 
+        incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'updatedAt'])
+      ));
+      allow delete: if isAdmin();
+    }
+
+    match /supportTickets/{ticketId} {
+       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+       allow read, update: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+
+       match /messages/{msgId} {
+         allow read, create: if isSignedIn() && (get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.userId == request.auth.uid || isAdmin());
+       }
+    }
+
+    match /aiConversations/{convId} {
+       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+       allow read, update: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+    }
+
+    match /transactions/{txId} {
+       allow read: if isSignedIn() && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin());
+       allow create: if isSignedIn() && (incoming().fromId == request.auth.uid || incoming().userId == request.auth.uid);
+    }
+
+    match /interventions/{intId} {
+       allow read: if isSignedIn() && (resource.data.cyclistId == request.auth.uid || resource.data.mechanicId == request.auth.uid || isAdmin());
+       allow create: if isSignedIn() && (incoming().cyclistId == request.auth.uid || incoming().mechanicId == request.auth.uid);
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if isSignedIn(); 
+      allow create: if isSignedIn() && isOwner(incoming().cyclistId) && 
+                      exists(/databases/$(database)/documents/sosRequests/$(incoming().sosRequestId));
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+      allow create: if isSignedIn() && request.auth.token.email.lower() == 'doctorbike34@gmail.com';
+      allow write: if isAdmin(); // Admins can manage other admins
+    }
+  }
+}

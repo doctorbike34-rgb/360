@@ -1,0 +1,157 @@
+src/components/NotificationManager.tsx:10:  const { user, role } = useAuthStore();
+src/components/NotificationManager.tsx:33:    if (!user) return;
+src/components/NotificationManager.tsx:65:        where('cyclistId', '==', user.uid),
+src/components/NotificationManager.tsx:123:  }, [user, role]);
+src/components/CyclistHome.tsx:61:  const { user, profile, setQuotaError, setShowAIDoctor } = useAuthStore();
+src/components/CyclistHome.tsx:115:    if (!user) return;
+src/components/CyclistHome.tsx:118:      where('participants', 'array-contains', user.uid),
+src/components/CyclistHome.tsx:126:        return acc + (chat.unreadCount?.[user.uid] || 0);
+src/components/CyclistHome.tsx:137:  }, [user]);
+src/components/CyclistHome.tsx:202:      setNearbyCyclists(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(u => u.id !== user?.uid));
+src/components/CyclistHome.tsx:217:  }, [user]);
+src/components/CyclistHome.tsx:252:    if (!user) return;
+src/components/CyclistHome.tsx:255:    const sortedIds = [user.uid, otherUserId].sort();
+src/components/CyclistHome.tsx:261:        participants: [user.uid, otherUserId],
+src/components/CyclistHome.tsx:290:    if (!user) return;
+src/components/CyclistHome.tsx:293:      where('cyclistId', '==', user.uid),
+src/components/CyclistHome.tsx:330:  }, [user]);
+src/components/CyclistHome.tsx:365:    if (!user || !profile) return;
+src/components/CyclistHome.tsx:396:        cyclistId: user.uid,
+src/components/CyclistHome.tsx:397:        cyclistName: user.displayName || 'Cyclist',
+src/components/CyclistHome.tsx:410:      await updateDoc(doc(db, 'users', user.uid), {
+src/components/CyclistHome.tsx:417:        participants: [user.uid],
+src/components/CyclistHome.tsx:452:    if (!user) return;
+src/components/CyclistHome.tsx:453:    const isJoined = event.participants?.includes(user.uid);
+src/components/CyclistHome.tsx:458:          participants: arrayRemove(user.uid),
+src/components/CyclistHome.tsx:462:          participants: arrayRemove(user.uid)
+src/components/CyclistHome.tsx:470:          participants: arrayUnion(user.uid),
+src/components/CyclistHome.tsx:474:          participants: arrayUnion(user.uid)
+src/components/CyclistHome.tsx:486:    if (!user || !profile) return;
+src/components/CyclistHome.tsx:488:      await updateDoc(doc(db, 'users', user.uid), {
+src/components/CyclistHome.tsx:505:                  <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt="Avatar" />
+src/components/CyclistHome.tsx:509:                  <p className="text-xs font-bold text-dark dark:text-white truncate max-w-[80px]">{user?.displayName || 'Cyclist'}</p>
+src/components/CyclistHome.tsx:693:                  currentUserId={user?.uid || ''}
+src/components/CyclistHome.tsx:769:              {selectedEventDetails.participants?.includes(user?.uid) ? (
+src/components/CyclistHome.tsx:1347:        userId={user?.uid || ''}
+src/components/Auth.tsx:30:  const { user, setUser, setRole } = useAuthStore();
+src/components/Auth.tsx:31:  const [isLogin, setIsLogin] = useState(!user);
+src/components/Auth.tsx:41:  // Use current user from store if available but missing profile
+src/components/Auth.tsx:42:  const firebaseUser = user;
+src/components/Auth.tsx:63:      const user = result.user;
+src/components/Auth.tsx:65:      setUser(user);
+src/components/Auth.tsx:66:      const userDoc = await getDoc(doc(db, 'users', user.uid)).catch(e => {
+src/components/Auth.tsx:67:        handleFirestoreError(e, OperationType.GET, `users/${user.uid}`);
+src/components/Auth.tsx:77:        setValue('name', user.displayName || '');
+src/components/Auth.tsx:78:        setValue('email', user.email || '');
+src/components/Auth.tsx:102:          finalUser = res.user;
+src/components/Auth.tsx:105:          finalUser = res.user;
+src/components/MechanicHome.tsx:81:  const { user, profile, setQuotaError, setShowAIDoctor } = useAuthStore();
+src/components/MechanicHome.tsx:99:    if (!user) return;
+src/components/MechanicHome.tsx:101:      await updateDoc(doc(db, 'users', user.uid), {
+src/components/MechanicHome.tsx:112:    if (!user) return;
+src/components/MechanicHome.tsx:113:    const sortedIds = [user.uid, otherUserId].sort();
+src/components/MechanicHome.tsx:117:        participants: [user.uid, otherUserId],
+src/components/MechanicHome.tsx:136:    if (!user) return;
+src/components/MechanicHome.tsx:139:    const unsubStats = onSnapshot(doc(db, 'mechanics', user.uid), (snapshot) => {
+src/components/MechanicHome.tsx:149:        handleFirestoreError(error, OperationType.GET, `mechanics/${user.uid}`);
+src/components/MechanicHome.tsx:172:    // Listen for user availability
+src/components/MechanicHome.tsx:174:    if (user) {
+src/components/MechanicHome.tsx:175:      unsubUser = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+src/components/MechanicHome.tsx:188:          handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+src/components/MechanicHome.tsx:195:    if (user) {
+src/components/MechanicHome.tsx:198:        where('mechanicId', '==', user.uid),
+src/components/MechanicHome.tsx:220:    if (user && (isAvailable || activeJob)) {
+src/components/MechanicHome.tsx:232:                await updateDoc(doc(db, 'users', user.uid), {
+src/components/MechanicHome.tsx:263:  }, [user, !!activeJob, isAvailable]);
+src/components/MechanicHome.tsx:285:    if (!user) return;
+src/components/MechanicHome.tsx:288:      where('participants', 'array-contains', user.uid),
+src/components/MechanicHome.tsx:302:        return acc + (chat.unreadCount?.[user.uid] || 0);
+src/components/MechanicHome.tsx:312:  }, [user]);
+src/components/MechanicHome.tsx:316:    if (!user) return;
+src/components/MechanicHome.tsx:319:      where('mechanicId', '==', user.uid),
+src/components/MechanicHome.tsx:334:  }, [user]);
+src/components/MechanicHome.tsx:337:    if (!user) return;
+src/components/MechanicHome.tsx:343:      const userRef = doc(db, 'users', user.uid);
+src/components/MechanicHome.tsx:344:      const mechanicRef = doc(db, 'mechanics', user.uid);
+src/components/MechanicHome.tsx:366:    if (!user) return;
+src/components/MechanicHome.tsx:370:        mechanicId: user.uid,
+src/components/MechanicHome.tsx:376:        participants: arrayUnion(user.uid),
+src/components/MechanicHome.tsx:382:        senderId: user.uid,
+src/components/MechanicHome.tsx:393:    if (!user) return;
+src/components/MechanicHome.tsx:398:        const userRef = doc(db, 'users', user.uid);
+src/components/MechanicHome.tsx:399:        const mechanicRef = doc(db, 'mechanics', user.uid);
+src/components/MechanicHome.tsx:444:            mechanicId: user.uid,
+src/components/MechanicHome.tsx:560:                  currentUserId={user?.uid || ''}
+src/components/MechanicHome.tsx:740:                        <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt="Avatar" />
+src/components/MechanicHome.tsx:743:                        <h2 className="text-dark dark:text-white font-black text-lg transition-colors">{t('common.hi')}, {user?.displayName || t('auth.mechanic')}!</h2>
+src/components/SocialView.tsx:56:  const { user, setQuotaError } = useAuthStore();
+src/components/SocialView.tsx:92:        .filter(u => u.id !== user?.uid)
+src/components/SocialView.tsx:103:  }, [user]);
+src/components/SocialView.tsx:215:    if (!user || !newTitle || !newDate) return;
+src/components/SocialView.tsx:232:      // Final fallback to user position ONLY if no address specified at all
+src/components/SocialView.tsx:257:        organizerId: user.uid,
+src/components/SocialView.tsx:258:        organizerName: user.displayName || t('auth.cyclist'),
+src/components/SocialView.tsx:263:        participants: [user.uid],
+src/components/SocialView.tsx:274:        participants: [user.uid],
+src/components/SocialView.tsx:295:    if (!user) return;
+src/components/SocialView.tsx:296:    const isJoined = event.participants?.includes(user.uid);
+src/components/SocialView.tsx:301:          participants: arrayRemove(user.uid),
+src/components/SocialView.tsx:306:          participants: arrayRemove(user.uid)
+src/components/SocialView.tsx:315:          participants: arrayUnion(user.uid),
+src/components/SocialView.tsx:320:          participants: arrayUnion(user.uid)
+src/components/SocialView.tsx:360:            const isJoined = event.participants?.includes(user?.uid);
+src/components/SocialView.tsx:656:      {/* Nearby Clubs section removed per user request */}
+src/components/ProfileView.tsx:47:  const { user, role, profile } = useAuthStore();
+src/components/ProfileView.tsx:84:    if (showHistory && user) {
+src/components/ProfileView.tsx:90:            where(role === 'MECHANIC' ? 'mechanicId' : 'cyclistId', '==', user.uid),
+src/components/ProfileView.tsx:109:  }, [showHistory, user, role]);
+src/components/ProfileView.tsx:112:    if (showReviews && user && role === 'MECHANIC') {
+src/components/ProfileView.tsx:118:            where('mechanicId', '==', user.uid),
+src/components/ProfileView.tsx:132:  }, [showReviews, user, role]);
+src/components/ProfileView.tsx:137:    if (!user || !selectedAmount) {
+src/components/ProfileView.tsx:138:      console.warn('Missing user or selectedAmount for top up');
+src/components/ProfileView.tsx:147:      await updateDoc(doc(db, 'users', user.uid), {
+src/components/ProfileView.tsx:154:      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+src/components/ProfileView.tsx:185:          metadata: { userId: user?.uid }
+src/components/ProfileView.tsx:225:    if (!user) return;
+src/components/ProfileView.tsx:228:      await updateDoc(doc(db, 'users', user.uid), {
+src/components/ProfileView.tsx:265:              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt={t('common.avatar')} className="w-full h-full object-cover" />
+src/components/ProfileView.tsx:271:        <h2 className="text-2xl font-black text-dark dark:text-white">{profile?.name || user?.displayName || t('profile.user')}</h2>
+src/components/AIBikeDoctor.tsx:11:  sender: 'ai' | 'user';
+src/components/AIBikeDoctor.tsx:48:      sender: 'user',
+src/components/AIBikeDoctor.tsx:134:                  className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+src/components/AIBikeDoctor.tsx:136:                  <div className={`flex gap-3 max-w-[85%] ${m.sender === 'user' ? 'flex-row-reverse' : ''}`}>
+src/components/AIBikeDoctor.tsx:138:                      m.sender === 'user' ? 'bg-zinc-800' : 'bg-accent/10 text-accent'
+src/components/AIBikeDoctor.tsx:140:                      {m.sender === 'user' ? <User size={16} /> : <Bot size={16} />}
+src/components/AIBikeDoctor.tsx:143:                      m.sender === 'user' 
+src/components/Chat.tsx:30:  const { user } = useAuthStore();
+src/components/Chat.tsx:37:    if (!chatId || !user) return;
+src/components/Chat.tsx:39:    // Reset unread count for current user when opening chat
+src/components/Chat.tsx:41:      if (!user) return;
+src/components/Chat.tsx:44:          [`unreadCount.${user.uid}`]: 0
+src/components/Chat.tsx:66:  }, [chatId, user]);
+src/components/Chat.tsx:74:    if (!newMessage.trim() || !user) return;
+src/components/Chat.tsx:78:        senderId: user.uid,
+src/components/Chat.tsx:79:        senderName: user.displayName || 'Ciclista',
+src/components/Chat.tsx:99:          if (pId !== user.uid) {
+src/components/Chat.tsx:118:          const isMe = msg.senderId === user?.uid;
+src/components/Onboarding.tsx:27:  const { user } = useAuthStore();
+src/components/Onboarding.tsx:56:      if (user) {
+src/components/Onboarding.tsx:58:          await updateDoc(doc(db, 'users', user.uid), {
+src/components/Map.tsx:125:  const { user: currentUser, setQuotaError } = useAuthStore();
+src/components/Map.tsx:153:          // If we have a center prop (focusing on an event), don't auto-center on user position
+src/store/useAuthStore.ts:6:  user: FirebaseUser | null;
+src/store/useAuthStore.ts:12:  setUser: (user: FirebaseUser | null) => void;
+src/store/useAuthStore.ts:21:  user: null,
+src/store/useAuthStore.ts:27:  setUser: (user) => set({ user }),
+src/lib/notifications.ts:19:        // Only update if the token is not already registered in this session/local for this user
+src/App.tsx:20:  const { user, role, profile, loading, quotaError, showAIDoctor, setUser, setRole, setProfile, setLoading, setQuotaError, setShowAIDoctor } = useAuthStore();
+src/App.tsx:86:    if (!user || !profile) return;
+src/App.tsx:100:        await updateDoc(doc(db, 'users', user.uid), {
+src/App.tsx:150:  }, [user, !!profile, setQuotaError]);
+src/App.tsx:160:  if (!user || !role) {
+src/App.tsx:194:        {showWelcome && user && (
+src/App.tsx:196:            userId={user.uid} 
+src/index.css:93:.user-marker {
+src/i18n.ts:200:        user: 'Utente',
+src/i18n.ts:398:        user: 'User',

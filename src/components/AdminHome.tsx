@@ -1,0 +1,1286 @@
+import React, { useState, useEffect } from 'react';
+import { db, auth } from '../lib/firebase';
+import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
+import { 
+  ShieldAlert, 
+  CheckCircle, 
+  XCircle, 
+  Clock, 
+  Users, 
+  Wrench, 
+  LogOut, 
+  MessageSquare, 
+  Map as MapIcon, 
+  TrendingUp, 
+  DollarSign, 
+  BarChart3,
+  Search,
+  Bike,
+  Sparkles,
+  Bot,
+  Settings,
+  ChevronRight,
+  Save,
+  Loader2,
+  X,
+  User as UserIcon
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { formatDistanceToNow } from 'date-fns';
+import { it } from 'date-fns/locale';
+import { signOut } from 'firebase/auth';
+import { Map } from './Map';
+import { RoadReportDetailModal } from './RoadReportDetailModal';
+import { Chat } from './Chat';
+import { ProfileView } from './ProfileView';
+import ReactMarkdown from 'react-markdown';
+
+type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE';
+
+export function AdminHome() {
+  const [disputedJobs, setDisputedJobs] = useState<any[]>([]);
+  const [roadReports, setRoadReports] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [platformStats, setPlatformStats] = useState<any>(null);
+  const [activeSupportChats, setActiveSupportChats] = useState<any[]>([]);
+  const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [aiConversations, setAiConversations] = useState<any[]>([]);
+  const [aiGuidelines, setAiGuidelines] = useState('');
+  const [isSavingAI, setIsSavingAI] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [expandedSupportId, setExpandedSupportId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<AdminTab>('STATS');
+  const [supportMode, setSupportMode] = useState<'SOS' | 'DIRECT'>('SOS');
+  const [selectedChat, setSelectedChat] = useState<any | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
+  const [selectedAIConv, setSelectedAIConv] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    // 1. Listen for platform stats
+    const unsubStats = onSnapshot(doc(db, 'platformStats', 'global'), (snap) => {
+      if (snap.exists()) setPlatformStats(snap.data());
+    });
+
+    // 2. Listen for AI guidelines
+    const unsubAiConfig = onSnapshot(doc(db, 'aiConfig', 'guidelines'), (snap) => {
+      if (snap.exists()) setAiGuidelines(snap.data().guidelines);
+    });
+
+    // 3. Listen for users
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+      setAllUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    });
+
+    // 4. Listen for support tickets
+    const unsubTickets = onSnapshot(query(collection(db, 'supportTickets'), orderBy('updatedAt', 'desc'), limit(50)), (snap) => {
+      setSupportTickets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 5. Listen for AI conversations
+    const unsubAiConvs = onSnapshot(query(collection(db, 'aiConversations'), orderBy('updatedAt', 'desc'), limit(50)), (snap) => {
+      setAiConversations(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 6. Listen for disputed SOS requests
+    const unsubDisputes = onSnapshot(query(collection(db, 'sosRequests'), where('status', '==', 'DISPUTED')), (snap) => {
+      setDisputedJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 7. Listen for active SOS requests for support monitor
+    const unsubSupport = onSnapshot(query(collection(db, 'sosRequests'), where('status', 'in', ['ACCEPTED', 'IN_PROGRESS', 'DISPUTED']), limit(20)), (snap) => {
+      setActiveSupportChats(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 8. Listen for road reports
+    const unsubReports = onSnapshot(query(collection(db, 'roadReports'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
+      setRoadReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubStats();
+      unsubAiConfig();
+      unsubUsers();
+      unsubTickets();
+      unsubAiConvs();
+      unsubDisputes();
+      unsubSupport();
+      unsubReports();
+    };
+  }, []);
+
+  const saveAIGuidelines = async () => {
+    setIsSavingAI(true);
+    try {
+      await setDoc(doc(db, 'aiConfig', 'guidelines'), {
+        guidelines: aiGuidelines,
+        updatedAt: serverTimestamp()
+      });
+      alert('Linee guida AI salvate con successo!');
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante il salvataggio');
+    } finally {
+      setIsSavingAI(false);
+    }
+  };
+
+  const resolveDispute = async (jobId: string, favorOf: 'CYCLIST' | 'MECHANIC') => {
+    if (!window.confirm(`Sei sicuro di voler risolvere in favore del ${favorOf === 'CYCLIST' ? 'ciclista' : 'meccanico'}?`)) return;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const sosRef = doc(db, 'sosRequests', jobId);
+        const sosSnap = await transaction.get(sosRef);
+        
+        if (!sosSnap.exists()) return;
+        const jobData = sosSnap.data();
+        const price = Number(jobData.estimatedPrice) || 0;
+        
+        if (favorOf === 'MECHANIC') {
+          // Payout to mechanic (net amount)
+          if (jobData.mechanicId) {
+            const mechRef = doc(db, 'users', jobData.mechanicId);
+            const mechStatsRef = doc(db, 'mechanics', jobData.mechanicId);
+            const platformStatsRef = doc(db, 'platformStats', 'global');
+            
+            const [mechStatsSnap, platformSnap, mechanicUserSnap] = await Promise.all([
+              transaction.get(mechStatsRef),
+              transaction.get(platformStatsRef),
+              transaction.get(mechRef)
+            ]);
+            
+            const plan = mechanicUserSnap.exists() ? (mechanicUserSnap.data()?.plan || 'BASE') : 'BASE';
+            const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
+            const feePercent = feeMultipliers[plan as string] || 0.15;
+            const fee = price * feePercent;
+            const netAmount = price - fee;
+            
+            if (mechanicUserSnap.exists()) {
+              const userUpdates: any = { balance: increment(netAmount) };
+              if (mechanicUserSnap.data()?.role === 'PEER_MECHANIC') {
+                  userUpdates.peerMechanicEarnings = increment(netAmount);
+                  userUpdates.peerMechanicJobsCompleted = increment(1);
+              }
+              transaction.update(mechRef, userUpdates);
+            }
+            
+            if (mechStatsSnap.exists()) {
+              transaction.update(mechStatsRef, { totalEarnings: increment(netAmount), completedJobs: increment(1) });
+            } else {
+              transaction.set(mechStatsRef, {
+                userId: jobData.mechanicId,
+                totalEarnings: netAmount, 
+                completedJobs: 1,
+                businessName: mechanicUserSnap.exists() ? (mechanicUserSnap.data()?.name || 'Meccanico') : 'Meccanico',
+                isAvailable: true
+              });
+            }
+
+            if (platformSnap.exists()) {
+              transaction.update(platformStatsRef, {
+                totalFees: increment(fee),
+                totalTransactions: increment(price),
+                completedJobs: increment(1),
+                updatedAt: serverTimestamp()
+              });
+            } else {
+              transaction.set(platformStatsRef, {
+                totalFees: fee,
+                totalTransactions: price,
+                completedJobs: 1,
+                updatedAt: serverTimestamp()
+              });
+            }
+            
+            transaction.update(sosRef, {
+              status: 'COMPLETED',
+              paymentStatus: 'RELEASED_ADMIN',
+              resolvedAt: serverTimestamp(),
+              resolvedBy: 'ADMIN',
+              resolvedInFavorOf: 'MECHANIC',
+              platformFee: fee,
+              mechanicNet: netAmount,
+              finalPrice: netAmount,
+              isReviewed: true // Marking it as reviewed so mechanic UI hides it properly
+            });
+          }
+        } else {
+          // Refund to cyclist
+          if (jobData.cyclistId) {
+            const cyclistRef = doc(db, 'users', jobData.cyclistId);
+            const cyclistSnap = await transaction.get(cyclistRef);
+            if (cyclistSnap.exists()) {
+              transaction.update(cyclistRef, { balance: increment(price) });
+            }
+          }
+          
+          transaction.update(sosRef, {
+            status: 'CANCELLED',
+            paymentStatus: 'REFUNDED_ADMIN',
+            resolvedAt: serverTimestamp(),
+            resolvedBy: 'ADMIN',
+            resolvedInFavorOf: 'CYCLIST'
+          });
+        }
+      });
+      alert('Contestazione risolta con successo.');
+      setDisputedJobs(prev => prev.filter(job => job.id !== jobId));
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante la risoluzione. Controlla i permessi o la connessione.');
+    }
+  };
+
+  const filteredUsers = allUsers.filter(u => 
+    u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.id?.includes(searchQuery)
+  );
+
+  const updateUserRole = async (userId: string, newRole: string) => {
+    if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
+    try {
+      await updateDoc(doc(db, 'users', userId), { role: newRole, updatedAt: serverTimestamp() });
+      alert('Ruolo aggiornato con successo');
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante l\'aggiornamento');
+    }
+  };
+
+  const updateUserPlan = async (userId: string, newPlan: string) => {
+    if (!window.confirm(`Assegnare piano ${newPlan}?`)) return;
+    try {
+      await updateDoc(doc(db, 'users', userId), { plan: newPlan, updatedAt: serverTimestamp() });
+      alert('Piano aggiornato con successo');
+    } catch (err) {
+      console.error(err);
+      alert('Errore durante l\'aggiornamento');
+    }
+  };
+
+  const tabs = [
+    { id: 'STATS', label: 'Statistiche', icon: <TrendingUp size={20} /> },
+    { id: 'USERS', label: 'Utenti', icon: <Users size={20} />, badge: allUsers.length },
+    { id: 'MAP', label: 'Mappa Live', icon: <MapIcon size={20} /> },
+    { id: 'SUPPORT', label: 'Assistenza', icon: <MessageSquare size={20} />, badge: activeSupportChats.length + supportTickets.length },
+    { id: 'AI_ASSISTANCE', label: 'AI Assistance', icon: <Sparkles size={20} /> },
+    { id: 'DISPUTES', label: 'Contestazioni', icon: <ShieldAlert size={20} />, badge: disputedJobs.length, badgeColor: 'bg-danger' },
+    { id: 'REPORTS', label: 'Segnalazioni', icon: <MapIcon size={20} />, badge: roadReports.length },
+    { id: 'PROFILE', label: 'Profilo', icon: <UserIcon size={20} /> },
+  ];
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-white text-black border border-grey/10 shadow-sm">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="font-black text-primary uppercase tracking-widest text-xs">Accesso al Sistema Admin...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-grey/5 overflow-hidden font-sans">
+      {/* Desktop Sidebar */}
+      <aside className="hidden lg:flex flex-col w-72 bg-white border-r border-grey/10 p-6 shrink-0 relative z-20">
+        <div className="flex items-center gap-4 mb-10 px-2">
+          <div className="bg-danger/10 p-3 rounded-2xl text-danger shadow-sm">
+            <ShieldAlert size={28} />
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-black uppercase tracking-tight">Admin</h1>
+            <p className="text-[10px] font-bold text-grey uppercase tracking-widest">Control Panel</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-hide">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as AdminTab)}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-[1.02]' : 'text-grey hover:bg-grey/5'}`}
+            >
+              <div className="flex items-center gap-3">
+                {tab.icon}
+                {tab.label}
+              </div>
+              {tab.badge !== undefined && tab.badge > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-[9px] ${tab.badgeColor || 'bg-primary'} text-white border border-white/10`}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="mt-6 pt-6 border-t border-grey/10">
+          <button 
+            onClick={() => signOut(auth)}
+            className="w-full flex items-center justify-center gap-3 bg-grey/5 hover:bg-danger/10 text-grey hover:text-danger p-4 rounded-2xl border border-grey/10 transition-all font-black text-[10px] uppercase tracking-widest"
+          >
+            <LogOut size={18} /> Logout Session
+          </button>
+        </div>
+      </aside>
+
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          >
+            <motion.aside
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-4/5 h-full bg-white p-6 shadow-2xl flex flex-col"
+            >
+              <div className="flex justify-between items-center mb-10">
+                <div className="flex items-center gap-3">
+                  <div className="bg-danger/10 p-2 rounded-xl text-danger">
+                    <ShieldAlert size={24} />
+                  </div>
+                  <h1 className="text-lg font-black text-black uppercase">Admin</h1>
+                </div>
+                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-grey">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 space-y-1 overflow-y-auto">
+                {tabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => { setActiveTab(tab.id as AdminTab); setIsMobileMenuOpen(false); }}
+                    className={`w-full flex items-center justify-between px-4 py-4 rounded-xl font-black text-xs uppercase tracking-widest ${activeTab === tab.id ? 'bg-primary text-white' : 'text-grey'}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {tab.icon}
+                      {tab.label}
+                    </div>
+                    {tab.badge !== undefined && tab.badge > 0 && (
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] ${tab.badgeColor || 'bg-primary'} text-white`}>{tab.badge}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              <button 
+                onClick={() => signOut(auth)}
+                className="mt-8 w-full p-4 rounded-xl bg-danger/10 text-danger font-black text-xs uppercase"
+              >
+                Logout
+              </button>
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Responsive Header */}
+        <header className="h-20 bg-white border-b border-grey/10 px-4 md:px-8 flex justify-between items-center shrink-0 z-10">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden p-2 text-primary hover:bg-primary/5 rounded-xl transition-colors"
+            >
+              <Settings size={28} />
+            </button>
+            <div className="hidden lg:block lg:flex-1">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                <h2 className="text-sm font-black text-black uppercase tracking-widest">{tabs.find(t => t.id === activeTab)?.label}</h2>
+              </div>
+            </div>
+            {/* Mobile Title */}
+            <div className="lg:hidden">
+              <h2 className="text-sm font-black text-black uppercase tracking-tight">{tabs.find(t => t.id === activeTab)?.label}</h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+             <div className="hidden md:flex flex-col items-end mr-4">
+               <p className="text-[10px] font-black text-primary uppercase leading-none mb-1">Status Sistema</p>
+               <span className="flex items-center gap-1.5 text-[8px] font-bold text-accent uppercase">
+                  <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+                  Live {roadReports.length + activeSupportChats.length} Events
+               </span>
+             </div>
+             <div className="w-10 h-10 rounded-2xl bg-primary/5 border border-primary/10 flex items-center justify-center text-primary group cursor-pointer hover:bg-primary hover:text-white transition-all">
+                <UserIcon size={18} />
+             </div>
+          </div>
+        </header>
+
+        {/* Dynamic Content */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12 bg-white/40">
+          <AnimatePresence mode="wait">
+          {activeTab === 'STATS' && (
+            <motion.div
+              key="stats"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-8 max-w-full mx-auto"
+            >
+              {/* Stats Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white text-black p-8 rounded-[2.5rem] shadow-sm border border-grey/5">
+                  <div className="w-12 h-12 bg-accent/10 text-accent rounded-2xl flex items-center justify-center mb-6 shadow-inner">
+                    <DollarSign size={24} />
+                  </div>
+                  <h3 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-2">Entrate Totali (5% Fee)</h3>
+                  <div className="text-4xl font-black text-primary italic">⚡{(platformStats?.totalFees || 0).toFixed(0)}</div>
+                  <p className="text-[10px] text-grey font-bold mt-4 uppercase">Su ⚡{(platformStats?.totalTransactions || 0).toFixed(0)} transati</p>
+                </motion.div>
+                
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white text-black p-8 rounded-[2.5rem] shadow-sm border border-grey/5">
+                  <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-6 shadow-inner">
+                    <BarChart3 size={24} />
+                  </div>
+                  <h3 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-2">Interventi Completati</h3>
+                  <div className="text-4xl font-black text-primary italic">{platformStats?.completedJobs || 0}</div>
+                  <p className="text-[10px] text-grey font-bold mt-4 uppercase">Totale SOS gestiti dal sistema</p>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-primary p-8 rounded-[2.5rem] shadow-xl shadow-primary/20 text-white col-span-1 sm:col-span-2 xl:col-span-2">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="w-12 h-12 bg-white/20 text-white rounded-2xl flex items-center justify-center mb-6 shadow-inner">
+                        <Users size={24} />
+                      </div>
+                      <h3 className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-2">Utenti Totali</h3>
+                      <div className="text-4xl font-black italic">{allUsers.length}</div>
+                    </div>
+                    <div className="text-right space-y-4 pt-2">
+                       <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/10 text-center">
+                          <p className="text-[8px] font-black text-white/50 uppercase mb-0.5">Ciclisti</p>
+                          <p className="font-black">{allUsers.filter(u => u.role === 'CYCLIST').length}</p>
+                       </div>
+                       <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/10 text-center">
+                          <p className="text-[8px] font-black text-white/50 uppercase mb-0.5">Meccanici</p>
+                          <p className="font-black">{allUsers.filter(u => u.role === 'MECHANIC').length}</p>
+                       </div>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+
+              {/* Recruitment / Growth & Activity */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 bg-white text-black rounded-[3rem] p-8 border border-grey/5 shadow-sm">
+                  <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
+                    <Clock size={16} /> Ultimi Utenti Registrati
+                  </h3>
+                  <div className="space-y-3">
+                    {allUsers.slice(0, 6).map(u => (
+                      <div key={u.id} className="flex justify-between items-center p-5 bg-white text-black border border-grey/10 shadow-sm rounded-3xl hover:border-primary/20 hover:bg-primary/5 transition-all cursor-default">
+                        <div className="flex items-center gap-4">
+                          <img 
+                            src={u.photoURL || u.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.id}`} 
+                            className="w-12 h-12 rounded-2xl border-2 border-primary/20 object-cover"
+                            alt="avatar"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div>
+                            <p className="font-black text-black uppercase text-sm">{u.name || 'Senza Nome'}</p>
+                            <p className="text-[10px] text-grey font-bold tracking-tight">{u.email}</p>
+                          </div>
+                        </div>
+                        <div className="text-right flex flex-col items-end">
+                          <span className={`text-[8px] font-black px-3 py-1.5 rounded-full border uppercase ${u.role === 'MECHANIC' ? 'bg-warning/10 text-warning border-warning/20' : 'bg-primary/10 text-primary border-primary/20'}`}>
+                            {u.role}
+                          </span>
+                          <p className="text-[8px] text-grey mt-2 italic font-bold">
+                            {u.createdAt ? formatDistanceToNow(u.createdAt.toDate(), { locale: it, addSuffix: true }) : 'Tempo fa'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white/40 backdrop-blur-md rounded-[3rem] p-8 border border-grey/5 shadow-sm flex flex-col justify-between">
+                   <div>
+                     <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-6">Quick Stats</h3>
+                     <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                           <span className="text-xs font-bold text-grey uppercase tracking-widest">Active SOS</span>
+                           <span className="text-lg font-black text-primary">{activeSupportChats.length}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                           <span className="text-xs font-bold text-grey uppercase tracking-widest">Open Tickets</span>
+                           <span className="text-lg font-black text-accent">{supportTickets.length}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                           <span className="text-xs font-bold text-grey uppercase tracking-widest">Reports</span>
+                           <span className="text-lg font-black text-danger">{roadReports.length}</span>
+                        </div>
+                     </div>
+                   </div>
+                   
+                   <div className="mt-12 bg-white p-6 rounded-[2rem] border border-grey/5 shadow-inner">
+                      <p className="text-[9px] font-black text-grey uppercase tracking-widest mb-4">Top Region</p>
+                      <div className="flex items-center gap-4">
+                         <div className="w-12 h-12 bg-accent/10 rounded-2xl flex items-center justify-center text-accent">
+                            <MapIcon size={24} />
+                         </div>
+                         <div>
+                            <p className="text-sm font-black uppercase">Italia Settentrionale</p>
+                            <p className="text-[10px] font-bold text-grey uppercase">64% Attività</p>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'USERS' && (
+            <motion.div
+              key="users"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-6 max-w-full mx-auto"
+            >
+              <div className="flex justify-between items-center mb-8">
+                <div className="relative flex-1 max-w-2xl">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-grey" size={20} />
+                  <input 
+                    type="text"
+                    placeholder="Cerca per nome, email o ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white text-black border border-grey/10 rounded-2xl py-4 pl-12 pr-6 text-sm outline-none focus:ring-2 focus:ring-primary transition-all shadow-sm"
+                  />
+                </div>
+                <div className="flex gap-4">
+                  <div className="bg-white text-black px-6 py-4 rounded-2xl border border-grey/5 whitespace-nowrap">
+                    <span className="text-[10px] font-black text-grey uppercase block mb-1">Totale</span>
+                    <span className="text-xl font-black text-primary">{filteredUsers.length}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                {filteredUsers.map(u => (
+                  <div key={u.id} className="bg-white text-black p-6 rounded-[2.5rem] border border-grey/5 shadow-sm hover:shadow-md transition-shadow group">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <img 
+                            src={u.photoURL || u.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.id}`} 
+                            className="w-14 h-14 rounded-2xl border-2 border-primary/20 object-cover"
+                            alt="avatar"
+                          />
+                          <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white  ${u.isOnline ? 'bg-accent animate-pulse' : 'bg-grey'}`} />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-black  uppercase text-lg leading-tight">{u.name || 'Senza Nome'}</h4>
+                          <p className="text-xs text-grey font-bold flex items-center gap-1">
+                            <Clock size={12} /> Prossimo a: {u.id.slice(0, 8)}...
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`text-[9px] font-black px-4 py-2 rounded-2xl border uppercase ${u.role === 'MECHANIC' ? 'bg-warning/10 text-warning border-warning/20' : 'bg-primary/10 text-primary border-primary/20'}`}>
+                        {u.role}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                      <div className="bg-white text-black border border-grey/10 shadow-sm p-3 rounded-2xl text-center">
+                        <p className="text-[8px] font-black text-grey uppercase mb-1">Saldo DBC</p>
+                        <p className="text-sm font-black text-accent truncate">⚡{(u.balance || 0).toFixed(0)}</p>
+                      </div>
+                      <div className="bg-white text-black border border-grey/10 shadow-sm p-3 rounded-2xl text-center">
+                        <p className="text-[8px] font-black text-grey uppercase mb-1">Piano</p>
+                        <p className="text-[10px] font-black text-primary uppercase truncate">{u.plan || 'BASE'}</p>
+                      </div>
+                      <div className="bg-white text-black border border-grey/10 shadow-sm p-3 rounded-2xl text-center">
+                         <p className="text-[8px] font-black text-grey uppercase mb-1">Status</p>
+                         <p className={`text-[10px] font-black ${u.isOnline ? 'text-accent' : 'text-grey'} uppercase`}>
+                           {u.isOnline ? 'Online' : 'Offline'}
+                         </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-grey/5 flex flex-wrap gap-2">
+                      <div className="w-full mb-1 flex justify-between items-center">
+                         <span className="text-[8px] font-black text-grey uppercase tracking-widest">Azioni Rapide</span>
+                      </div>
+                      
+                      {/* Role Management */}
+                      <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
+                        {(['CYCLIST', 'MECHANIC', 'ADMIN'] as const).map(r => (
+                          <button
+                            key={r}
+                            onClick={() => updateUserRole(u.id, r)}
+                            className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.role === r ? 'bg-primary text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Plan Management (for Mechanics) */}
+                      {u.role === 'MECHANIC' && (
+                        <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
+                          {(['BASE', 'CLUB', 'PRO'] as const).map(p => (
+                            <button
+                              key={p}
+                              onClick={() => updateUserPlan(u.id, p)}
+                              className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.plan === p ? 'bg-accent text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'MAP' && (
+            <motion.div
+              key="map"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 lg:rounded-[3rem] overflow-hidden border-0 lg:border-8 border-white shadow-2xl"
+            >
+              <div className="absolute top-4 left-4 md:top-6 md:left-6 z-10 bg-white/90 backdrop-blur-md p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] shadow-xl border border-white/20 max-w-[calc(100%-2rem)]">
+                <h3 className="text-[10px] md:text-xs font-black text-primary uppercase tracking-[0.2em] mb-2 md:mb-4">Traffic Insights</h3>
+                <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-3">
+                   <div className="flex items-center gap-2 md:gap-3">
+                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-warning shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
+                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">Meccanici</span>
+                   </div>
+                   <div className="flex items-center gap-2 md:gap-3">
+                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-primary shadow-[0_0_10px_rgba(0,132,125,0.5)]" />
+                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">Ciclisti</span>
+                   </div>
+                   <div className="flex items-center gap-2 md:gap-3">
+                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-[#8B5CF6] shadow-[0_0_10px_rgba(139,92,246,0.5)]" />
+                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">Peer Mechanics</span>
+                   </div>
+                   <div className="flex items-center gap-2 md:gap-3 border-t border-grey/10 pt-2 md:pt-3">
+                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-accent shadow-[0_0_10px_rgba(234,88,12,0.5)] animate-pulse" />
+                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">SOS In Corso</span>
+                   </div>
+                </div>
+              </div>
+              <Map 
+                isAdmin={true} 
+                adminUsers={allUsers}
+                onViewReportDetails={(report) => setSelectedReport(report)}
+                onStartChat={async (userId, userName) => {
+                  try {
+                    const q = query(
+                      collection(db, 'supportTickets'),
+                      where('userId', '==', userId),
+                      where('status', '==', 'OPEN'),
+                      limit(1)
+                    );
+                    const snap = await getDocs(q);
+                    let ticket;
+                    if (!snap.empty) {
+                      ticket = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                    } else {
+                      const ticketRef = doc(collection(db, 'supportTickets'));
+                      ticket = {
+                        id: ticketRef.id,
+                        userId,
+                        userName,
+                        userRole: allUsers.find(u => u.id === userId)?.role || 'USER',
+                        status: 'OPEN',
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                        lastMessage: "Chat avviata dall'admin"
+                      };
+                      await setDoc(ticketRef, ticket);
+                    }
+                    setSelectedTicket(ticket);
+                    setSupportMode('DIRECT');
+                    setActiveTab('SUPPORT');
+                  } catch (e) {
+                    console.error(e);
+                    alert("Errore all'avvio della chat");
+                  }
+                }}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'SUPPORT' && (
+            <motion.div
+              key="support"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="flex h-full flex-col gap-6 max-w-full mx-auto overflow-hidden pb-4"
+            >
+              {/* Support Mode Selector */}
+              <div className="flex gap-4 px-4 bg-white text-black p-4 rounded-[2rem] border border-grey/5 shadow-sm shrink-0">
+                <button 
+                  onClick={() => { setSupportMode('SOS'); setSelectedChat(null); setSelectedTicket(null); }}
+                  className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${supportMode === 'SOS' ? 'bg-primary text-white shadow-lg' : 'bg-grey/5 text-grey hover:bg-grey/10'}`}
+                >
+                  Sos Support ({activeSupportChats.length})
+                </button>
+                <button 
+                  onClick={() => { setSupportMode('DIRECT'); setSelectedChat(null); setSelectedTicket(null); }}
+                  className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${supportMode === 'DIRECT' ? 'bg-accent text-white shadow-lg' : 'bg-grey/5 text-grey hover:bg-grey/10'}`}
+                >
+                  Direct Chat ({supportTickets.length})
+                </button>
+              </div>
+
+              <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
+                {/* Chat List */}
+                <div className={`w-full lg:w-80 flex flex-col gap-4 ${selectedChat || selectedTicket ? 'hidden lg:flex' : 'flex'}`}>
+                  <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-2 px-4 flex items-center gap-3">
+                    <MessageSquare size={16} /> {supportMode === 'SOS' ? 'Live SOS Feeds' : 'Ticket Assistenza'}
+                  </h3>
+                  <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin">
+                    {supportMode === 'SOS' ? (
+                      activeSupportChats.length === 0 ? (
+                        <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5 shadow-sm">
+                          Nessun intervento attivo da monitorare
+                        </div>
+                      ) : (
+                        activeSupportChats.map(chat => (
+                          <div
+                            key={chat.id}
+                            className={`w-full overflow-hidden text-left rounded-3xl border-2 transition-all shadow-sm ${expandedSupportId === chat.id ? 'bg-primary border-primary text-white scale-[1.02]' : 'bg-white text-black border-grey/10 hover:border-primary/30'}`}
+                          >
+                            <button 
+                               onClick={() => setExpandedSupportId(expandedSupportId === chat.id ? null : chat.id)}
+                               className="w-full text-left p-4 cursor-pointer focus:outline-none flex flex-col items-start gap-2"
+                            >
+                                <div className="flex justify-between items-start w-full">
+                                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${chat.status === 'DISPUTED' ? 'bg-danger text-white border-white/20' : (expandedSupportId === chat.id ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary border-primary/20')}`}>
+                                    {chat.status}
+                                  </span>
+                                  <span className={`text-[10px] font-black ${expandedSupportId === chat.id ? 'text-white' : 'text-accent'}`}>⚡{chat.estimatedPrice}</span>
+                                </div>
+                                <div className="w-full">
+                                  <h4 className="font-black uppercase text-xs line-clamp-1">{chat.faultType}</h4>
+                                  <p className={`text-[9px] font-bold leading-tight mt-1 opacity-70 ${expandedSupportId === chat.id ? '' : 'italic'}`}>
+                                    {chat.cyclistName || 'User'} e Meccanico...
+                                  </p>
+                                </div>
+                            </button>
+                            <AnimatePresence>
+                               {expandedSupportId === chat.id && (
+                                  <motion.div 
+                                     initial={{ height: 0, opacity: 0 }}
+                                     animate={{ height: 'auto', opacity: 1 }}
+                                     exit={{ height: 0, opacity: 0 }}
+                                     className="px-4 pb-4 border-t border-white/10"
+                                  >
+                                     <div className="pt-3 space-y-3">
+                                         {chat.description && (
+                                            <div>
+                                               <span className="text-[9px] uppercase tracking-widest font-black opacity-60 block">Descrizione</span>
+                                               <p className="text-xs font-bold leading-relaxed">{chat.description}</p>
+                                            </div>
+                                         )}
+                                         <div className="flex justify-between items-center text-[10px] font-bold uppercase opacity-80 pt-2 border-t border-white/10">
+                                            <span>CicLista: {chat.cyclistName || 'N/A'}</span>
+                                            <span>Mecc: {chat.mechanicName || 'N/A'}</span>
+                                         </div>
+                                         <button
+                                           onClick={(e) => {
+                                             e.stopPropagation();
+                                             setSelectedChat(chat);
+                                           }}
+                                           className="w-full mt-3 bg-white text-primary py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-grey/10 transition-colors shadow-sm"
+                                         >
+                                           Apri Chat
+                                         </button>
+                                     </div>
+                                  </motion.div>
+                               )}
+                            </AnimatePresence>
+                          </div>
+                        ))
+                      )
+                    ) : (
+                      supportTickets.length === 0 ? (
+                        <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5 shadow-sm">
+                          Nessun ticket di assistenza aperto
+                        </div>
+                      ) : (
+                        supportTickets.map(ticket => (
+                          <button
+                            key={ticket.id}
+                            onClick={() => setSelectedTicket(ticket)}
+                            className={`w-full text-left p-4 rounded-3xl border-2 transition-all shadow-sm ${selectedTicket?.id === ticket.id ? 'bg-accent border-accent text-white scale-[1.02]' : 'bg-white text-black border-grey/10 hover:border-accent/30'}`}
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${ticket.status === 'OPEN' ? 'bg-accent text-white border-white/20' : 'bg-grey/10 text-grey border-grey/20'}`}>
+                                {ticket.status}
+                              </span>
+                              <span className="text-[10px] font-black opacity-60">{ticket.userRole}</span>
+                            </div>
+                            <h4 className="font-black uppercase text-xs line-clamp-1">{ticket.userName}</h4>
+                            <p className={`text-[9px] font-bold leading-tight mt-1 opacity-70 ${selectedTicket?.id === ticket.id ? '' : 'italic'}`}>
+                              {ticket.lastMessage || 'Inizia conversazione'}
+                            </p>
+                          </button>
+                        ))
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Chat View */}
+                <div className={`flex-1 bg-white text-black rounded-[3rem] border border-grey/5 shadow-xl relative overflow-hidden flex flex-col ${!selectedChat && !selectedTicket ? 'hidden lg:flex' : 'flex'}`}>
+                  {(selectedChat || selectedTicket) && (
+                    <button 
+                      onClick={() => { setSelectedChat(null); setSelectedTicket(null); }}
+                      className="lg:hidden absolute top-6 right-6 z-20 bg-white/20 p-2 rounded-full text-white backdrop-blur-md"
+                    >
+                      <X size={20} />
+                    </button>
+                  )}
+                  {supportMode === 'SOS' && selectedChat && (
+                    <>
+                      <div className="bg-primary p-6 flex justify-between items-center text-white shrink-0">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                            <ShieldAlert size={24} />
+                          </div>
+                          <div>
+                            <h3 className="font-black uppercase tracking-tight">Monitoraggio SOS #{selectedChat.id.slice(-6)}</h3>
+                            <p className="text-[10px] font-bold text-white/60 uppercase">Intervento di tipo: {selectedChat.faultType}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-black italic">⚡{selectedChat.estimatedPrice}</p>
+                        </div>
+                      </div>
+                      <div className="flex-1 flex flex-col overflow-hidden">
+                        <Chat chatId={selectedChat.id} otherPartyName="SISTEMA" />
+                      </div>
+                      {selectedChat.status === 'DISPUTED' && (
+                        <div className="p-4 bg-danger/5 border-t border-danger/20 flex gap-3 shrink-0">
+                          <button 
+                            onClick={() => resolveDispute(selectedChat.id, 'CYCLIST')}
+                            className="flex-1 bg-white border-2 border-danger text-danger py-3 rounded-2xl font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all"
+                          >
+                            Rimborsa Ciclista
+                          </button>
+                          <button 
+                            onClick={() => resolveDispute(selectedChat.id, 'MECHANIC')}
+                            className="flex-1 bg-danger text-white py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-danger/20 active:scale-95 transition-all"
+                          >
+                            Paga Meccanico
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {supportMode === 'DIRECT' && selectedTicket && (
+                    <>
+                      <div className="bg-accent p-6 flex justify-between items-center text-white shrink-0">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                            <Users size={24} />
+                          </div>
+                          <div>
+                            <h3 className="font-black uppercase tracking-tight">Supporto Diretto: {selectedTicket.userName}</h3>
+                            <p className="text-[10px] font-bold text-white/60 uppercase">Ruolo: {selectedTicket.userRole}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            if(!window.confirm('Chiudere questo ticket?')) return;
+                            await updateDoc(doc(db, 'supportTickets', selectedTicket.id), { status: 'CLOSED', updatedAt: serverTimestamp() });
+                            setSelectedTicket(null);
+                          }}
+                          className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all"
+                        >
+                          Chiudi Ticket
+                        </button>
+                      </div>
+                      <div className="flex-1 flex flex-col overflow-hidden">
+                        <Chat chatId={selectedTicket.id} otherPartyName={selectedTicket.userName} isAdminSupport />
+                      </div>
+                    </>
+                  )}
+
+                  {((supportMode === 'SOS' && !selectedChat) || (supportMode === 'DIRECT' && !selectedTicket)) && (
+                    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-grey transition-colors">
+                      <div className="w-32 h-32 bg-white text-black border border-grey/10 shadow-sm rounded-[3.5rem] flex items-center justify-center mb-8 rotate-6">
+                        <MessageSquare size={48} className="opacity-20" />
+                      </div>
+                      <h3 className="text-2xl font-black text-primary uppercase italic mb-2">Support Center</h3>
+                      <p className="max-w-xs text-sm font-bold opacity-60">Seleziona {supportMode === 'SOS' ? 'un intervento attivo' : 'una richiesta di assistenza'} per gestire la comunicazione.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'AI_ASSISTANCE' && (
+            <motion.div
+              key="ai_assistance"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.05 }}
+              className="space-y-8 max-w-full mx-auto flex flex-col h-full overflow-hidden"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 h-full overflow-y-auto lg:overflow-hidden pb-10">
+                {/* Guidelines Section */}
+                <div className="lg:col-span-1 space-y-6 flex flex-col h-full">
+                  <div className="bg-white text-black p-6 md:p-8 rounded-[3rem] shadow-sm border border-grey/5 flex-1 flex flex-col">
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-12 h-12 bg-accent/10 text-accent rounded-2xl flex items-center justify-center shrink-0">
+                        <Settings size={24} />
+                      </div>
+                      <div>
+                         <h3 className="font-black text-black  uppercase text-lg">AI Rules</h3>
+                         <p className="text-[10px] font-bold text-grey uppercase tracking-widest">System Tuning</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-grey font-medium leading-relaxed mb-4">
+                      Configura il comportamento globale del Doctorbike AI.
+                    </p>
+                    <textarea 
+                      value={aiGuidelines}
+                      onChange={(e) => setAiGuidelines(e.target.value)}
+                      placeholder="Linee guida..."
+                      className="flex-1 w-full min-h-[200px] bg-white text-black border border-grey/10 shadow-sm rounded-3xl p-6 text-sm outline-none focus:ring-2 focus:ring-primary transition-all resize-none font-medium"
+                    />
+                    <button 
+                      onClick={saveAIGuidelines}
+                      disabled={isSavingAI}
+                      className="w-full mt-4 bg-primary text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {isSavingAI ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                      Update
+                    </button>
+                  </div>
+                </div>
+
+                {/* Chat Log History */}
+                <div className="lg:col-span-2 xl:col-span-3 flex flex-col lg:flex-row gap-6 h-full overflow-hidden">
+                  <div className={`w-full lg:w-80 flex flex-col gap-4 ${selectedAIConv ? 'hidden lg:flex' : 'flex'}`}>
+                     <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-2 px-4 flex items-center gap-3 shrink-0">
+                        <Bot size={16} /> History Logs
+                     </h3>
+                     <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+                        {aiConversations.length === 0 ? (
+                          <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5">
+                            Nessuna conversazione AI salvata
+                          </div>
+                        ) : (
+                          aiConversations.map(conv => (
+                            <button
+                              key={conv.id}
+                              onClick={() => setSelectedAIConv(conv)}
+                              className={`w-full text-left p-4 rounded-3xl border-2 transition-all shadow-sm ${selectedAIConv?.id === conv.id ? 'bg-primary border-primary text-white scale-[1.02]' : 'bg-white text-black border-grey/5 text-black  hover:border-primary/30'}`}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${selectedAIConv?.id === conv.id ? 'bg-white/20 text-white' : 'bg-primary/5 text-primary border-primary/20'}`}>
+                                  {conv.role}
+                                </span>
+                                <span className="text-[8px] opacity-60 font-bold uppercase">
+                                  {conv.updatedAt ? formatDistanceToNow(conv.updatedAt.toDate(), { locale: it }) : ''}
+                                </span>
+                              </div>
+                              <h4 className="font-black uppercase text-xs truncate">{conv.userName || 'Anonimo'}</h4>
+                              <p className={`text-[8px] font-bold mt-1 opacity-70 line-clamp-1 italic`}>
+                                UltimoMsg: {conv.messages[conv.messages.length - 1]?.text}
+                              </p>
+                            </button>
+                          ))
+                        )}
+                     </div>
+                  </div>
+
+                  {/* Conversation Detail */}
+                  <div className="flex-1 bg-white text-black rounded-[3rem] border border-grey/5 shadow-xl flex flex-col overflow-hidden">
+                    {selectedAIConv ? (
+                      <>
+                        <div className="bg-zinc-900 p-6 flex justify-between items-center text-white shrink-0">
+                           <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center text-accent">
+                               <Sparkles size={24} />
+                             </div>
+                             <div>
+                               <h3 className="font-black uppercase italic">{selectedAIConv.userName}</h3>
+                               <p className="text-[10px] font-bold text-white/40 uppercase">{selectedAIConv.role} • ID: {selectedAIConv.id.slice(-6)}</p>
+                             </div>
+                           </div>
+                           <button 
+                             onClick={() => setSelectedAIConv(null)}
+                             className="p-2 hover:bg-white/10 rounded-xl transition-colors"
+                           >
+                             <X size={20} />
+                           </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-white text-black border border-grey/10 shadow-sm/50">
+                          {selectedAIConv.messages.map((m: any, idx: number) => (
+                            <div key={idx} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                               <div className={`max-w-[85%] p-5 rounded-[2rem] text-sm leading-relaxed ${m.sender === 'user' ? 'bg-primary text-white rounded-tr-none' : 'bg-white  text-black  rounded-tl-none shadow-sm border border-grey/10'}`}>
+                                  <div className="prose prose-sm prose-invert max-w-none">
+                                    <ReactMarkdown>{m.text}</ReactMarkdown>
+                                  </div>
+                                  <p className={`text-[8px] mt-2 font-black uppercase opacity-40 ${m.sender === 'user' ? 'text-right' : ''}`}>
+                                    {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                  </p>
+                               </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="p-6 bg-white text-black border-t border-grey/10 text-center">
+                           <p className="text-[10px] font-black text-grey uppercase tracking-widest italic flex items-center justify-center gap-2">
+                             <Bot size={12} /> Log di conversazione analizzato tramite Doctorbike Ai
+                           </p>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-grey">
+                        <div className="w-24 h-24 bg-white text-black border border-grey/10 shadow-sm rounded-full flex items-center justify-center mb-6">
+                           <Bot size={40} className="opacity-20" />
+                        </div>
+                        <h4 className="font-black text-primary uppercase italic text-xl mb-2">Conversation Viewer</h4>
+                        <p className="max-w-xs text-xs font-bold opacity-60 uppercase tracking-widest">Seleziona una sessione dalla lista per visualizzare l'intero scambio tra l'utente e l'AI.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'DISPUTES' && (
+            <motion.div
+              key="disputes"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.05 }}
+              className="space-y-6 max-w-full mx-auto px-2"
+            >
+              <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
+                <div className="w-16 h-16 bg-danger/10 text-danger rounded-[1.5rem] md:rounded-[2rem] flex items-center justify-center shadow-lg shadow-danger/5 shrink-0">
+                  <ShieldAlert size={32} />
+                </div>
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-black text-black uppercase tracking-tight">Support Cases</h2>
+                  <p className="text-xs md:text-sm font-bold text-grey uppercase tracking-widest italic">{disputedJobs.length} interventi da moderare</p>
+                </div>
+              </div>
+
+              {disputedJobs.length === 0 ? (
+                <div className="bg-white text-black rounded-[2rem] md:rounded-[3rem] p-10 md:p-16 text-center border-4 border-dashed border-grey/10 shadow-sm">
+                  <CheckCircle size={64} className="mx-auto mb-6 text-accent/20" />
+                  <h3 className="text-xl md:text-2xl font-black text-primary uppercase italic">All Clear</h3>
+                  <p className="text-[10px] md:text-xs font-bold text-grey uppercase tracking-widest mt-4">Nessuna contestazione attiva.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {disputedJobs.map((job) => (
+                    <motion.div 
+                      key={job.id} 
+                      className="bg-white text-black rounded-[2rem] md:rounded-[3rem] border-2 border-danger shadow-xl overflow-hidden relative cursor-pointer group"
+                      onClick={(e) => {
+                         const target = e.target as HTMLElement;
+                         if (!target.closest('button')) {
+                            setExpandedJobId(expandedJobId === job.id ? null : job.id);
+                         }
+                      }}
+                    >
+                      <div className="p-6 md:p-8 relative">
+                        <div className="hidden md:block absolute top-0 right-0 bg-danger text-white px-6 py-2 rounded-bl-3xl font-black text-[10px] uppercase tracking-widest">Priority</div>
+                        
+                        <div className="flex flex-col md:flex-row justify-between items-start mb-6 md:mb-8 gap-4">
+                          <div>
+                            <p className="text-[8px] font-black text-primary uppercase tracking-[0.2em] mb-1">JOB ID: #{job.id.slice(-8)}</p>
+                            <h3 className="text-xl md:text-2xl font-black text-black uppercase italic group-hover:text-primary transition-colors">{job.faultType || 'Unknown Issue'}</h3>
+                            <div className="flex items-center gap-2 mt-2 text-[10px] font-bold text-grey uppercase">
+                              <Clock size={12} /> {job.createdAt ? formatDistanceToNow(job.createdAt.toDate(), { locale: it, addSuffix: true }) : 'recent'}
+                            </div>
+                          </div>
+                          <div className="md:text-right">
+                            <p className="text-[9px] font-black text-grey uppercase tracking-widest mb-1">Escrowed Balance</p>
+                            <p className="text-3xl md:text-4xl font-black text-accent italic">⚡{(Number(job.estimatedPrice) || 0).toFixed(0)}</p>
+                          </div>
+                        </div>
+
+                        <AnimatePresence>
+                          {expandedJobId === job.id && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="bg-grey/5 p-4 md:p-6 rounded-[1.5rem] md:rounded-[2.5rem] mb-6 md:mb-8 border border-grey/5">
+                                <div className="flex items-center justify-between gap-4 mb-4 pb-4 border-b border-grey/10">
+                                   <div className="flex items-center gap-2 md:gap-3">
+                                     <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary shrink-0">
+                                       <Users size={14} />
+                                     </div>
+                                     <div className="min-w-0">
+                                       <p className="text-[8px] font-black text-primary uppercase">User</p>
+                                       <p className="text-[10px] md:text-xs font-bold text-black truncate">{job.cyclistName || 'Anonymous'}</p>
+                                     </div>
+                                   </div>
+                                   <div className="flex items-center gap-2 md:gap-3 text-right">
+                                     <div className="min-w-0">
+                                       <p className="text-[8px] font-black text-warning uppercase">Mechanic</p>
+                                       <p className="text-[10px] md:text-xs font-bold text-black truncate">{job.mechanicId?.slice(0, 8)}</p>
+                                     </div>
+                                     <div className="w-8 h-8 rounded-full bg-warning/20 flex items-center justify-center text-warning shrink-0">
+                                       <Wrench size={14} />
+                                     </div>
+                                   </div>
+                                </div>
+                                <p className="text-xs md:text-sm font-bold text-black italic leading-relaxed">
+                                  "{job.description || 'No description provided.'}"
+                                </p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); resolveDispute(job.id, 'CYCLIST'); }}
+                          className="flex-1 bg-white border-2 border-danger text-danger py-4 rounded-xl font-black flex items-center justify-center gap-3 hover:bg-danger hover:text-white uppercase tracking-widest text-[10px] transition-all shadow-md active:scale-95"
+                        >
+                          <XCircle size={18} /> Rimborsa Ciclista
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); resolveDispute(job.id, 'MECHANIC'); }}
+                          className="flex-1 bg-primary text-white py-4 rounded-xl font-black flex items-center justify-center gap-3 shadow-lg shadow-primary/30 hover:brightness-110 uppercase tracking-widest text-[10px] transition-all active:scale-95"
+                        >
+                          <CheckCircle size={18} /> Paga Meccanico
+                        </button>
+                      </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+          {activeTab === 'REPORTS' && (
+            <motion.div
+              key="reports"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="max-w-6xl mx-auto space-y-6"
+            >
+              <h2 className="text-xl font-black text-black  uppercase mb-8 flex items-center gap-2">
+                <MapIcon className="text-primary" /> Segnalazioni Dissesto
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {roadReports.map((report) => (
+                  <div key={report.id} className="bg-white text-black rounded-3xl p-6 border border-grey/10 shadow-sm relative overflow-hidden flex flex-col">
+                     <div className="flex justify-between items-start mb-4">
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${
+                            report.severity === 'high' ? 'bg-danger/10 text-danger border-danger/20' : 
+                            report.severity === 'medium' ? 'bg-warning/10 text-warning border-warning/20' : 
+                            'bg-primary/10 text-primary border-primary/20'
+                        }`}>
+                            {report.severity}
+                        </span>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${report.status === 'resolved' ? 'bg-success/10 text-success border-success/20' : 'bg-grey/10 text-grey border-grey/20'}`}>
+                            {report.status}
+                        </span>
+                     </div>
+                     <h3 className="font-black text-lg mb-2 uppercase">{report.category}</h3>
+                     <p className="text-sm text-grey mb-4 flex-1">{report.description}</p>
+                     <div className="flex items-center justify-between text-[10px] font-bold text-grey uppercase tracking-widest mb-4">
+                        <span>Upvotes: {report.upvotes?.length || 0}</span>
+                        <span>{new Date(report.createdAt?.seconds ? report.createdAt.seconds * 1000 : Date.now()).toLocaleDateString()}</span>
+                     </div>
+                     <div className="flex gap-2">
+                        {report.status !== 'resolved' && (
+                            <button 
+                              onClick={async () => {
+                                  try {
+                                      await updateDoc(doc(db, 'roadReports', report.id), { status: 'resolved', updatedAt: serverTimestamp() });
+                                  } catch (e) {
+                                      console.error(e);
+                                  }
+                              }}
+                              className="flex-1 bg-success/10 hover:bg-success/20 text-success py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
+                            >
+                              Risolvi
+                            </button>
+                        )}
+                        {report.status !== 'rejected' && (
+                            <button 
+                              onClick={async () => {
+                                  try {
+                                      await updateDoc(doc(db, 'roadReports', report.id), { status: 'rejected', updatedAt: serverTimestamp() });
+                                  } catch (e) {
+                                      console.error(e);
+                                  }
+                              }}
+                              className="flex-1 bg-danger/10 hover:bg-danger/20 text-danger py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
+                            >
+                              Rifiuta
+                            </button>
+                        )}
+                     </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'PROFILE' && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="max-w-2xl mx-auto"
+            >
+              <ProfileView />
+            </motion.div>
+          )}
+
+        </AnimatePresence>
+      </div>
+    </main>
+      <AnimatePresence>
+        {selectedReport && (
+          <RoadReportDetailModal 
+            report={selectedReport} 
+            onClose={() => setSelectedReport(null)} 
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
