@@ -42,12 +42,6 @@ export function GlobalNotifications() {
               const title = chatData.title || chatData.otherPartyName || 'Nuovo messaggio';
               const body = chatData.lastMessage || 'Hai ricevuto un nuovo messaggio.';
 
-              // Play Sound if enabled
-              if (profile?.notificationsEnabled) {
-                const role = useAuthStore.getState().role;
-                soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
-              }
-
               // Internal Toast
               addToast({
                 title,
@@ -55,14 +49,6 @@ export function GlobalNotifications() {
                 type: 'info',
                 icon: <MessageCircle size={20} />
               });
-
-              // Browser Notification
-              if ('Notification' in window && Notification.permission === 'granted') {
-                 new Notification(title, {
-                   body,
-                   icon: '/pwa-192x192.png' // using default pwa icon
-                 });
-              }
             }
           }
 

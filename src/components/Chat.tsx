@@ -182,15 +182,17 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
                }
              });
            }
-         } else if (chatId.startsWith('direct_') && !isAdminSupport) {
-            const parts = chatId.replace('direct_', '').split('_');
-            const otherUserId = parts.find(id => id !== user?.uid);
-            if (otherUserId) {
-               updates[`unreadCount.${otherUserId}`] = 1;
+           await updateDoc(docRef, updates);
+         } else {
+            if (chatId.startsWith('direct_') && !isAdminSupport) {
+               const parts = chatId.replace('direct_', '').split('_');
+               const otherUserId = parts.find(id => id !== user?.uid);
+               if (otherUserId) {
+                  updates.unreadCount = { [otherUserId]: 1 };
+               }
             }
+            await setDoc(docRef, updates, { merge: true });
          }
-
-         await setDoc(docRef, updates, { merge: true });
       };
 
       sendPromise().catch(err => {
@@ -266,15 +268,17 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
                    }
                  });
                }
-             } else if (chatId.startsWith('direct_') && !isAdminSupport) {
-                const parts = chatId.replace('direct_', '').split('_');
-                const otherUserId = parts.find(id => id !== user?.uid);
-                if (otherUserId) {
-                   updates[`unreadCount.${otherUserId}`] = 1;
+               await updateDoc(docRef, updates);
+             } else {
+                if (chatId.startsWith('direct_') && !isAdminSupport) {
+                   const parts = chatId.replace('direct_', '').split('_');
+                   const otherUserId = parts.find(id => id !== user?.uid);
+                   if (otherUserId) {
+                      updates.unreadCount = { [otherUserId]: 1 };
+                   }
                 }
+                await setDoc(docRef, updates, { merge: true });
              }
-
-             await setDoc(docRef, updates, { merge: true });
           };
 
           sendPromise().catch(err => {
