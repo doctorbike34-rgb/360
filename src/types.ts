@@ -3,6 +3,7 @@ export type UserPlan = 'MECHANIC_FREE' | 'BASE' | 'CLUB' | 'PRO';
 export type PresenceStatus = 'ONLINE' | 'OFFLINE' | 'GHOST';
 export type SOSStatus = 'PENDING' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'DISPUTED';
 
+export type KYCStatus = 'UNSUBMITTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 export type BadgeId = 'first_sos' | 'rescuer_5' | 'rescuer_25' | 'top_rated' | 'community_hero' | 'bike_doctor' | 'loyal_cyclist' | 'peer_pioneer';
 
 export interface Badge {
@@ -29,6 +30,16 @@ export interface UserProfile {
   phone?: string;
   bikeModel?: string;
   hasCompletedOnboarding?: boolean;
+  
+  kycStatus?: KYCStatus;
+  kycDocuments?: {
+    identityDoc?: string;
+    visuraDoc?: string;
+    vatNumber?: string;
+    submittedAt?: any;
+    rejectedReason?: string;
+  };
+
   notificationsEnabled?: boolean;
   notificationPreferences?: {
     sosAlerts: boolean;

@@ -7,7 +7,8 @@ import {
   signInWithEmailAndPassword, 
   GoogleAuthProvider,
   signInWithPopup,
-  sendEmailVerification
+  sendEmailVerification,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -50,6 +51,7 @@ export function Auth() {
   const [isLogin, setIsLogin] = useState(!user);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState('');
   const { t, i18n } = useTranslation();
 
   const toggleLanguage = () => {
@@ -61,7 +63,7 @@ export function Auth() {
   const firebaseUser = user;
   const isCompletingProfile = !!firebaseUser && !isLogin;
 
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<AuthForm>({
+  const { register, handleSubmit, formState: { errors }, watch, setValue, getValues } = useForm<AuthForm>({
     resolver: zodResolver(authSchema),
     defaultValues: { 
       role: 'CYCLIST',
@@ -76,7 +78,6 @@ export function Auth() {
     setValue('isLogin', isLogin);
   }, [isLogin, setValue]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library
   const selectedRole = watch('role');
 
   const handleGoogleSignIn = async () => {
@@ -261,6 +262,27 @@ export function Auth() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const email = getValues('email');
+    if (!email) {
+      setError('Inserisci la tua email prima di richiedere il reset della password.');
+      setResetSuccess('');
+      return;
+    }
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSuccess('Email di reset password inviata. Controlla la tua casella di posta.');
+      setError('');
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Errore durante l\'invio della mail di reset.');
+      setResetSuccess('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-[100dvh] w-full sm:max-w-[440px] sm:mx-auto shadow-[20px_0_50px_-15px_rgba(0,0,0,0.2)] relative overflow-hidden bg-primary transition-colors duration-500 pt-safe pb-safe">
       <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
@@ -295,6 +317,12 @@ export function Auth() {
             {isCompletingProfile ? t('auth.completingProfile') : t('auth.subtitle')}
           </p>
         </div>
+
+        {resetSuccess && (
+          <div className="bg-[#48bb78]/10 text-[#48bb78] p-3 rounded-xl mb-4 text-xs font-bold text-center border border-[#48bb78]/20">
+            {resetSuccess}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
           <AnimatePresence mode="wait">
@@ -366,6 +394,18 @@ export function Auth() {
                   className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 border-none focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
                 />
                 {errors.password && <p className="text-danger text-xs mt-1">{errors.password.message}</p>}
+                
+                {isLogin && !isCompletingProfile && (
+                  <div className="flex justify-end mt-1">
+                    <button 
+                      type="button" 
+                      onClick={handleForgotPassword}
+                      className="text-[10px] text-grey hover:text-primary font-bold transition-colors uppercase tracking-widest"
+                    >
+                      Password dimenticata?
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -427,7 +467,23 @@ export function Auth() {
         {isCompletingProfile && (
           <div className="mt-4 text-center">
             <button 
-              onClick={() => { auth.signOut(); setUser(null); setRole(null); }}
+              onClick={async () => { 
+                if (auth.currentUser) {
+                  try {
+                    await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                      isOnline: false,
+                      lastLat: null,
+                      lastLng: null,
+                      updatedAt: serverTimestamp()
+                    });
+                  } catch (e) {
+                    /* ignore */
+                  }
+                }
+                auth.signOut(); 
+                setUser(null); 
+                setRole(null); 
+              }}
               className="text-xs font-bold text-danger hover:underline transition-colors"
             >
               {t('common.cancelAndLogout')}

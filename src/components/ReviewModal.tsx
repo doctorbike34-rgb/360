@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState } from 'react';
 import { Star, X, MessageSquare, Send, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -176,7 +177,7 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
         status: 'DISPUTED',
         paymentStatus: 'DISPUTED'
       });
-      alert('Contestazione inviata all\'assistenza. I fondi rimarranno bloccati e verrai contattato a breve.');
+      toast.error('Contestazione inviata all\'assistenza. I fondi rimarranno bloccati e verrai contattato a breve.');
       onClose();
     } catch (err) {
       console.error('Error creating dispute:', err);

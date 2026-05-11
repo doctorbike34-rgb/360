@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import { Map } from './Map';
 import { 
@@ -133,7 +134,7 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
         async () => {
            const ipSuccess = await tryIPFallback();
            if (!ipSuccess) {
-              alert("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
+              toast.error("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
               if (userLoc) map.setView(userLoc, 17);
               setIsLocating(false);
            }
@@ -321,31 +322,31 @@ export function CyclistHome() {
       limit(20)
     );
     const unsubMechanics = onSnapshot(qMechanic, (snapshot) => {
-      setNearbyCount(snapshot.size);
-      
-      if (snapshot.empty) {
-        setNearestMechanic(null);
-      } else if (userLocation) {
-        // Calculate nearest based on userLocation
-        let minDoc: any = null;
-        let minDistance = Infinity;
+      const now = Date.now();
+      let activeCount = 0;
+      let minDoc: any = null;
+      let minDistance = Infinity;
 
-        snapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.lastLat && data.lastLng) {
+      snapshot.docs.forEach(doc => {
+        if (doc.id === user?.uid) return;
+        const data = doc.data();
+        const lastSeen = data.lastSeenAt instanceof Date ? data.lastSeenAt.getTime() : (data.lastSeenAt?.seconds ? data.lastSeenAt.seconds * 1000 : 0);
+        if ((now - lastSeen) < (15 * 60 * 1000)) {
+          activeCount++;
+          if (userLocation && data.lastLat && data.lastLng) {
             const d = getDistance(userLocation.lat, userLocation.lng, data.lastLat, data.lastLng);
             if (d < minDistance) {
               minDistance = d;
               minDoc = { id: doc.id, ...data, distance: d };
             }
+          } else if (!minDoc) {
+             minDoc = { id: doc.id, ...data, distance: 0 };
           }
-        });
-        setNearestMechanic(minDoc || { id: snapshot.docs[0].id, ...snapshot.docs[0].data(), distance: 0 });
-      } else {
-        // Fallback if no location yet
-        const first = snapshot.docs[0];
-        setNearestMechanic({ id: first.id, ...first.data(), distance: 0 });
-      }
+        }
+      });
+      
+      setNearbyCount(activeCount);
+      setNearestMechanic(minDoc);
       setQuotaError(false);
     }, (error) => {
       if (error.message.includes('Quota exceeded')) setQuotaError(true);
@@ -360,7 +361,17 @@ export function CyclistHome() {
       limit(20)
     );
     const unsubCyclists = onSnapshot(qCyclist, (snapshot) => {
-      setNearbyCyclistsCount(snapshot.size);
+      const now = Date.now();
+      let activeCount = 0;
+      snapshot.docs.forEach(doc => {
+        if (doc.id === user?.uid) return;
+        const data = doc.data();
+        const lastSeen = data.lastSeenAt instanceof Date ? data.lastSeenAt.getTime() : (data.lastSeenAt?.seconds ? data.lastSeenAt.seconds * 1000 : 0);
+        if ((now - lastSeen) < (15 * 60 * 1000)) {
+          activeCount++;
+        }
+      });
+      setNearbyCyclistsCount(activeCount);
     }, (error) => {
       if (!error.message.includes('Quota exceeded')) {
         console.warn('Error listening to cyclists:', error);
@@ -379,12 +390,12 @@ export function CyclistHome() {
 
     // Check size (5MB limit)
     if (file.size > 5 * 1024 * 1024) {
-      alert("L'immagine è troppo grande. Usa un'immagine inferiore a 5MB.");
+      toast.error("L'immagine è troppo grande. Usa un'immagine inferiore a 5MB.");
       return;
     }
 
     setIsUploading(true);
-    const reader = new (window as any).FileReader();
+    const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result as string;
       try {
@@ -448,7 +459,7 @@ export function CyclistHome() {
       setShowCompletionOverlay(false);
     } catch (error) {
       console.error('Error finalizing job:', error);
-      alert('Errore durante la conferma. Riprova.');
+      toast.error('Errore durante la conferma. Riprova.');
     } finally {
       setIsFinishing(false);
     }
@@ -562,11 +573,11 @@ export function CyclistHome() {
 
   const handleSOSRequest = async (faultType: string) => {
     if (!user) {
-      alert("Devi effettuare l'accesso per richiedere un SOS.");
+      toast.error("Devi effettuare l'accesso per richiedere un SOS.");
       return;
     }
     if (!profile) {
-      alert("Profilo non caricato. Ricarica l'app o verifica la tua connessione.");
+      toast.error("Profilo non caricato. Ricarica l'app o verifica la tua connessione.");
       return;
     }
     
@@ -733,7 +744,7 @@ export function CyclistHome() {
     } catch (err: any) {
       console.error('Error cancelling SOS:', err);
       if (err.message === 'Cannot cancel an accepted request') {
-        alert('Non puoi annullare una richiesta già presa in carico da un meccanico.');
+        toast.error('Non puoi annullare una richiesta già presa in carico da un meccanico.');
       }
     } finally {
       setIsCancelling(false);
@@ -767,7 +778,7 @@ export function CyclistHome() {
         }
       } else {
         if (event.participantCount >= event.maxParticipants) {
-          alert('Gruppo Pieno');
+          toast.error('Gruppo Pieno');
           setIsJoiningEventId(null);
           return;
         }

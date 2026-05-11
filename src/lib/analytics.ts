@@ -23,8 +23,12 @@ export const initAnalytics = async () => {
       analytics = getAnalytics(app);
       console.log("✅ Firebase Analytics initialized");
     }
-  } catch (error) {
-    console.warn("⚠️ Firebase Analytics could not be initialized:", error);
+  } catch (error: any) {
+    if (error.message?.includes('Failed to fetch') || error.message?.includes('fetch')) {
+       console.info("ℹ️ Firebase Analytics blocked by adblocker (expected in dev/preview).");
+    } else {
+       console.warn("⚠️ Firebase Analytics could not be initialized:", error);
+    }
   }
 };
 

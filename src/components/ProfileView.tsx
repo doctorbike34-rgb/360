@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -121,7 +122,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       setTimeout(() => setVerificationSent(false), 5000);
     } catch (err) {
       console.error('Error sending verification:', err);
-      alert('Errore nell\'invio della verifica: ' + (err instanceof Error ? err.message : String(err)));
+      toast.error('Errore nell\'invio della verifica: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSendingVerification(false);
     }
@@ -162,7 +163,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       setPlanUpgradeStep('STRIPE');
     } catch (err) {
       console.error(err);
-      alert("Errore durante l'inizializzazione del pagamento");
+      toast.error("Errore durante l'inizializzazione del pagamento");
       setPlanUpgradeStep('PAYMENT');
     } finally {
       setIsUpgrading(null);
@@ -180,7 +181,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       setPlanUpgradeStep('SUCCESS');
     } catch (err) {
       console.error(err);
-      alert("Errore durante il salvataggio del piano");
+      toast.error("Errore durante il salvataggio del piano");
       setPlanUpgradeStep('STRIPE');
     } finally {
       setIsUpgrading(null);
@@ -413,19 +414,24 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       }
       console.log('Reviews cleared');
 
-      // 4. Reset User Balances and Profile Stats
+      // 4. Delete Users (except ADMINs) and Reset ADMIN Stats
       const userSnap = await getDocs(collection(db, 'users'));
       for (const docSnap of userSnap.docs) {
-        await updateDoc(doc(db, 'users', docSnap.id), {
-          balance: 0,
-          completedJobs: 0,
-          points: 0,
-          totalEarnings: 0,
-          hasWelcomeGift: true, // Re-enable welcome gift for new production users
-          updatedAt: serverTimestamp()
-        });
+        const userData = docSnap.data();
+        if (userData.role === 'ADMIN') {
+          await updateDoc(doc(db, 'users', docSnap.id), {
+            balance: 0,
+            completedJobs: 0,
+            points: 0,
+            totalEarnings: 0,
+            hasWelcomeGift: true, // Re-enable welcome gift for new production users
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          await deleteDoc(doc(db, 'users', docSnap.id));
+        }
       }
-      console.log('User balances reset');
+      console.log('Users cleared (Admins reset)');
 
       // 5. Clear Support Tickets
       const ticketSnap = await getDocs(collection(db, 'supportTickets'));
@@ -448,6 +454,20 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       }
       console.log('Mechanic statistics cleared');
 
+      // 7.1 Clear Events
+      const eventsSnap = await getDocs(collection(db, 'events'));
+      for (const docSnap of eventsSnap.docs) {
+        await deleteDoc(doc(db, 'events', docSnap.id));
+      }
+      console.log('Events cleared');
+
+      // 7.2 Clear Road Reports
+      const roadReportsSnap = await getDocs(collection(db, 'roadReports'));
+      for (const docSnap of roadReportsSnap.docs) {
+        await deleteDoc(doc(db, 'roadReports', docSnap.id));
+      }
+      console.log('Road reports cleared');
+
       // 8. Reset Platform Global Stats
       await setDoc(doc(db, 'platformStats', 'global'), {
         totalFees: 0,
@@ -457,11 +477,11 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       });
       console.log('Platform stats reset');
 
-      alert('Reset per la produzione completato con successo!');
+      toast.success('Reset per la produzione completato con successo!');
       setShowResetConfirm(false);
     } catch (err) {
       console.error('Error during production reset:', err);
-      alert('Errore durante il reset: ' + (err instanceof Error ? err.message : String(err)));
+      toast.error('Errore durante il reset: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsResetting(false);
     }
@@ -484,7 +504,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       if (editEmail !== auth.currentUser?.email) {
           // This usually requires re-authentication, so we just inform the user
           // Or we can try it
-          alert("L'email è stata aggiornata in Firestore, ma per cambiarla nelle credenziali di accesso contatta il supporto o usa un nuovo account.");
+          toast.error("L'email è stata aggiornata in Firestore, ma per cambiarla nelle credenziali di accesso contatta il supporto o usa un nuovo account.");
       }
 
       setShowEditProfile(false);
@@ -500,10 +520,10 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setIsResettingPassword(true);
     try {
       await sendPasswordResetEmail(auth, auth.currentUser.email);
-      alert("Email di ripristino password inviata a " + auth.currentUser.email);
+      toast.error("Email di ripristino password inviata a " + auth.currentUser.email);
     } catch (err) {
       console.error(err);
-      alert("Errore nell'invio dell'email di ripristino.");
+      toast.error("Errore nell'invio dell'email di ripristino.");
     } finally {
       setIsResettingPassword(false);
     }
@@ -913,10 +933,10 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                         const file = e.target.files?.[0];
                         if (!file) return;
                         if (file.size > 1024 * 1024) {
-                          alert('Immagine troppo grande (max 1MB).');
+                          toast.error('Immagine troppo grande (max 1MB).');
                           return;
                         }
-                        const reader = new (window as any).FileReader();
+                        const reader = new FileReader();
                         reader.onloadend = async () => {
                           const base64String = reader.result as string;
                           try {
@@ -1313,7 +1333,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 </div>
                 
                 <div className="flex-1 overflow-hidden flex flex-col">
-                  <Chat chatId={userSupportTicket.id} otherPartyName="Doctorbike Admin" isAdminSupport/>
+                  <Chat chatId={userSupportTicket.id} otherPartyName="Doctorbike Admin" isAdminSupport />
                 </div>
               </motion.div>
             </div>
@@ -1453,7 +1473,22 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           )}
         </AnimatePresence>
 
-        <button onClick={() => signOut(auth)}
+        <button onClick={async () => {
+             // Disable presence immediately before logging out
+             if (auth.currentUser) {
+               try {
+                 await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                   isOnline: false,
+                   lastLat: null,
+                   lastLng: null,
+                   updatedAt: serverTimestamp()
+                 });
+               } catch (e) {
+                 console.warn("Could not set offline state", e);
+               }
+             }
+             signOut(auth);
+           }}
            className="w-full flex items-center justify-center gap-2 p-5 bg-danger/5 text-danger rounded-[2rem] font-black uppercase tracking-widest text-[10px] hover:bg-danger/10 transition-colors"
         >
            <LogOut size={16}/> {t('profile.signOut')}
@@ -1475,9 +1510,9 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <h3 className="text-2xl font-black text-black  uppercase italic mb-4">Reset Produzione?</h3>
                 <p className="text-grey text-xs font-bold uppercase tracking-widest leading-relaxed mb-8">
                   Questa azione è <span className="text-danger italic">irreversibile</span>. <br/>
-                  - Elimina tutti i SOS <br/>
-                  - Azzera i Wallet di tutti gli utenti <br/>
-                  - Pulisce chat e recensioni
+                  - Elimina tutti gli utenti (tranne Admin)<br/>
+                  - Elimina tutti i SOS, Chat e Recensioni<br/>
+                  - Azzera Eventi, Avvisi e Statistiche Admin<br/>
                 </p>
 
                 <div className="space-y-3">

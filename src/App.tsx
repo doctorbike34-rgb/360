@@ -22,6 +22,7 @@ import { AIBikeDoctor } from './components/AIBikeDoctor';
 import { AIPrompt } from './components/AIPrompt';
 import { Onboarding } from './components/Onboarding';
 import { EmailVerificationGuard } from './components/EmailVerificationGuard';
+import { Toaster } from 'react-hot-toast';
 
 console.time('AppBoot');
 
@@ -588,6 +589,7 @@ export default function App() {
 
       {/* Home Indicator (Barra di movimento) */}
       <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[10000] pointer-events-none" />
+      <Toaster position="bottom-center" toastOptions={{ style: { background: '#333', color: '#fff', fontSize: '14px', borderRadius: '16px' } }} />
     </div>
   );
 }

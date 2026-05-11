@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
@@ -122,10 +123,10 @@ export function AdminHome() {
         guidelines: aiGuidelines,
         updatedAt: serverTimestamp()
       });
-      alert('Linee guida AI salvate con successo!');
+      toast.success('Linee guida AI salvate con successo!');
     } catch (err) {
       console.error(err);
-      alert('Errore durante il salvataggio');
+      toast.error('Errore durante il salvataggio');
     } finally {
       setIsSavingAI(false);
     }
@@ -230,11 +231,11 @@ export function AdminHome() {
           });
         }
       });
-      alert('Contestazione risolta con successo.');
+      toast.success('Contestazione risolta con successo.');
       setDisputedJobs(prev => prev.filter(job => job.id !== jobId));
     } catch (err) {
       console.error(err);
-      alert('Errore durante la risoluzione. Controlla i permessi o la connessione.');
+      toast.error('Errore durante la risoluzione. Controlla i permessi o la connessione.');
     }
   };
 
@@ -248,10 +249,10 @@ export function AdminHome() {
     if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
     try {
       await updateDoc(doc(db, 'users', userId), { role: newRole, updatedAt: serverTimestamp() });
-      alert('Ruolo aggiornato con successo');
+      toast.success('Ruolo aggiornato con successo');
     } catch (err) {
       console.error(err);
-      alert('Errore durante l\'aggiornamento');
+      toast.error('Errore durante l\'aggiornamento');
     }
   };
 
@@ -259,10 +260,10 @@ export function AdminHome() {
     if (!window.confirm(`Assegnare piano ${newPlan}?`)) return;
     try {
       await updateDoc(doc(db, 'users', userId), { plan: newPlan, updatedAt: serverTimestamp() });
-      alert('Piano aggiornato con successo');
+      toast.success('Piano aggiornato con successo');
     } catch (err) {
       console.error(err);
-      alert('Errore durante l\'aggiornamento');
+      toast.error('Errore durante l\'aggiornamento');
     }
   };
 
@@ -324,7 +325,21 @@ export function AdminHome() {
 
         <div className="mt-6 pt-6 border-t border-grey/10">
           <button 
-            onClick={() => signOut(auth)}
+            onClick={async () => {
+              if (auth.currentUser) {
+                  try {
+                    await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                      isOnline: false,
+                      lastLat: null,
+                      lastLng: null,
+                      updatedAt: serverTimestamp()
+                    });
+                  } catch (e) {
+                    /* ignore */
+                  }
+              }
+              signOut(auth);
+            }}
             className="w-full flex items-center justify-center gap-3 bg-grey/5 hover:bg-danger/10 text-grey hover:text-danger p-4 rounded-2xl border border-grey/10 transition-all font-black text-[10px] uppercase tracking-widest"
           >
             <LogOut size={18} /> Logout Session
@@ -381,7 +396,21 @@ export function AdminHome() {
               </div>
 
               <button 
-                onClick={() => signOut(auth)}
+                onClick={async () => {
+                  if (auth.currentUser) {
+                      try {
+                        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                          isOnline: false,
+                          lastLat: null,
+                          lastLng: null,
+                          updatedAt: serverTimestamp()
+                        });
+                      } catch (e) {
+                        /* ignore */
+                      }
+                  }
+                  signOut(auth);
+                }}
                 className="mt-8 w-full p-4 rounded-xl bg-danger/10 text-danger font-black text-xs uppercase"
               >
                 Logout
@@ -641,16 +670,54 @@ export function AdminHome() {
 
                       {/* Plan Management (for Mechanics) */}
                       {u.role === 'MECHANIC' && (
-                        <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
-                          {(['BASE', 'CLUB', 'PRO'] as const).map(p => (
-                            <button
-                              key={p}
-                              onClick={() => updateUserPlan(u.id, p)}
-                              className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.plan === p ? 'bg-accent text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
-                            >
-                              {p}
-                            </button>
-                          ))}
+                        <div className="w-full mt-2">
+                           <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl w-fit">
+                             {(['BASE', 'CLUB', 'PRO'] as const).map(p => (
+                               <button
+                                 key={p}
+                                 onClick={() => updateUserPlan(u.id, p)}
+                                 className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.plan === p ? 'bg-accent text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
+                               >
+                                 {p}
+                               </button>
+                             ))}
+                           </div>
+                           
+                           {/* KYC Actions */}
+                           <div className="mt-2 bg-grey/5 p-2 rounded-xl">
+                              <p className="text-[8px] font-black text-grey uppercase tracking-widest mb-2">KYC Status: <span className={u.kycStatus === 'PENDING' ? 'text-accent' : u.kycStatus === 'APPROVED' ? 'text-primary' : 'text-warning'}>{u.kycStatus || 'UNSUBMITTED'}</span></p>
+                              
+                              {u.kycStatus === 'PENDING' && (
+                                <div className="flex gap-2">
+                                  <button onClick={() => updateDoc(doc(db, 'users', u.id), { kycStatus: 'APPROVED' })} className="flex-1 bg-primary text-white text-[8px] font-black py-1.5 rounded-lg uppercase">Approva</button>
+                                  <button onClick={() => {
+                                    toast((t) => (
+                                      <div className="flex flex-col gap-3 w-64 items-center">
+                                        <span className="font-bold text-sm text-center">Motivo rifiuto P2P/KYC per {u.name}?</span>
+                                        <input id={`reject-reason-${u.id}`} className="w-full text-black border p-2 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary" placeholder="Es. Documento illeggibile" />
+                                        <div className="flex gap-2 w-full mt-1">
+                                          <button onClick={() => toast.dismiss(t.id)} className="flex-1 py-1.5 text-grey text-xs font-bold hover:underline">Annulla</button>
+                                          <button onClick={() => { 
+                                            const reason = (document.getElementById(`reject-reason-${u.id}`) as HTMLInputElement)?.value;
+                                            if(reason) {
+                                              updateDoc(doc(db, 'users', u.id), { kycStatus: 'REJECTED', 'kycDocuments.rejectedReason': reason });
+                                              toast.success("Rifiutato");
+                                              toast.dismiss(t.id);
+                                            } else {
+                                              toast.error("Inserisci un motivo valido");
+                                            }
+                                          }} className="flex-1 bg-danger text-white rounded-lg py-1.5 font-bold text-xs">Conferma</button>
+                                        </div>
+                                      </div>
+                                    ), { duration: 10000 });
+                                  }} className="flex-1 bg-danger text-white text-[8px] font-black py-1.5 rounded-lg uppercase">Rifiuta</button>
+                                </div>
+                              )}
+                              
+                              {u.kycDocuments?.vatNumber && (
+                                <p className="text-[8px] mt-1 font-bold text-black">VAT/CF: {u.kycDocuments.vatNumber}</p>
+                              )}
+                           </div>
                         </div>
                       )}
                     </div>
@@ -724,7 +791,7 @@ export function AdminHome() {
                     setActiveTab('SUPPORT');
                   } catch (e) {
                     console.error(e);
-                    alert("Errore all'avvio della chat");
+                    toast.error("Errore all'avvio della chat");
                   }
                 }}
               />
@@ -1220,7 +1287,7 @@ export function AdminHome() {
                      <p className="text-sm text-grey mb-4 flex-1">{report.description}</p>
                      <div className="flex items-center justify-between text-[10px] font-bold text-grey uppercase tracking-widest mb-4">
                         <span>Upvotes: {report.upvotes?.length || 0}</span>
-                        <span>{new Date(report.createdAt?.seconds ? report.createdAt.seconds * 1000 : Date.now()).toLocaleDateString()}</span>
+                        <span>{report.createdAt ? new Date(report.createdAt.seconds ? report.createdAt.seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
                      </div>
                      <div className="flex gap-2">
                         {report.status !== 'resolved' && (

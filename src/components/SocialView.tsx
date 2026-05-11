@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove, increment, limit, where, setDoc, getDocs } from 'firebase/firestore';
@@ -69,6 +70,7 @@ interface UserSuggestion {
   name: string;
   photoURL?: string;
   updatedAt?: any;
+  lastSeenAt?: any;
 }
 
 interface AddressSuggestion {
@@ -128,7 +130,12 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
         if (isMounted) {
           const docs = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() } as UserSuggestion))
-            .filter(u => u.id !== user?.uid)
+            .filter(u => {
+              if (u.id === user?.uid) return false;
+              const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : ((u.lastSeenAt as any)?.seconds ? (u.lastSeenAt as any).seconds * 1000 : 0);
+              const now = Date.now();
+              return (now - lastSeen) < (15 * 60 * 1000);
+            })
             .sort((a, b) => {
               const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
               const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
@@ -236,7 +243,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
     if (coords) {
       setAddressPreview(coords);
     } else {
-      alert(t('common.error') + ': Position not found. Please enter a more complete address.');
+      toast.error(t('common.error') + ': Position not found. Please enter a more complete address.');
       setAddressPreview(null);
     }
     setIsVerifying(false);
@@ -318,13 +325,13 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
         }
       } else if (!lat || !lng) {
         // If they DID specify an address but we couldn't geocode it
-        alert('Non abbiamo trovato le coordinate per questo indirizzo. Assicurati che sia corretto.');
+        toast.error('Non abbiamo trovato le coordinate per questo indirizzo. Assicurati che sia corretto.');
         setIsCreating(false);
         return;
       }
 
       if (!lat || !lng) {
-        alert('Errore: non riusciamo a determinare la posizione dell\'evento.');
+        toast.error('Errore: non riusciamo a determinare la posizione dell\'evento.');
         setIsCreating(false);
         return;
       }
@@ -367,7 +374,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
       setAddressPreview(null);
     } catch (err) {
       console.error(err);
-      alert('Errore durante la creazione. Riprova.');
+      toast.error('Errore durante la creazione. Riprova.');
     } finally {
       setIsCreating(false);
     }
@@ -403,7 +410,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
       } else {
         // Check limit
         if (event.participantCount >= event.maxParticipants) {
-          alert(t('social.groupFullAlert'));
+          toast.error(t('social.groupFullAlert'));
           setLoadingEventId(null);
           return;
         }
@@ -437,7 +444,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
       }
     } catch (err: any) {
       console.error(err);
-      alert('Non è stato possibile aggiornare la partecipazione: ' + err.message);
+      toast.error('Non è stato possibile aggiornare la partecipazione: ' + err.message);
     } finally {
       setLoadingEventId(null);
     }

@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, QrCode, Scan, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react';
@@ -45,7 +46,7 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
       if (qrData.startsWith('dbcoin:')) {
         const uid = qrData.split(':')[1];
         if (uid === user?.uid) {
-            alert('Non puoi inviare fondi a te stesso.');
+            toast.error('Non puoi inviare fondi a te stesso.');
             return;
         }
         try {
@@ -55,14 +56,14 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
               setScannedUserName(userDoc.data().name || 'Utente');
               setMode('PAYMENT');
           } else {
-              alert('Utente non trovato');
+              toast.error('Utente non trovato');
           }
         } catch (e) {
           console.error(e);
-          alert('Errore nella lettura del codice QR');
+          toast.error('Errore nella lettura del codice QR');
         }
       } else {
-          alert('Codice QR non valido per DoctorBike Coin');
+          toast.error('Codice QR non valido per DoctorBike Coin');
       }
     }
   };
@@ -70,12 +71,12 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
   const validateAndPrepare = () => {
     const amountNum = parseFloat(amountToSend);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Inserisci un importo valido.');
+      toast.error('Inserisci un importo valido.');
       return;
     }
 
     if ((profile?.balance || 0) < amountNum) {
-      alert('Fondi insufficienti nel tuo wallet.');
+      toast.error('Fondi insufficienti nel tuo wallet.');
       return;
     }
     
@@ -131,7 +132,7 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
         setMode('SUCCESS');
     } catch (e: any) {
         if (e.message === 'insufficient_funds') {
-            alert('Fondi insufficienti nel momento della transazione.');
+            toast.error('Fondi insufficienti nel momento della transazione.');
         } else {
             handleFirestoreError(e, OperationType.WRITE, 'transactions');
         }

@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Wrench, 
@@ -39,6 +40,7 @@ import { RoadReportDetailModal } from './RoadReportDetailModal';
 import { ChatListView } from './ChatListView';
 import { ChatHeader } from './ChatHeader';
 import { PublicProfileModal } from './PublicProfileModal';
+import { KYCVerification } from './KYCVerification';
 import { useTranslation } from 'react-i18next';
 import { soundService } from '../lib/sounds';
 import { 
@@ -82,7 +84,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 }
 
-type TabType = 'STATS' | 'WORK' | 'PROFILE' | 'CHAT' | 'MAP';
+type TabType = 'WORK' | 'PROFILE' | 'CHAT' | 'MAP';
 
 export function MechanicHome() {
   const { user, profile, setQuotaError, setShowAIDoctor, userLocation: storeLocation } = useAuthStore();
@@ -103,6 +105,7 @@ export function MechanicHome() {
   const [userLocation, setUserLocation] = useState<any>(null);
   const [recentChats, setRecentChats] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showStats, setShowStats] = useState(false);
 
   const displayChats = React.useMemo(() => {
     const list = [...recentChats];
@@ -219,7 +222,7 @@ export function MechanicHome() {
       }
     } catch (error) {
       console.error('Error cancelling job:', error);
-      alert('Errore durante l\'annullamento.');
+      toast.error('Errore durante l\'annullamento.');
     }
   };
 
@@ -250,7 +253,7 @@ export function MechanicHome() {
           updatedAt: serverTimestamp()
         });
       });
-      alert('Un SOS è stato annullato per inattività.');
+      toast.error('Un SOS è stato annullato per inattività.');
     } catch (e) {
       console.error('Auto-cancel failed:', e);
     }
@@ -505,7 +508,17 @@ export function MechanicHome() {
       limit(10)
     );
     const unsub = onSnapshot(q, (snapshot) => {
-      setNearbyCyclistsCount(snapshot.size);
+      const now = Date.now();
+      let activeCount = 0;
+      snapshot.docs.forEach(doc => {
+        if (doc.id === user?.uid) return;
+        const data = doc.data();
+        const lastSeen = data.lastSeenAt instanceof Date ? data.lastSeenAt.getTime() : (data.lastSeenAt?.seconds ? data.lastSeenAt.seconds * 1000 : 0);
+        if ((now - lastSeen) < (15 * 60 * 1000)) {
+          activeCount++;
+        }
+      });
+      setNearbyCyclistsCount(activeCount);
     }, (error) => {
       if (!error.message.includes('Quota exceeded')) {
         console.warn('Error listening to nearby cyclists:', error);
@@ -571,7 +584,7 @@ export function MechanicHome() {
     if (!user) return;
     
     if (!isAvailable && (profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan))) {
-      alert("Il piano FREE non permette di andare online. Attiva il piano BASE o superiore dal tuo Profilo per iniziare a ricevere richieste.");
+      toast.error("Il piano FREE non permette di andare online. Attiva il piano BASE o superiore dal tuo Profilo per iniziare a ricevere richieste.");
       return;
     }
 
@@ -614,7 +627,7 @@ export function MechanicHome() {
   const acceptJob = async (jobId: string) => {
     if (!user) return;
     if (profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan)) {
-      alert("Il piano FREE non permette di accettare richieste SOS. Attiva il piano BASE o superiore dal tuo Profilo.");
+      toast.error("Il piano FREE non permette di accettare richieste SOS. Attiva il piano BASE o superiore dal tuo Profilo.");
       return;
     }
     try {
@@ -654,10 +667,10 @@ export function MechanicHome() {
         createdAt: serverTimestamp(),
       });
 
-      alert(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
+      toast.error(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
     } catch (error: any) {
       if (error.message === 'SOS already accepted or invalid') {
-         alert("Questa richiesta SOS è già stata presa in carico da un altro meccanico.");
+         toast.error("Questa richiesta SOS è già stata presa in carico da un altro meccanico.");
       } else {
          handleFirestoreError(error, OperationType.UPDATE, `sosRequests/${jobId}`);
       }
@@ -673,11 +686,15 @@ export function MechanicHome() {
         status: 'IN_PROGRESS' // still technically open until cyclist confirms
       });
       // Do not clear the active job yet, we wait for cyclist response
-      alert('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
+      toast.error('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
     } catch (err) {
       console.error('Error completing job:', err);
     }
   };
+
+  if (profile?.role === 'MECHANIC' && profile?.kycStatus !== 'APPROVED') {
+      return <KYCVerification />;
+  }
 
   return (
     <div className="flex-1 flex flex-col bg-white overflow-hidden relative transition-colors duration-500">
@@ -781,139 +798,150 @@ export function MechanicHome() {
                    setSelectedReport(report);
                  }}
                />
-            </motion.div>
-          ) : activeTab === 'STATS' ? (
-            <motion.div key="stats" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 overflow-y-auto p-6 bg-white pb-48">
-              <div className="mb-8 flex items-start justify-between">
-                <div>
-                  <h2 className="text-3xl font-black text-primary">{t('mechanic.stats')}</h2>
-                  <p className="text-sm font-bold text-grey italic">{t('mechanic.statsSubtitle')}</p>
-                </div>
-                <Logo size="sm" showText={false} className="opacity-80"/>
-              </div>
-
-              {/* Top Row Cards */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-primary text-white p-5 rounded-[2.5rem] shadow-xl shadow-primary/20">
-                    <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-accent mb-4">
-                       <Zap size={20} className="fill-accent"/>
-                    </div>
-                    <p className="text-[10px] font-black opacity-60 uppercase tracking-widest leading-none mb-1">Guadagni DBC</p>
-                    <p className="text-2xl font-black">⚡{(profile?.balance ?? mechanicData?.totalEarnings ?? 0).toFixed(0)}</p>
-                    <div className="mt-2 flex items-center gap-1 text-[8px] font-bold opacity-60 uppercase">
-                       Saldo Attuale
-                    </div>
-                  </motion.div>
-                  
-                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-grey/5">
-                     <div className="w-10 h-10 bg-accent/5 rounded-2xl flex items-center justify-center text-accent mb-4">
-                        <Star size={20}/>
+               <div className="absolute top-24 right-4 z-20">
+                 <button onClick={() => setShowStats(!showStats)} className="w-12 h-12 bg-white rounded-full shadow-lg border border-grey/10 flex items-center justify-center text-primary hover:bg-grey/5 transition-colors">
+                   <TrendingUp size={24} />
+                 </button>
+               </div>
+               
+               <AnimatePresence>
+                 {showStats && (
+                   <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto pb-48">
+                     <div className="mb-8 flex items-start justify-between">
+                       <div>
+                         <h2 className="text-2xl font-black text-primary">{t('mechanic.stats')}</h2>
+                         <p className="text-xs font-bold text-grey italic">{t('mechanic.statsSubtitle')}</p>
+                       </div>
+                       <button onClick={() => setShowStats(false)} className="w-8 h-8 bg-grey/10 rounded-full flex items-center justify-center text-grey hover:text-black">
+                         <X size={16} />
+                       </button>
                      </div>
-                     <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">{t('mechanic.rating')}</p>
-                     <p className="text-2xl font-black text-primary">{avgRating.toFixed(2)}</p>
-                     <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-grey uppercase">
-                        {t('mechanic.basedOnReviews', { count: totalReviews })}
+                     
+                     {/* Top Row Cards */}
+                     <div className="grid grid-cols-2 gap-4 mb-6">
+                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-primary text-white p-5 rounded-[2.5rem] shadow-xl shadow-primary/20">
+                           <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-accent mb-4">
+                              <Zap size={20} className="fill-accent"/>
+                           </div>
+                           <p className="text-[10px] font-black opacity-60 uppercase tracking-widest leading-none mb-1">Guadagni DBC</p>
+                           <p className="text-2xl font-black">⚡{(profile?.balance ?? mechanicData?.totalEarnings ?? 0).toFixed(0)}</p>
+                           <div className="mt-2 flex items-center gap-1 text-[8px] font-bold opacity-60 uppercase">
+                              Saldo Attuale
+                           </div>
+                         </motion.div>
+                         
+                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-grey/5">
+                            <div className="w-10 h-10 bg-accent/5 rounded-2xl flex items-center justify-center text-accent mb-4">
+                               <Star size={20}/>
+                            </div>
+                            <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">{t('mechanic.rating')}</p>
+                            <p className="text-2xl font-black text-primary">{avgRating.toFixed(2)}</p>
+                            <div className="mt-2 flex items-center gap-1 text-[8px] font-bold text-grey uppercase">
+                               {t('mechanic.basedOnReviews', { count: totalReviews })}
+                            </div>
+                         </motion.div>
                      </div>
-                  </motion.div>
-              </div>
 
-              {/* Earnings Chart */}
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }} className="bg-white p-6 rounded-[3rem] shadow-sm border border-grey/5 mb-6">
-                <div className="flex justify-between items-center mb-6">
-                   <h3 className="text-xs font-black text-primary uppercase tracking-[0.2em]">{t('mechanic.earningsTrend')}</h3>
-                   <span className="text-[10px] font-bold text-grey uppercase">{t('mechanic.last7Days')}</span>
-                </div>
-                
-                <div className="h-48 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={MOCK_EARNINGS_DATA}>
-                      <defs>
-                        <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4}/>
-                          <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} dy={10}/>
-                      <YAxis hide/>
-                      <Tooltip contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 'bold' }}/>
-                      <Area type="monotone" dataKey="amount" stroke="#0ea5e9" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)"/>
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
+                     {/* Earnings Chart */}
+                     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }} className="bg-white p-6 rounded-[3rem] shadow-sm border border-grey/5 mb-6">
+                       <div className="flex justify-between items-center mb-6">
+                          <h3 className="text-xs font-black text-primary uppercase tracking-[0.2em]">{t('mechanic.earningsTrend')}</h3>
+                          <span className="text-[10px] font-bold text-grey uppercase">{t('mechanic.last7Days')}</span>
+                       </div>
+                       
+                       <div className="h-48 w-full">
+                         <ResponsiveContainer width="100%" height="100%">
+                           <AreaChart data={MOCK_EARNINGS_DATA}>
+                             <defs>
+                               <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                                 <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4}/>
+                                 <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
+                               </linearGradient>
+                             </defs>
+                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                             <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} dy={10}/>
+                             <YAxis hide/>
+                             <Tooltip contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 'bold' }}/>
+                             <Area type="monotone" dataKey="amount" stroke="#0ea5e9" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)"/>
+                           </AreaChart>
+                         </ResponsiveContainer>
+                       </div>
+                     </motion.div>
 
-              {/* Interventions by Type */}
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }} className="bg-white p-6 rounded-[3rem] shadow-sm border border-grey/5 mb-6">
-                <div className="flex justify-between items-center mb-6">
-                   <h3 className="text-xs font-black text-primary uppercase tracking-[0.2em]">Tipologia Interventi</h3>
-                   <span className="text-[10px] font-bold text-grey uppercase">Distribuzione</span>
-                </div>
-                
-                <div className="h-48 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={MOCK_ACTIVITY_DATA}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} dy={10}/>
-                      <YAxis hide/>
-                      <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 'bold' }}/>
-                      <Bar dataKey="value" radius={[10, 10, 0, 0]}>
-                        {MOCK_ACTIVITY_DATA.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
+                     {/* Interventions by Type */}
+                     <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.25 }} className="bg-white p-6 rounded-[3rem] shadow-sm border border-grey/5 mb-6">
+                       <div className="flex justify-between items-center mb-6">
+                          <h3 className="text-xs font-black text-primary uppercase tracking-[0.2em]">Tipologia Interventi</h3>
+                          <span className="text-[10px] font-bold text-grey uppercase">Distribuzione</span>
+                       </div>
+                       
+                       <div className="h-48 w-full">
+                         <ResponsiveContainer width="100%" height="100%">
+                           <BarChart data={MOCK_ACTIVITY_DATA}>
+                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} dy={10}/>
+                             <YAxis hide/>
+                             <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 'bold' }}/>
+                             <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                               {MOCK_ACTIVITY_DATA.map((entry, index) => (
+                                 <Cell key={`cell-${index}`} fill={entry.color} />
+                               ))}
+                             </Bar>
+                           </BarChart>
+                         </ResponsiveContainer>
+                       </div>
+                     </motion.div>
 
-              {/* Detailed Metrics List */}
-              <div className="grid grid-cols-1 gap-4">
-                 <div className="bg-white text-black p-6 rounded-[2.5rem] shadow-sm border border-grey/5  flex justify-between items-center transition-colors">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 bg-white text-black shadow-sm border border-grey/10 rounded-2xl flex items-center justify-center text-primary  transition-colors">
-                          <CheckCircle2 size={24}/>
-                       </div>
-                       <div>
-                          <p className="text-[10px] font-black text-grey  uppercase tracking-widest transition-colors">{t('mechanic.interventions')}</p>
-                          <p className="text-xl font-black text-primary  transition-colors">{mechanicData?.completedJobs || 0}</p>
-                       </div>
-                    </div>
-                    <div className="text-right">
-                       <span className="text-[10px] font-bold text-accent uppercase">{t('mechanic.allTime')}</span>
-                    </div>
-                 </div>
+                     {/* Detailed Metrics List */}
+                     <div className="grid grid-cols-1 gap-4">
+                        <div className="bg-white text-black p-6 rounded-[2.5rem] shadow-sm border border-grey/5  flex justify-between items-center transition-colors">
+                           <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-white text-black shadow-sm border border-grey/10 rounded-2xl flex items-center justify-center text-primary  transition-colors">
+                                 <CheckCircle2 size={24}/>
+                              </div>
+                              <div>
+                                 <p className="text-[10px] font-black text-grey  uppercase tracking-widest transition-colors">{t('mechanic.interventions')}</p>
+                                 <p className="text-xl font-black text-primary  transition-colors">{mechanicData?.completedJobs || 0}</p>
+                              </div>
+                           </div>
+                           <div className="text-right">
+                              <span className="text-[10px] font-bold text-accent uppercase">{t('mechanic.allTime')}</span>
+                           </div>
+                        </div>
 
-                 <div className="bg-white text-black p-6 rounded-[2.5rem] shadow-sm border border-grey/5  flex justify-between items-center transition-colors">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 bg-white text-black shadow-sm border border-grey/10 rounded-2xl flex items-center justify-center text-primary  transition-colors">
-                          <Clock size={24}/>
-                       </div>
-                       <div>
-                          <p className="text-[10px] font-black text-grey  uppercase tracking-widest transition-colors">{t('mechanic.hoursOnline')}</p>
-                          <p className="text-xl font-black text-primary  transition-colors">{mechanicData?.hoursOnline || 0}h</p>
-                       </div>
-                    </div>
-                    <div className="text-right">
-                       <span className="text-[10px] font-bold text-grey  uppercase transition-colors">{t('mechanic.monthlyAvg')}</span>
-                    </div>
-                 </div>
+                        <div className="bg-white text-black p-6 rounded-[2.5rem] shadow-sm border border-grey/5  flex justify-between items-center transition-colors">
+                           <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-white text-black shadow-sm border border-grey/10 rounded-2xl flex items-center justify-center text-primary  transition-colors">
+                                 <Clock size={24}/>
+                              </div>
+                              <div>
+                                 <p className="text-[10px] font-black text-grey  uppercase tracking-widest transition-colors">{t('mechanic.hoursOnline')}</p>
+                                 <p className="text-xl font-black text-primary  transition-colors">{mechanicData?.hoursOnline || 0}h</p>
+                              </div>
+                           </div>
+                           <div className="text-right">
+                              <span className="text-[10px] font-bold text-grey  uppercase transition-colors">{t('mechanic.monthlyAvg')}</span>
+                           </div>
+                        </div>
 
-                 <div className="bg-white text-black p-6 rounded-[2.5rem] shadow-sm border border-grey/5  flex justify-between items-center transition-colors">
-                    <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 bg-white text-black shadow-sm border border-grey/10 rounded-2xl flex items-center justify-center text-primary  transition-colors">
-                          <Activity size={24}/>
-                       </div>
-                       <div>
-                          <p className="text-[10px] font-black text-grey  uppercase tracking-widest transition-colors">{t('mechanic.satisfaction')}</p>
-                          <p className="text-xl font-black text-primary  transition-colors">{mechanicData?.satisfaction || 100}%</p>
-                       </div>
-                    </div>
-                    <div className="text-right">
-                       <span className="bg-accent/10 text-accent text-[8px] font-black px-2 py-1 rounded uppercase">Premium</span>
-                    </div>
-                 </div>
-              </div>
+                        <div className="bg-white text-black p-6 rounded-[2.5rem] shadow-sm border border-grey/5  flex justify-between items-center transition-colors">
+                           <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-white text-black shadow-sm border border-grey/10 rounded-2xl flex items-center justify-center text-primary  transition-colors">
+                                 <Activity size={24}/>
+                              </div>
+                              <div>
+                                 <p className="text-[10px] font-black text-grey  uppercase tracking-widest transition-colors">{t('mechanic.satisfaction')}</p>
+                                 <p className="text-xl font-black text-primary  transition-colors">{mechanicData?.satisfaction || 100}%</p>
+                              </div>
+                           </div>
+                           <div className="text-right">
+                              <span className="bg-accent/10 text-accent text-[8px] font-black px-2 py-1 rounded uppercase">Premium</span>
+                           </div>
+                        </div>
+                     </div>
+                   </motion.div>
+                 )}
+               </AnimatePresence>
             </motion.div>
           ) : (
             <motion.div key="work" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 overflow-y-auto pb-48">
@@ -959,7 +987,21 @@ export function MechanicHome() {
                      >
                         {i18n.language === 'it' ? 'EN' : 'IT'}
                      </button>
-                     <button onClick={() => signOut(auth)} className="bg-white/10 p-2 rounded-xl text-white transition-all hover:bg-white/20" title="Logout">
+                     <button onClick={async () => {
+                         if (auth.currentUser) {
+                             try {
+                               await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                                 isOnline: false,
+                                 lastLat: null,
+                                 lastLng: null,
+                                 updatedAt: serverTimestamp()
+                               });
+                             } catch (e) {
+                               console.error(e);
+                             }
+                         }
+                         signOut(auth);
+                     }} className="bg-white/10 p-2 rounded-xl text-white transition-all hover:bg-white/20" title="Logout">
                         <Power size={20}/>
                      </button>
                   </div>
@@ -1242,7 +1284,6 @@ export function MechanicHome() {
       <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-50 transition-all shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           <div className="flex-1 flex justify-around items-center">
-            <NavButton active={activeTab === 'STATS'} icon={<TrendingUp />} label={t('mechanic.stats')} onClick={() => setActiveTab('STATS')} />
             <NavButton active={activeTab === 'MAP'} icon={<MapIcon />} label="Mappa" onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />
             <NavButton active={activeTab === 'WORK'} icon={<Wrench />} 
               label={t('mechanic.work')} 

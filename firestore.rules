@@ -117,12 +117,12 @@ service cloud.firestore {
       // 2. User is joining a GROUP chat (only allowed to add themselves to participants)
       allow update: if isSignedIn() && (
         request.auth.uid in resource.data.participants ||
-        (existing().type == 'GROUP' && incoming().participants.hasAll(existing().participants) && incoming().participants.hasAll([request.auth.uid]))
+        ((!('type' in existing()) || existing().type == 'GROUP') && incoming().participants.hasAll(existing().participants) && incoming().participants.hasAll([request.auth.uid]))
       );
 
       match /messages/{msgId} {
-        allow read, create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow update: if isSignedIn() && request.auth.uid == existing().senderId;
+        allow read, create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
+        allow update: if isSignedIn() && request.auth.uid == existing().senderId || isAdmin();
       }
     }
 

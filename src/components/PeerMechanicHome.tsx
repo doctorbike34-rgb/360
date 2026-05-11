@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { 
   Wrench, 
@@ -263,7 +264,7 @@ export function PeerMechanicHome() {
         mechanicConfirmed: true,
         updatedAt: serverTimestamp()
       });
-      alert('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
+      toast.error('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
     } catch (err) {
       console.error('Error completing job:', err);
       handleFirestoreError(err, OperationType.UPDATE, `sosRequests/${jobId}`);
@@ -450,10 +451,10 @@ export function PeerMechanicHome() {
                                           updatedAt: serverTimestamp()
                                       }, { merge: true });
                                     });
-                                    alert(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
+                                    toast.error(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
                                 } catch(e: any) {
                                   if (e.message === 'SOS already accepted or invalid') {
-                                     alert("Questa richiesta SOS è già stata presa in carico da un altro utente.");
+                                     toast.error("Questa richiesta SOS è già stata presa in carico da un altro utente.");
                                   } else {
                                      handleFirestoreError(e, OperationType.UPDATE, `sosRequests/${job.id}`);
                                   }

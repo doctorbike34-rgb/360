@@ -14,7 +14,9 @@ import {
   onSnapshot, 
   serverTimestamp,
   increment,
-  arrayUnion
+  arrayUnion,
+  FieldPath,
+  deleteField
 } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { Send, Image as ImageIcon, Smile } from 'lucide-react';
@@ -22,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { soundService } from '../lib/sounds';
+import { fileToBase64 } from '../lib/fileUtils';
 
 interface Message {
   id: string;
@@ -66,25 +69,39 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
     useAuthStore.getState().setActiveChatId(chatId);
 
     // Reset unread count for current user when opening chat and keep it 0 if it changes
+    let messagesUnsubscribe: (() => void) | null = null;
+    let isReadyToListenToMessages = false;
+
     const chatDocRef = doc(db, collectionPath, chatId);
     const unsubChatDoc = onSnapshot(chatDocRef, (docSnap) => {
         if (docSnap.exists()) {
            const data = docSnap.data();
            
-           // Ensure user is in participants array to satisfy security rules 
-           // and show up in recent chats
            if (!isAdminSupport && data.participants && !data.participants.includes(user.uid)) {
               updateDoc(chatDocRef, {
                  participants: arrayUnion(user.uid)
+              }).then(() => {
+                 // Once added, the snapshot will fire again, so we don't need to do anything here
               }).catch(err => console.warn('Failed to add self to participants:', err));
+           } else {
+              isReadyToListenToMessages = true;
            }
 
            const nestedUnread = data.unreadCount?.[user.uid] || 0;
-           const flatUnread = data[`unreadCount.${user.uid}`] || 0;
-           if (nestedUnread > 0 || flatUnread > 0) {
+           const flatUnread = data[`unreadCount.${user.uid}`] || undefined;
+           
+           if (flatUnread !== undefined) {
+              // Delete the incorrectly created flat field
+              updateDoc(
+                chatDocRef, 
+                new FieldPath(`unreadCount.${user.uid}`), deleteField()
+              ).catch((e) => console.error('Failed to delete flat unread count', e));
+           }
+
+           if (nestedUnread > 0) {
               updateDoc(chatDocRef, {
                  [`unreadCount.${user.uid}`]: 0
-              }).catch(() => {});
+              }).catch((e) => console.error('Failed to reset unread count', e));
            }
         } else if (!isAdminSupport && chatId.startsWith('direct_')) {
            // Auto-create direct chat doc if it doesn't exist yet but we are opening it
@@ -97,52 +114,61 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
                updatedAt: serverTimestamp()
              }, { merge: true }).catch(err => console.warn('Failed to auto-create direct chat:', err));
            }
+        } else if (!isAdminSupport) {
+           // Auto-create group chat doc if it doesn't exist yet
+           setDoc(chatDocRef, {
+             participants: arrayUnion(user.uid),
+             type: 'GROUP',
+             createdAt: serverTimestamp(),
+             updatedAt: serverTimestamp()
+           }, { merge: true }).catch(err => console.warn('Failed to auto-create group chat:', err));
+        }
+
+        if (isAdminSupport) {
+          isReadyToListenToMessages = true;
+        }
+
+        // Attach messages listener once we know we are valid to read
+        if (isReadyToListenToMessages && !messagesUnsubscribe) {
+           const q = query(
+             collection(db, collectionPath, chatId, 'messages'),
+             orderBy('createdAt', 'asc')
+           );
+
+           messagesUnsubscribe = onSnapshot(q, (snapshot) => {
+             const msgs = snapshot.docs.map(doc => ({
+               id: doc.id,
+               ...doc.data()
+             })) as Message[];
+             
+             snapshot.docChanges().forEach(change => {
+               if (change.type === 'added') {
+                 const msgData = change.doc.data();
+                 if (msgData.senderId && msgData.senderId !== user?.uid) {
+                    const isRecent = msgData.createdAt?.seconds && (Date.now() / 1000 - msgData.createdAt.seconds < 10);
+                    if (isRecent && useAuthStore.getState().profile?.notificationsEnabled) {
+                      const role = useAuthStore.getState().role;
+                      soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
+                    }
+                 }
+               }
+             });
+
+             setMessages(msgs);
+           }, (error) => {
+             if (!auth.currentUser) {
+               console.warn('Expected Auth sync error during logout: ', error);
+             } else {
+               handleFirestoreError(error, OperationType.LIST, `${collectionPath}/${chatId}/messages`);
+             }
+           });
         }
     }, (error) => {
         handleFirestoreError(error, OperationType.GET, `${collectionPath}/${chatId}`);
     });
 
-    const q = query(
-      collection(db, collectionPath, chatId, 'messages'),
-      orderBy('createdAt', 'asc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Message[];
-      
-      // Play sound for new messages NOT from current user
-      snapshot.docChanges().forEach(change => {
-        if (change.type === 'added') {
-          const data = change.doc.data();
-          // Check if it's a new message (not initial load if we want to be strict, 
-          // but usually snapshots return initial state first)
-          // We check if it's from someone else
-          if (data.senderId && data.senderId !== user?.uid) {
-             // Only play if it's not the initial batch or if the timestamp is very recent
-             // but cleaner is to avoid playing on initial load if possible
-             const isRecent = data.createdAt?.seconds && (Date.now() / 1000 - data.createdAt.seconds < 10);
-             if (isRecent && useAuthStore.getState().profile?.notificationsEnabled) {
-               const role = useAuthStore.getState().role;
-               soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
-             }
-          }
-        }
-      });
-
-      setMessages(msgs);
-    }, (error) => {
-      if (!auth.currentUser) {
-        console.warn('Expected Auth sync error during logout: ', error);
-      } else {
-        handleFirestoreError(error, OperationType.LIST, `${collectionPath}/${chatId}/messages`);
-      }
-    });
-
     return () => {
-       unsubscribe();
+       if (messagesUnsubscribe) messagesUnsubscribe();
        unsubChatDoc();
        useAuthStore.getState().setActiveChatId(null);
     };
@@ -219,7 +245,15 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
         }
         await updateDoc(docRef, updates);
       }
+    } catch (chatUpdateErr) {
+      console.error("Chat document update error:", chatUpdateErr);
+      handleFirestoreError(chatUpdateErr, OperationType.WRITE, `${collectionPath}/${chatId}`);
+      setIsSending(false);
+      setNewMessage(msgContent);
+      return;
+    }
 
+    try {
       // 2. Now send the message doc
       const msgData = {
         senderId: user?.uid,
@@ -268,81 +302,77 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
         compressedFile = file;
       }
       
-      const reader = new (window as any).FileReader();
-      reader.onloadend = async () => {
-         const base64string = reader.result as string;
-         setUploadProgress(null);
+      const base64string = await fileToBase64(compressedFile);
+      setUploadProgress(null);
 
-         try {
-           // 1. Ensure the parent chat document exists and user is participant BEFORE sending message
-           const docRef = doc(db, collectionPath, chatId);
-           const docSnap = await getDoc(docRef);
-           
-           const updates: Record<string, unknown> = {
-             lastMessage: '📷 Foto',
-             updatedAt: serverTimestamp(),
-             lastMessageAt: serverTimestamp()
-           };
+      try {
+        // 1. Ensure the parent chat document exists and user is participant BEFORE sending message
+        const docRef = doc(db, collectionPath, chatId);
+        const docSnap = await getDoc(docRef);
+        
+        const updates: Record<string, unknown> = {
+          lastMessage: '📷 Foto',
+          updatedAt: serverTimestamp(),
+          lastMessageAt: serverTimestamp()
+        };
 
-           if (!docSnap.exists()) {
-             if (chatId.startsWith('direct_') && !isAdminSupport) {
-               const parts = chatId.replace('direct_', '').split('_');
-               updates.participants = parts;
-               updates.participantCount = 2;
-               updates.type = 'DIRECT';
-               updates.createdAt = serverTimestamp();
-               
-               const otherUserId = parts.find(id => id !== user?.uid);
-               if (otherUserId) {
-                 updates.unreadCount = { [otherUserId]: 1 };
-               }
-             } else if (!isAdminSupport) {
-               updates.participants = [user.uid];
-               updates.type = 'GROUP';
-               updates.createdAt = serverTimestamp();
-             }
-             await setDoc(docRef, updates, { merge: true });
-           } else {
-             const data = docSnap.data();
-             if (!isAdminSupport) {
-               const participants = data.participants || [];
-               if (!participants.includes(user.uid)) {
-                 updates.participants = arrayUnion(user.uid);
-               }
-               
-               participants.forEach((pId: string) => {
-                 if (pId !== user?.uid) {
-                   updates[`unreadCount.${pId}`] = increment(1);
-                 }
-               });
-             }
-             await updateDoc(docRef, updates);
-           }
+        if (!docSnap.exists()) {
+          if (chatId.startsWith('direct_') && !isAdminSupport) {
+            const parts = chatId.replace('direct_', '').split('_');
+            updates.participants = parts;
+            updates.participantCount = 2;
+            updates.type = 'DIRECT';
+            updates.createdAt = serverTimestamp();
+            
+            const otherUserId = parts.find(id => id !== user?.uid);
+            if (otherUserId) {
+              updates.unreadCount = { [otherUserId]: 1 };
+            }
+          } else if (!isAdminSupport) {
+            updates.participants = [user.uid];
+            updates.type = 'GROUP';
+            updates.createdAt = serverTimestamp();
+          }
+          await setDoc(docRef, updates, { merge: true });
+        } else {
+          const data = docSnap.data();
+          if (!isAdminSupport) {
+            const participants = data.participants || [];
+            if (!participants.includes(user.uid)) {
+              updates.participants = arrayUnion(user.uid);
+            }
+            
+            participants.forEach((pId: string) => {
+              if (pId !== user?.uid) {
+                updates[`unreadCount.${pId}`] = increment(1);
+              }
+            });
+          }
+          await updateDoc(docRef, updates);
+        }
+      } catch (chatUpdateErr) {
+        console.error("Chat document update error during photo upload:", chatUpdateErr);
+        handleFirestoreError(chatUpdateErr, OperationType.WRITE, `${collectionPath}/${chatId}`);
+        setIsSending(false);
+        return;
+      }
 
-           const msgData = {
-             senderId: user?.uid,
-             senderName: user?.displayName || 'Utente',
-             content: base64string,
-             type: 'IMAGE',
-             createdAt: serverTimestamp(),
-           };
+      try {
+        const msgData = {
+          senderId: user?.uid,
+          senderName: user?.displayName || 'Utente',
+          content: base64string,
+          type: 'IMAGE',
+          createdAt: serverTimestamp(),
+        };
 
-           await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
-         } catch (sendErr) {
-           console.error("Photo message send error:", sendErr);
-           handleFirestoreError(sendErr, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
-         } finally {
-           setIsSending(false);
-         }
-      };
-      
-      reader.onerror = () => {
-         console.error("Reader failed");
-         setUploadProgress(null);
-         setIsSending(false);
-      };
-      
-      reader.readAsDataURL(compressedFile);
+        await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+      } catch (sendErr) {
+        console.error("Photo message send error:", sendErr);
+        handleFirestoreError(sendErr, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
+      } finally {
+        setIsSending(false);
+      }
       
     } catch (error) {
       console.error('Image compression or upload error:', error);

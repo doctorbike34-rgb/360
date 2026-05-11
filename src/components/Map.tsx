@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -61,7 +62,7 @@ function MechanicPopup({ mechanic, onStartChat, t, sos, currentUserRole, current
       });
     } catch (e) {
       console.error('Failed to accept SOS', e);
-      alert(t('common.error') + ': Impossibile accettare SOS');
+      toast.error(t('common.error') + ': Impossibile accettare SOS');
     } finally {
       setIsAccepting(false);
     }
@@ -318,7 +319,16 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       unsubUsers = onSnapshot(qUsers, (snapshot) => {
         const users = snapshot.docs
           .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter((u: any) => u.lastLat && u.lastLng && u.id !== currentUser?.uid)
+          .filter((u: any) => {
+             if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid) return false;
+             
+             // Strict cleanup: if haven't pinged in 15 minutes, hide from map
+             const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : (u.lastSeenAt?.seconds ? u.lastSeenAt.seconds * 1000 : 0);
+             const now = Date.now();
+             const isRecent = (now - lastSeen) < (15 * 60 * 1000);
+             
+             return isRecent;
+          })
           .sort((a: any, b: any) => {
             const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
             const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);

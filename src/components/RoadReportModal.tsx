@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, MapPin as MapIcon, Image as ImageIcon, CheckCircle2, Loader2, AlertTriangle, Route, Navigation2, LogIn } from 'lucide-react';
@@ -7,6 +8,7 @@ import imageCompression from 'browser-image-compression';
 import { useAuthStore } from '../store/useAuthStore';
 import { roadReportService } from '../services/roadReportService';
 import { useTranslation } from 'react-i18next';
+import { fileToBase64 } from '../lib/fileUtils';
 
 // Fix for Leaflet default icons in Vite
 const icon = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';
@@ -112,7 +114,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (file.size > 10 * 1024 * 1024) {
-        alert('File troppo grande (max 10MB).');
+        toast.error('File troppo grande (max 10MB).');
         return;
       }
       
@@ -138,20 +140,14 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
           compressedFile = file;
         }
         
-        const reader = new (window as any).FileReader();
-        reader.onloadend = () => {
-           setPhotoPreview(reader.result as string);
-           setIsPhotoUploading(false);
-        };
-        reader.onerror = () => {
-           setIsPhotoUploading(false);
-           alert("Errore durante la lettura dell'immagine.");
-        };
-        reader.readAsDataURL(compressedFile);
+        const base64string = await fileToBase64(compressedFile);
+        setPhotoPreview(base64string);
+        setIsPhotoUploading(false);
+
         
       } catch (error: any) {
          console.error('Image compression error:', error);
-         alert("Errore durante l'ottimizzazione della foto: " + (error.message || "Riprova tra poco."));
+         toast.error("Errore durante l'ottimizzazione della foto: " + (error.message || "Riprova tra poco."));
          setIsPhotoUploading(false);
       } finally {
          if (fileInputRef.current) fileInputRef.current.value = '';
@@ -205,29 +201,29 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
         async () => {
           const ipSuccess = await tryIPFallback();
           if (!ipSuccess) {
-            alert("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
+            toast.error("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
           }
         },
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
     } else {
       tryIPFallback().then(success => {
-        if (!success) alert("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
+        if (!success) toast.error("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
       });
     }
   };
 
   const handleSubmit = async () => {
     if (!user) {
-      alert('Devi essere loggato per inviare una segnalazione');
+      toast.error('Devi essere loggato per inviare una segnalazione');
       return;
     }
     if (!category || !severity || !description) {
-      alert('Tutti i campi (categoria, gravità, descrizione) sono obbligatori');
+      toast.error('Tutti i campi (categoria, gravità, descrizione) sono obbligatori');
       return;
     }
     if (!pos) {
-      alert('Posizione non disponibile. Muovi la mappa per selezionare un punto.');
+      toast.error('Posizione non disponibile. Muovi la mappa per selezionare un punto.');
       return;
     }
 
@@ -245,7 +241,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
       setStep(4);
     } catch (e: any) {
       console.error('Submission failed:', e);
-      alert('Errore durante l\'invio: ' + (e.message || 'Riprova più tardi'));
+      toast.error('Errore durante l\'invio: ' + (e.message || 'Riprova più tardi'));
     } finally {
       setIsSubmitting(false);
     }

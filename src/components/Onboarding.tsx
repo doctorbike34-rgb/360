@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -217,7 +218,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       return false; 
     } catch (err: any) {
       console.error('Error creating payment intent:', err);
-      alert('Errore inizializzazione pagamento: ' + err.message);
+      toast.error('Errore inizializzazione pagamento: ' + err.message);
       setIsFinishing(false);
       return false;
     }
@@ -227,13 +228,13 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
     if (step < activeSteps.length - 1) {
       if (activeSteps[step].id === 'gdpr') {
         if (!consents.privacyPolicy || !consents.termsOfService || !consents.dataProcessing) {
-          alert('Per favore accetta i termini obbligatori per continuare.');
+          toast.error('Per favore accetta i termini obbligatori per continuare.');
           return;
         }
       }
       if (profile?.role === 'MECHANIC' && activeSteps[step].id === 'plan') {
         if (!selectedPlan) {
-          alert('Seleziona un piano o usa "Scopri l\'app" per continuare senza andare online.');
+          toast.error('Seleziona un piano o usa "Scopri l\'app" per continuare senza andare online.');
           return;
         }
         setConfirmingPlan(selectedPlan);
@@ -241,7 +242,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       }
       if (profile?.role === 'PEER_MECHANIC' && activeSteps[step].id === 'peerSkills') {
          if (peerSkills.length === 0) {
-             alert('Seleziona almeno una competenza.');
+             toast.error('Seleziona almeno una competenza.');
              return;
          }
       }
