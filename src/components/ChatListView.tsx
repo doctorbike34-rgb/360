@@ -58,7 +58,9 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const unreadCount = chat.unreadCount?.[currentUserId] || 0;
+  const nestedUnread = chat.unreadCount?.[currentUserId] || 0;
+  const flatUnread = chat[`unreadCount.${currentUserId}`] || 0;
+  const unreadCount = nestedUnread + flatUnread;
 
   return (
     <motion.button 
@@ -77,9 +79,9 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
         <div className="absolute -bottom-1 -right-1 bg-primary text-white p-1.5 rounded-xl border-2 border-white  shadow-sm">
           {icon}
         </div>
-        {chat.unreadCount?.[currentUserId] > 0 && (
+        {unreadCount > 0 && (
           <div className="absolute -top-1 -right-1 bg-danger text-white text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-md animate-bounce">
-            {chat.unreadCount[currentUserId]}
+            {unreadCount}
           </div>
         )}
       </div>

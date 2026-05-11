@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, MapPin as MapIcon, Image as ImageIcon, CheckCircle2, Loader2, AlertTriangle, Route, Navigation2, LogIn } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import imageCompression from 'browser-image-compression';
 import { useAuthStore } from '../store/useAuthStore';
 import { roadReportService } from '../services/roadReportService';
 import { useTranslation } from 'react-i18next';
@@ -117,8 +118,6 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
       
       setIsPhotoUploading(true);
       try {
-        const imageCompression = (await import('browser-image-compression')).default;
-
         const options = {
           maxSizeMB: 0.4,
           maxWidthOrHeight: 800,
@@ -126,7 +125,18 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
           fileType: 'image/jpeg'
         };
         
-        const compressedFile = await imageCompression(file, options);
+        let compressedFile: File | Blob = file;
+        try {
+          if (typeof imageCompression === 'function') {
+            compressedFile = await imageCompression(file, options);
+          } else if (imageCompression && (imageCompression as any).default && typeof (imageCompression as any).default === 'function') {
+            compressedFile = await (imageCompression as any).default(file, options);
+          }
+        } catch (compressErr) {
+          console.error('Compression failed, using original:', compressErr);
+          // Fallback to original if compression library fails
+          compressedFile = file;
+        }
         
         const reader = new FileReader();
         reader.onloadend = () => {

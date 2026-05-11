@@ -43,6 +43,8 @@ function MechanicPopup({ mechanic, onStartChat, t, sos, currentUserRole, current
         setAvgRating(null);
         setReviewCount(0);
       }
+    }, (error) => {
+       handleFirestoreError(error, OperationType.LIST, `reviews for mechanic ${mechanic.id}`);
     });
     return () => unsub();
   }, [mechanic.id]);

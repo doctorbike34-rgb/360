@@ -13,7 +13,8 @@ import {
   orderBy, 
   onSnapshot, 
   serverTimestamp,
-  increment 
+  increment,
+  arrayUnion
 } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { Send, Image as ImageIcon, Smile } from 'lucide-react';
@@ -68,12 +69,35 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
     const unsubChatDoc = onSnapshot(doc(db, collectionPath, chatId), (docSnap) => {
         if (docSnap.exists()) {
            const data = docSnap.data();
+           
+           // CRITICAL FIX: Ensure user is in participants array to satisfy security rules 
+           // and show up in recent chats
+           if (!isAdminSupport && data.participants && !data.participants.includes(user.uid)) {
+              console.log('User not in participants, adding...');
+              updateDoc(doc(db, collectionPath, chatId), {
+                 participants: arrayUnion(user.uid)
+              }).catch(err => console.warn('Failed to add self to participants:', err));
+           }
+
            if ((data.unreadCount?.[user.uid] || 0) > 0) {
               updateDoc(doc(db, collectionPath, chatId), {
                  [`unreadCount.${user.uid}`]: 0
               }).catch(() => {});
            }
+        } else if (!isAdminSupport && chatId.startsWith('direct_')) {
+           // Auto-create direct chat doc if it doesn't exist yet but we are opening it
+           const parts = chatId.replace('direct_', '').split('_');
+           if (parts.includes(user.uid)) {
+             setDoc(doc(db, collectionPath, chatId), {
+               participants: parts,
+               type: 'DIRECT',
+               createdAt: serverTimestamp(),
+               updatedAt: serverTimestamp()
+             }, { merge: true }).catch(err => console.warn('Failed to auto-create direct chat:', err));
+           }
         }
+    }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `${collectionPath}/${chatId}`);
     });
 
     const q = query(
@@ -142,6 +166,59 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
     setShowEmojiPicker(false);
     
     try {
+      // 1. Ensure the parent chat document exists and user is participant BEFORE sending message
+      // This satisfies the security rule that requires being in participants of the parent.
+      const docRef = doc(db, collectionPath, chatId);
+      const docSnap = await getDoc(docRef);
+      
+      const updates: Record<string, unknown> = {
+        lastMessage: msgContent,
+        updatedAt: serverTimestamp(),
+        lastMessageAt: serverTimestamp()
+      };
+
+      if (!docSnap.exists()) {
+        if (chatId.startsWith('direct_') && !isAdminSupport) {
+          const parts = chatId.replace('direct_', '').split('_');
+          updates.participants = parts;
+          updates.participantCount = 2;
+          updates.type = 'DIRECT';
+          updates.createdAt = serverTimestamp();
+          
+          const otherUserId = parts.find(id => id !== user?.uid);
+          if (otherUserId) {
+            updates.unreadCount = { [otherUserId]: 1 };
+          }
+        } else if (!isAdminSupport) {
+          // It's a group/event chat that doesn't exist yet
+          updates.participants = [user.uid];
+          updates.type = 'GROUP';
+          updates.createdAt = serverTimestamp();
+        }
+        await setDoc(docRef, updates, { merge: true });
+      } else {
+        // Doc exists, ensure we are in participants if not already
+        const data = docSnap.data();
+        if (!isAdminSupport) {
+          const participants = data.participants || [];
+          if (!participants.includes(user.uid)) {
+            updates.participants = arrayUnion(user.uid);
+          }
+          
+          participants.forEach((pId: string) => {
+            if (pId !== user?.uid) {
+              updates[`unreadCount.${pId}`] = increment(1);
+            }
+          });
+          // Also handle participants that might be added just now
+          if (updates.participants && user.uid) {
+             // current user won't get unread anyway due to logic above
+          }
+        }
+        await updateDoc(docRef, updates);
+      }
+
+      // 2. Now send the message doc
       const msgData = {
         senderId: user?.uid,
         senderName: user?.displayName || 'Utente',
@@ -150,61 +227,15 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
         createdAt: serverTimestamp(),
       };
 
-      // Do NOT await addDoc immediately to unblock UI
-      // We run the Firestore writing asynchronously
-      const sendPromise = async () => {
-         await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
-         
-         const docRef = doc(db, collectionPath, chatId);
-         const docSnap = await getDoc(docRef);
-         
-         const updates: Record<string, unknown> = {
-           lastMessage: msgContent,
-           updatedAt: serverTimestamp(),
-           lastMessageAt: serverTimestamp()
-         };
-
-         if (!docSnap.exists() && chatId.startsWith('direct_') && !isAdminSupport) {
-            const parts = chatId.replace('direct_', '').split('_');
-            updates.participants = parts;
-            updates.participantCount = 2;
-            updates.type = 'DIRECT';
-            updates.createdAt = serverTimestamp();
-         }
-
-         if (docSnap.exists()) {
-           const data = docSnap.data();
-           if (!isAdminSupport) {
-             const participants = data.participants || [];
-             participants.forEach((pId: string) => {
-               if (pId !== user?.uid) {
-                 updates[`unreadCount.${pId}`] = increment(1);
-               }
-             });
-           }
-           await updateDoc(docRef, updates);
-         } else {
-            if (chatId.startsWith('direct_') && !isAdminSupport) {
-               const parts = chatId.replace('direct_', '').split('_');
-               const otherUserId = parts.find(id => id !== user?.uid);
-               if (otherUserId) {
-                  updates.unreadCount = { [otherUserId]: 1 };
-               }
-            }
-            await setDoc(docRef, updates, { merge: true });
-         }
-      };
-
-      sendPromise().catch(err => {
-         console.warn("Message send error:", err);
-         // You could potentially add error handling or a retry mechanism here
-      }).finally(() => {
-         setIsSending(false);
-      });
+      await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+      setIsSending(false);
       
     } catch (err) {
+      console.error('SendMessage error:', err);
       handleFirestoreError(err, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
       setIsSending(false);
+      // Restore message to input if it failed? (Optional)
+      setNewMessage(msgContent);
     }
   };
 
@@ -223,73 +254,88 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
         fileType: 'image/jpeg'
       };
       
-      const compressedFile = await imageCompression(file, options);
+      let compressedFile: File | Blob = file;
+      try {
+        if (typeof imageCompression === 'function') {
+          compressedFile = await imageCompression(file, options);
+        } else if (imageCompression && (imageCompression as any).default && typeof (imageCompression as any).default === 'function') {
+          compressedFile = await (imageCompression as any).default(file, options);
+        }
+      } catch (compressErr) {
+        console.error('Compression failed, using original:', compressErr);
+        compressedFile = file;
+      }
       
       const reader = new FileReader();
       reader.onloadend = async () => {
          const base64string = reader.result as string;
          setUploadProgress(null);
 
-         const msgData = {
-           senderId: user?.uid,
-           senderName: user?.displayName || 'Utente',
-           content: base64string,
-           type: 'IMAGE',
-           createdAt: serverTimestamp(),
-         };
+         try {
+           // 1. Ensure the parent chat document exists and user is participant BEFORE sending message
+           const docRef = doc(db, collectionPath, chatId);
+           const docSnap = await getDoc(docRef);
+           
+           const updates: Record<string, unknown> = {
+             lastMessage: '📷 Foto',
+             updatedAt: serverTimestamp(),
+             lastMessageAt: serverTimestamp()
+           };
 
-         const sendPromise = async () => {
-             await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
-             
-             const docRef = doc(db, collectionPath, chatId);
-             const docSnap = await getDoc(docRef);
-             
-             const updates: Record<string, unknown> = {
-               lastMessage: '📷 Foto',
-               updatedAt: serverTimestamp(),
-               lastMessageAt: serverTimestamp()
-             };
-
-             if (!docSnap.exists() && chatId.startsWith('direct_') && !isAdminSupport) {
-                const parts = chatId.replace('direct_', '').split('_');
-                updates.participants = parts;
-                updates.participantCount = 2;
-                updates.type = 'DIRECT';
-                updates.createdAt = serverTimestamp();
-             }
-
-             if (docSnap.exists()) {
-               const data = docSnap.data();
-               if (!isAdminSupport) {
-                 const participants = data.participants || [];
-                 participants.forEach((pId: string) => {
-                   if (pId !== user?.uid) {
-                     updates[`unreadCount.${pId}`] = increment(1);
-                   }
-                 });
+           if (!docSnap.exists()) {
+             if (chatId.startsWith('direct_') && !isAdminSupport) {
+               const parts = chatId.replace('direct_', '').split('_');
+               updates.participants = parts;
+               updates.participantCount = 2;
+               updates.type = 'DIRECT';
+               updates.createdAt = serverTimestamp();
+               
+               const otherUserId = parts.find(id => id !== user?.uid);
+               if (otherUserId) {
+                 updates.unreadCount = { [otherUserId]: 1 };
                }
-               await updateDoc(docRef, updates);
-             } else {
-                if (chatId.startsWith('direct_') && !isAdminSupport) {
-                   const parts = chatId.replace('direct_', '').split('_');
-                   const otherUserId = parts.find(id => id !== user?.uid);
-                   if (otherUserId) {
-                      updates.unreadCount = { [otherUserId]: 1 };
-                   }
-                }
-                await setDoc(docRef, updates, { merge: true });
+             } else if (!isAdminSupport) {
+               updates.participants = [user.uid];
+               updates.type = 'GROUP';
+               updates.createdAt = serverTimestamp();
              }
-          };
+             await setDoc(docRef, updates, { merge: true });
+           } else {
+             const data = docSnap.data();
+             if (!isAdminSupport) {
+               const participants = data.participants || [];
+               if (!participants.includes(user.uid)) {
+                 updates.participants = arrayUnion(user.uid);
+               }
+               
+               participants.forEach((pId: string) => {
+                 if (pId !== user?.uid) {
+                   updates[`unreadCount.${pId}`] = increment(1);
+                 }
+               });
+             }
+             await updateDoc(docRef, updates);
+           }
 
-          sendPromise().catch(err => {
-             console.warn("Message send error:", err);
-          }).finally(() => {
-             setIsSending(false);
-          });
+           const msgData = {
+             senderId: user?.uid,
+             senderName: user?.displayName || 'Utente',
+             content: base64string,
+             type: 'IMAGE',
+             createdAt: serverTimestamp(),
+           };
+
+           await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+         } catch (sendErr) {
+           console.error("Photo message send error:", sendErr);
+           handleFirestoreError(sendErr, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
+         } finally {
+           setIsSending(false);
+         }
       };
       
       reader.onerror = () => {
-         console.error("Upload failed");
+         console.error("Reader failed");
          setUploadProgress(null);
          setIsSending(false);
       };

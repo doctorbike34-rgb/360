@@ -293,7 +293,9 @@ export function CyclistHome() {
       setRecentChats(chats);
       
       const totalUnread = chats.reduce((acc, chat: any) => {
-        return acc + (chat.unreadCount?.[user?.uid] || 0);
+        const nestedUnread = chat.unreadCount?.[user?.uid] || 0;
+        const flatUnread = chat[`unreadCount.${user?.uid}`] || 0;
+        return acc + nestedUnread + flatUnread;
       }, 0);
       setUnreadCount(totalUnread);
     }, (error) => {

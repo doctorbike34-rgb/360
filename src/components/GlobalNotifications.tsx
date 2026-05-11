@@ -49,6 +49,20 @@ export function GlobalNotifications() {
                 type: 'info',
                 icon: <MessageCircle size={20} />
               });
+
+              // Play Sound if enabled
+              if (profile?.notificationsEnabled) {
+                const role = useAuthStore.getState().role;
+                soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
+              }
+
+              // Browser Notification
+              if ('Notification' in window && Notification.permission === 'granted') {
+                 new Notification(title, {
+                   body,
+                   icon: '/pwa-192x192.png'
+                 });
+              }
             }
           }
 
