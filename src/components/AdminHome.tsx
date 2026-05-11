@@ -164,12 +164,26 @@ export function AdminHome() {
             const netAmount = price - fee;
             
             if (mechanicUserSnap.exists()) {
-              const userUpdates: any = { balance: increment(netAmount) };
+              const txRef = doc(collection(db, 'transactions'));
+              const userUpdates: any = { 
+                  balance: increment(netAmount),
+                  lastTxId: txRef.id
+              };
               if (mechanicUserSnap.data()?.role === 'PEER_MECHANIC') {
                   userUpdates.peerMechanicEarnings = increment(netAmount);
                   userUpdates.peerMechanicJobsCompleted = increment(1);
               }
               transaction.update(mechRef, userUpdates);
+              
+              transaction.set(txRef, {
+                  fromId: 'ESCROW',
+                  toId: jobData.mechanicId,
+                  amount: netAmount,
+                  currency: 'DoctorBike Coin',
+                  createdAt: serverTimestamp(),
+                  type: 'ADMIN_DISPUTE_RELEASE',
+                  fee: fee
+              });
             }
             
             if (mechStatsSnap.exists()) {
@@ -218,7 +232,19 @@ export function AdminHome() {
             const cyclistRef = doc(db, 'users', jobData.cyclistId);
             const cyclistSnap = await transaction.get(cyclistRef);
             if (cyclistSnap.exists()) {
-              transaction.update(cyclistRef, { balance: increment(price) });
+              const txRef = doc(collection(db, 'transactions'));
+              transaction.update(cyclistRef, { 
+                  balance: increment(price),
+                  lastTxId: txRef.id
+              });
+              transaction.set(txRef, {
+                  fromId: 'ESCROW',
+                  toId: jobData.cyclistId,
+                  amount: price,
+                  currency: 'DoctorBike Coin',
+                  createdAt: serverTimestamp(),
+                  type: 'ADMIN_DISPUTE_REFUND'
+              });
             }
           }
           

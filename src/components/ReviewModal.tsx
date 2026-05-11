@@ -75,9 +75,11 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
         });
 
         // Add funds to mechanic (net amount)
+        const txRef = doc(collection(db, 'transactions'));
         const userUpdates: any = {
           balance: increment(netAmount),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastTxId: txRef.id
         };
         // Update peer mechanic if applicable
         if (mechanicUserSnap.data()?.role === 'PEER_MECHANIC') {
@@ -85,6 +87,16 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
             userUpdates.peerMechanicJobsCompleted = increment(1);
         }
         transaction.update(mechanicUserRef, userUpdates);
+        
+        transaction.set(txRef, {
+            fromId: 'ESCROW',
+            toId: mechanicId,
+            amount: netAmount,
+            currency: 'DoctorBike Coin',
+            createdAt: serverTimestamp(),
+            type: 'SOS_PAYMENT_RELEASE',
+            fee: fee
+        });
 
         // Add fee to platform stats
         if (platformSnap.exists()) {

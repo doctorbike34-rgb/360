@@ -186,62 +186,67 @@ export function Auth() {
         const isAdmin = data.email.toLowerCase() === 'doctorbike34@gmail.com';
         const finalRole = isAdmin ? 'ADMIN' : (data.role || 'CYCLIST');
         
-        await setDoc(doc(db, 'users', finalUser.uid), {
-          uid: finalUser.uid,
-          email: data.email,
-          name: data.name || finalUser.email?.split('@')[0] || 'Utente',
-          role: finalRole,
-          plan: finalRole === 'CYCLIST' || finalRole === 'PEER_MECHANIC' ? 'BASE' : (finalRole === 'ADMIN' ? 'CLUB' : 'MECHANIC_FREE'),
-          presenceStatus: 'OFFLINE',
-          visibility: 'EVERYONE',
-          createdAt: serverTimestamp(),
-          balance: finalRole === 'CYCLIST' ? 10 : 0,
-          hasWelcomeGift: finalRole === 'CYCLIST',
-          firstInterventionDiscount: finalRole === 'CYCLIST' ? 0.5 : 0,
-          sosPrice: finalRole === 'MECHANIC' ? 15 : null,
-          isOnline: true,
-          // Gamification
-          points: 0,
-          badges: [],
-          weeklyPoints: 0,
-          // Peer Mechanic defaults
-          ...(finalRole === 'PEER_MECHANIC' && {
-            peerMechanicEnabled: true,
-            peerMechanicRate: 10,
-            peerMechanicRadius: 10000, // 10km in meters maybe? Actually let's use 10 for km as per prompt
-            peerMechanicSkills: ['Foratura', 'Catena'],
-            peerMechanicEarnings: 0,
-            peerMechanicJobsCompleted: 0,
-          })
-        }).catch(e => {
-          handleFirestoreError(e, OperationType.WRITE, `users/${finalUser?.uid}`);
-        });
+        const userRef = doc(db, 'users', finalUser.uid);
+        const userDoc = await getDoc(userRef);
 
-        if (isAdmin) {
-          await setDoc(doc(db, 'admins', finalUser.uid), {
+        if (!userDoc.exists()) {
+          await setDoc(userRef, {
             uid: finalUser.uid,
-            email: finalUser.email,
-            updatedAt: serverTimestamp()
-          }, { merge: true }).catch(() => {});
-        }
-        
-        if (finalRole === 'MECHANIC') {
-          await setDoc(doc(db, 'mechanics', finalUser.uid), {
-            userId: finalUser.uid,
-            businessName: (data.name || finalUser.email?.split('@')[0] || 'Auto') + ' Repairs',
-            radius: 5000,
-            isAvailable: true,
-            completedJobs: 0,
-            avgRating: 5.0,
-            totalEarnings: 0,
-            hoursOnline: 0,
-            satisfaction: 100,
+            email: data.email,
+            name: data.name || finalUser.email?.split('@')[0] || 'Utente',
+            role: finalRole,
+            plan: finalRole === 'CYCLIST' || finalRole === 'PEER_MECHANIC' ? 'BASE' : (finalRole === 'ADMIN' ? 'CLUB' : 'MECHANIC_FREE'),
+            presenceStatus: 'OFFLINE',
+            visibility: 'EVERYONE',
+            createdAt: serverTimestamp(),
+            balance: finalRole === 'CYCLIST' ? 10 : 0,
+            hasWelcomeGift: finalRole === 'CYCLIST',
+            firstInterventionDiscount: finalRole === 'CYCLIST' ? 0.5 : 0,
+            sosPrice: finalRole === 'MECHANIC' ? 15 : null,
+            isOnline: true,
+            // Gamification
+            points: 0,
+            badges: [],
+            weeklyPoints: 0,
+            // Peer Mechanic defaults
+            ...(finalRole === 'PEER_MECHANIC' && {
+              peerMechanicEnabled: true,
+              peerMechanicRate: 10,
+              peerMechanicRadius: 10, // 10km
+              peerMechanicSkills: ['Foratura', 'Catena'],
+              peerMechanicEarnings: 0,
+              peerMechanicJobsCompleted: 0,
+            })
           }).catch(e => {
-            handleFirestoreError(e, OperationType.WRITE, `mechanics/${finalUser.uid}`);
+            handleFirestoreError(e, OperationType.WRITE, `users/${finalUser?.uid}`);
           });
+
+          if (isAdmin) {
+            await setDoc(doc(db, 'admins', finalUser.uid), {
+              uid: finalUser.uid,
+              email: finalUser.email,
+              updatedAt: serverTimestamp()
+            }, { merge: true }).catch(() => {});
+          }
+          
+          if (finalRole === 'MECHANIC') {
+            await setDoc(doc(db, 'mechanics', finalUser.uid), {
+              userId: finalUser.uid,
+              businessName: (data.name || finalUser.email?.split('@')[0] || 'Auto') + ' Repairs',
+              radius: 5000,
+              isAvailable: true,
+              completedJobs: 0,
+              avgRating: 5.0,
+              totalEarnings: 0,
+              hoursOnline: 0,
+              satisfaction: 100,
+            }).catch(e => {
+              handleFirestoreError(e, OperationType.WRITE, `mechanics/${finalUser.uid}`);
+            });
+          }
         }
         
-        setRole(finalRole);
+        setRole(userDoc.exists() ? userDoc.data().role : finalRole);
       }
     } catch (err) {
       console.error(err);

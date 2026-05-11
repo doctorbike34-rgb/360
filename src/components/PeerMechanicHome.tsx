@@ -130,9 +130,20 @@ export function PeerMechanicHome() {
         if (data.status !== 'ACCEPTED') return;
 
         // Refund cyclist
+        const txRef = doc(collection(db, 'transactions'));
         transaction.update(userRef, {
           balance: increment(estimatedPrice || 15.00),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastTxId: txRef.id
+        });
+        
+        transaction.set(txRef, {
+            fromId: 'ESCROW',
+            toId: data.cyclistId,
+            amount: estimatedPrice || 15.00,
+            currency: 'DoctorBike Coin',
+            createdAt: serverTimestamp(),
+            type: 'SOS_REFUND_TIMEOUT_MECHANIC'
         });
         
         transaction.update(sosRef, {

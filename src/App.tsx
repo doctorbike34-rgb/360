@@ -22,7 +22,7 @@ import { AIBikeDoctor } from './components/AIBikeDoctor';
 import { AIPrompt } from './components/AIPrompt';
 import { Onboarding } from './components/Onboarding';
 import { EmailVerificationGuard } from './components/EmailVerificationGuard';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
 
 console.time('AppBoot');
 
@@ -489,7 +489,7 @@ export default function App() {
                                   setLocationPermissionError(false);
                                   return;
                                 } else {
-                                  alert("Città non trovata. Riprova.");
+                                  toast.error("Città non trovata. Riprova.");
                                 }
                               } catch(err) {}
                               e.currentTarget.disabled = false;

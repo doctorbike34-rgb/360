@@ -67,12 +67,34 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isOwner(userId) || isAdmin();
-      // Users can modify themselves, but cannot give themselves ADMIN. 
-      // Other users can ONLY modify transaction-related fields for app features.
+      
+      // Security Logic:
+      // - Normal updates: Owners can update their profile (except role, balance, lastTxId, peerMechanicEarnings).
+      // - Sent P2P: Owner can update balance + lastTxId IF their balance decreases and a valid transaction is created.
+      // - Receive P2P: Any user can update another's balance + lastTxId IF their balance increases and a valid transaction is created.
+      // - Admin has full control.
       allow update: if isAdmin() || (
-        isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['role']) || incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC'])
+        isOwner(userId) && (
+          // Normal profile update
+          (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'balance', 'lastTxId', 'peerMechanicEarnings']) || (incoming().diff(existing()).affectedKeys().hasOnly(['role']) && incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC']))
+          ||
+          // Balance change (Send P2P, TopUp, Escrow Refund, etc.)
+          (
+             incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) &&
+             incoming().lastTxId is string &&
+             existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId))
+          )
+        )
       ) || (
-        isSignedIn() && (!isOwner(userId)) && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'peerMechanicEarnings', 'peerMechanicJobsCompleted', 'points', 'weeklyPoints', 'badges'])
+        // Receive P2P or Escrow Release
+        isSignedIn() && (!isOwner(userId)) && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'peerMechanicEarnings', 'peerMechanicJobsCompleted', 'points', 'weeklyPoints', 'badges']) &&
+          (incoming().diff(existing()).affectedKeys().hasAny(['balance', 'lastTxId']) ? (
+              incoming().get('balance', 0) > existing().get('balance', 0) &&
+              incoming().lastTxId is string &&
+              existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId))
+          ) : true)
+        )
       );
       allow delete: if isAdmin();
     }
@@ -158,8 +180,27 @@ service cloud.firestore {
     }
 
     match /transactions/{txId} {
+       // Users can read their own transactions
        allow read: if isSignedIn() && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin());
-       allow create: if isSignedIn() && (incoming().fromId == request.auth.uid || incoming().userId == request.auth.uid);
+       // To create a transaction, the sender must be the authenticated user (or it must be a topup)
+       // and the exact amounts must match the balance changes in the users' documents
+       allow create: if isSignedIn() && (
+         incoming().amount >= 0 &&
+         (
+             (incoming().fromId == request.auth.uid && 
+              getAfter(/databases/$(database)/documents/users/$(incoming().fromId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().fromId)).data.get('balance', 0) - incoming().amount &&
+              getAfter(/databases/$(database)/documents/users/$(incoming().toId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().toId)).data.get('balance', 0) + incoming().amount)
+             ||
+             (incoming().fromId == 'STRIPE_TOPUP' && incoming().toId == request.auth.uid &&
+              getAfter(/databases/$(database)/documents/users/$(incoming().toId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().toId)).data.get('balance', 0) + incoming().amount)
+             ||
+             (incoming().fromId == request.auth.uid && incoming().toId == 'ESCROW' &&
+              getAfter(/databases/$(database)/documents/users/$(incoming().fromId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().fromId)).data.get('balance', 0) - incoming().amount)
+             ||
+             (incoming().fromId == 'ESCROW' &&
+              getAfter(/databases/$(database)/documents/users/$(incoming().toId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().toId)).data.get('balance', 0) + incoming().amount)
+         )
+       );
     }
 
     match /interventions/{intId} {

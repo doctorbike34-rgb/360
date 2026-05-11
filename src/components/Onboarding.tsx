@@ -50,6 +50,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   };
 
   const [peerSkills, setPeerSkills] = useState<string[]>([]);
+  const [customSkills, setCustomSkills] = useState<string[]>([]);
+  const [newSkillText, setNewSkillText] = useState('');
   const [peerRate, setPeerRate] = useState(15);
   const [peerRadius, setPeerRadius] = useState(10);
   
@@ -452,7 +454,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
           {profile?.role === 'PEER_MECHANIC' && activeSteps[step].id === 'peerSkills' && (
              <div className="space-y-3 mb-6 text-left shrink-0">
                 <p className="text-black/80 font-bold text-xs mb-3">Seleziona cosa sei in grado di riparare:</p>
-                {['Foratura', 'Catena', 'Regolazione Cambio', 'Freni', 'Centratura Ruota'].map((skill) => (
+                {['Foratura', 'Catena', 'Regolazione Cambio', 'Freni', 'Centratura Ruota', ...customSkills].map((skill) => (
                     <label key={skill} className="flex items-center gap-3 bg-black/5 p-3 rounded-xl cursor-pointer hover:bg-black/10 transition-colors">
                         <input 
                             type="checkbox" 
@@ -466,6 +468,42 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
                         <span className="text-black font-bold text-sm">{skill}</span>
                     </label>
                 ))}
+                <div className="flex gap-2 items-center mt-4 border-t border-black/5 pt-4">
+                    <input 
+                        type="text" 
+                        placeholder="Altra abilità (es. Sostituzione raggi)"
+                        className="flex-1 bg-black/5 p-3 rounded-xl text-black text-sm outline-none focus:ring-2 focus:ring-[#14B8A6] border border-transparent focus:border-[#14B8A6]/20 transition-all font-medium placeholder:text-black/30"
+                        value={newSkillText}
+                        onChange={(e) => setNewSkillText(e.target.value)}
+                        onKeyDown={(e) => {
+                            if(e.key === 'Enter') {
+                                e.preventDefault();
+                                const trimmed = newSkillText.trim();
+                                const defaultSkills = ['Foratura', 'Catena', 'Regolazione Cambio', 'Freni', 'Centratura Ruota'];
+                                if(trimmed && !defaultSkills.includes(trimmed) && !customSkills.includes(trimmed)) {
+                                    setCustomSkills([...customSkills, trimmed]);
+                                    setPeerSkills([...peerSkills, trimmed]);
+                                    setNewSkillText('');
+                                }
+                            }
+                        }}
+                    />
+                    <button 
+                        type="button"
+                        className="bg-[#14B8A6] text-white px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-wider active:scale-95 transition-transform shrink-0 shadow-lg shadow-[#14B8A6]/20"
+                        onClick={() => {
+                            const trimmed = newSkillText.trim();
+                            const defaultSkills = ['Foratura', 'Catena', 'Regolazione Cambio', 'Freni', 'Centratura Ruota'];
+                            if(trimmed && !defaultSkills.includes(trimmed) && !customSkills.includes(trimmed)) {
+                                setCustomSkills([...customSkills, trimmed]);
+                                setPeerSkills([...peerSkills, trimmed]);
+                                setNewSkillText('');
+                            }
+                        }}
+                    >
+                        Aggiungi
+                    </button>
+                </div>
              </div>
           )}
 

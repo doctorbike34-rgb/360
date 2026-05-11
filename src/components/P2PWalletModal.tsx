@@ -105,19 +105,22 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
                throw new Error('insufficient_funds');
            }
 
+           // Record transaction
+           const txRef = doc(collection(db, 'transactions'));
+           
            transaction.update(senderRef, {
                balance: senderBalance - amountNum,
-               updatedAt: serverTimestamp()
+               updatedAt: serverTimestamp(),
+               lastTxId: txRef.id
            });
 
            const receiverBalance = receiverDoc.data().balance || 0;
            transaction.update(receiverRef, {
                balance: receiverBalance + amountNum,
-               updatedAt: serverTimestamp()
+               updatedAt: serverTimestamp(),
+               lastTxId: txRef.id
            });
 
-           // Record transaction
-           const txRef = doc(collection(db, 'transactions'));
            transaction.set(txRef, {
                fromId: user.uid,
                toId: scannedUserId,

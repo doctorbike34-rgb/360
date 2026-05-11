@@ -610,10 +610,22 @@ export function CyclistHome() {
         const currentBalance = userSnap.data().balance || 0;
         if (currentBalance < price) throw new Error('Insufficient balance');
 
+        const txRef = doc(collection(db, 'transactions'));
+        
         // 1. Deduct balance from cyclist
         transaction.update(userRef, {
           balance: increment(-price),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastTxId: txRef.id
+        });
+        
+        transaction.set(txRef, {
+            fromId: user?.uid,
+            toId: 'ESCROW',
+            amount: price,
+            currency: 'DoctorBike Coin',
+            createdAt: serverTimestamp(),
+            type: 'SOS_PAYMENT'
         });
 
         // 2. Create the SOS request
@@ -663,9 +675,21 @@ export function CyclistHome() {
         if (data.status !== 'ACCEPTED') return;
 
         const refundAmount = data.estimatedPrice || 15.00;
+        const txRef = doc(collection(db, 'transactions'));
+        
         transaction.update(userRef, {
           balance: increment(refundAmount),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastTxId: txRef.id
+        });
+        
+        transaction.set(txRef, {
+            fromId: 'ESCROW',
+            toId: user?.uid,
+            amount: refundAmount,
+            currency: 'DoctorBike Coin',
+            createdAt: serverTimestamp(),
+            type: 'SOS_REFUND_TIMEOUT'
         });
         
         transaction.update(sosRef, {
@@ -727,9 +751,21 @@ export function CyclistHome() {
 
         // Refund the escrowed amount
         const refundAmount = data.estimatedPrice || 15.00;
+        const txRef = doc(collection(db, 'transactions'));
+        
         transaction.update(userRef, {
           balance: increment(refundAmount),
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastTxId: txRef.id
+        });
+        
+        transaction.set(txRef, {
+            fromId: 'ESCROW',
+            toId: user?.uid,
+            amount: refundAmount,
+            currency: 'DoctorBike Coin',
+            createdAt: serverTimestamp(),
+            type: 'SOS_REFUND_CANCEL'
         });
         
         transaction.update(sosRef, {

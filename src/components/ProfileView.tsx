@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { signOut, sendEmailVerification, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, onSnapshot, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
 import { 
@@ -46,6 +46,7 @@ import { LeaderboardView } from './LeaderboardView';
 import { InterventionHistory } from './InterventionHistory';
 
 import { P2PWalletModal } from './P2PWalletModal';
+import { TransactionsModal } from './TransactionsModal';
 
 const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripeKey && stripeKey.startsWith('pk_') 
@@ -73,6 +74,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   // Modals state
   const [showTopUp, setShowTopUp] = useState(false);
   const [showP2PWallet, setShowP2PWallet] = useState(false);
+  const [showTransactionsModal, setShowTransactionsModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -307,9 +309,22 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setPaymentStep('PROCESSING');
     
     try {
-      await updateDoc(doc(db, 'users', user?.uid), {
-        balance: increment(selectedAmount),
-        updatedAt: serverTimestamp()
+      const txRef = doc(collection(db, 'transactions'));
+      await runTransaction(db, async (transaction) => {
+          const userRef = doc(db, 'users', user.uid);
+          transaction.update(userRef, {
+              balance: increment(selectedAmount),
+              updatedAt: serverTimestamp(),
+              lastTxId: txRef.id
+          });
+          transaction.set(txRef, {
+              fromId: 'STRIPE_TOPUP',
+              toId: user.uid,
+              amount: selectedAmount,
+              currency: 'EUR',
+              createdAt: serverTimestamp(),
+              type: 'TOPUP'
+          });
       });
       
       setPaymentStep('SUCCESS');
@@ -685,6 +700,11 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   className="bg-primary/10 text-primary px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform active:scale-95 flex items-center gap-1 justify-center"
                 >
                   <QrCode size={12}/> DB Coin P2P
+                </button>
+                <button onClick={() => setShowTransactionsModal(true)}
+                  className="bg-grey/10 text-grey px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform active:scale-95 flex items-center gap-1 justify-center"
+                >
+                  <History size={12}/> Storico
                 </button>
               </div>
            </div>
@@ -1667,6 +1687,12 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         <AnimatePresence>
           {showP2PWallet && (
              <P2PWalletModal onClose={() => setShowP2PWallet(false)} />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showTransactionsModal && (
+             <TransactionsModal onClose={() => setShowTransactionsModal(false)} />
           )}
         </AnimatePresence>
       </div>
