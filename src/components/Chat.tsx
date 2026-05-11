@@ -66,21 +66,23 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
     useAuthStore.getState().setActiveChatId(chatId);
 
     // Reset unread count for current user when opening chat and keep it 0 if it changes
-    const unsubChatDoc = onSnapshot(doc(db, collectionPath, chatId), (docSnap) => {
+    const chatDocRef = doc(db, collectionPath, chatId);
+    const unsubChatDoc = onSnapshot(chatDocRef, (docSnap) => {
         if (docSnap.exists()) {
            const data = docSnap.data();
            
-           // CRITICAL FIX: Ensure user is in participants array to satisfy security rules 
+           // Ensure user is in participants array to satisfy security rules 
            // and show up in recent chats
            if (!isAdminSupport && data.participants && !data.participants.includes(user.uid)) {
-              console.log('User not in participants, adding...');
-              updateDoc(doc(db, collectionPath, chatId), {
+              updateDoc(chatDocRef, {
                  participants: arrayUnion(user.uid)
               }).catch(err => console.warn('Failed to add self to participants:', err));
            }
 
-           if ((data.unreadCount?.[user.uid] || 0) > 0) {
-              updateDoc(doc(db, collectionPath, chatId), {
+           const nestedUnread = data.unreadCount?.[user.uid] || 0;
+           const flatUnread = data[`unreadCount.${user.uid}`] || 0;
+           if (nestedUnread > 0 || flatUnread > 0) {
+              updateDoc(chatDocRef, {
                  [`unreadCount.${user.uid}`]: 0
               }).catch(() => {});
            }
@@ -88,7 +90,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
            // Auto-create direct chat doc if it doesn't exist yet but we are opening it
            const parts = chatId.replace('direct_', '').split('_');
            if (parts.includes(user.uid)) {
-             setDoc(doc(db, collectionPath, chatId), {
+             setDoc(chatDocRef, {
                participants: parts,
                type: 'DIRECT',
                createdAt: serverTimestamp(),
@@ -266,7 +268,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
         compressedFile = file;
       }
       
-      const reader = new FileReader();
+      const reader = new (window as any).FileReader();
       reader.onloadend = async () => {
          const base64string = reader.result as string;
          setUploadProgress(null);

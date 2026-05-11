@@ -169,7 +169,7 @@ export const NotificationManager: React.FC = () => {
       cleanupNearby = poll();
     }
 
-    // 3. All Users: Watch for Unread Chat Messages
+      // 3. All Users: Watch for Unread Chat Messages
     let cleanupChats: () => void = () => {};
     if (user && profile?.notificationsEnabled !== false) {
       const q = query(
@@ -182,14 +182,16 @@ export const NotificationManager: React.FC = () => {
       cleanupChats = onSnapshot(q, (snapshot) => {
         snapshot.docs.forEach(doc => {
           const data = doc.data();
-          const unreadNow = data.unreadCount?.[user.uid] || 0;
+          const nestedUnread = data.unreadCount?.[user.uid] || 0;
+          const flatUnread = data[`unreadCount.${user.uid}`] || 0;
+          const unreadNow = nestedUnread + flatUnread;
           const unreadBefore = lastUnreadRef.current[doc.id] || 0;
           
           if (unreadNow > unreadBefore) {
              const activeChatId = useAuthStore.getState().activeChatId;
              if (activeChatId !== doc.id) {
                // Only notify if not currently looking at this chat
-               const senderName = data.id && data.id.startsWith('direct_') ? 'Nuovo Messaggio' : data.title || 'Nuovo Messaggio';
+               const senderName = data.id && data.id.startsWith('direct_') ? (data.title || 'Nuovo Messaggio') : data.title || 'Nuovo Messaggio Gruppo';
                notify(senderName, {
                  body: data.lastMessage || 'Hai ricevuto un nuovo messaggio.',
                  tag: `chat-${doc.id}`

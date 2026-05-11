@@ -138,7 +138,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
           compressedFile = file;
         }
         
-        const reader = new FileReader();
+        const reader = new (window as any).FileReader();
         reader.onloadend = () => {
            setPhotoPreview(reader.result as string);
            setIsPhotoUploading(false);

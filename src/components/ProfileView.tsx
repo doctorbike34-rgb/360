@@ -916,7 +916,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                           alert('Immagine troppo grande (max 1MB).');
                           return;
                         }
-                        const reader = new FileReader();
+                        const reader = new (window as any).FileReader();
                         reader.onloadend = async () => {
                           const base64String = reader.result as string;
                           try {

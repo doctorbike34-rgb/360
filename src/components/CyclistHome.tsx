@@ -384,7 +384,7 @@ export function CyclistHome() {
     }
 
     setIsUploading(true);
-    const reader = new FileReader();
+    const reader = new (window as any).FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result as string;
       try {
