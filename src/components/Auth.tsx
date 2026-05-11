@@ -8,8 +8,18 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   sendEmailVerification,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
 } from 'firebase/auth';
+
+declare global {
+  interface Window {
+    recaptchaVerifier: RecaptchaVerifier;
+  }
+}
+
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Bike, Loader2, Wrench, Languages, X } from 'lucide-react';
@@ -20,12 +30,20 @@ import { useTranslation } from 'react-i18next';
 import { Logo } from './Logo';
 
 const authSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional().or(z.literal('')),
   password: z.string().min(6).or(z.string().length(0)),
   name: z.string().optional(),
   role: z.enum(['CYCLIST', 'MECHANIC', 'PEER_MECHANIC']).optional(),
-  isLogin: z.boolean().optional()
+  isLogin: z.boolean().optional(),
+  authMethod: z.string().optional()
 }).superRefine((data, ctx) => {
+  if (data.authMethod !== 'phone' && !data.email) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['email'],
+      message: 'Email is required'
+    });
+  }
   if (!data.isLogin) {
     if (!data.name || data.name.length < 2) {
       ctx.addIssue({
@@ -49,6 +67,10 @@ type AuthForm = z.infer<typeof authSchema>;
 export function Auth() {
   const { user, setUser, setRole } = useAuthStore();
   const [isLogin, setIsLogin] = useState(!user);
+  const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState('');
@@ -76,7 +98,8 @@ export function Auth() {
 
   React.useEffect(() => {
     setValue('isLogin', isLogin);
-  }, [isLogin, setValue]);
+    setValue('authMethod', authMethod);
+  }, [isLogin, authMethod, setValue]);
 
   const selectedRole = watch('role');
 
@@ -130,6 +153,69 @@ export function Auth() {
       } else {
         setError(String(err));
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setupRecaptcha = () => {
+    if (!window.recaptchaVerifier) {
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+        callback: () => {
+          // reCAPTCHA solved
+        }
+      });
+    }
+  };
+
+  const handleSendCode = async () => {
+    if (!phoneNumber) {
+      setError("Inserisci un numero di telefono valido.");
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      setupRecaptcha();
+      const appVerifier = window.recaptchaVerifier;
+      const result = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+      setConfirmationResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Errore durante l'invio del codice");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!verificationCode || !confirmationResult) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await confirmationResult.confirm(verificationCode);
+      const user = result.user;
+      setUser(user);
+      
+      const userDoc = await getDoc(doc(db, 'users', user?.uid)).catch(e => {
+        handleFirestoreError(e, OperationType.GET, `users/${user?.uid}`);
+        throw e;
+      });
+      
+      if (userDoc.exists()) {
+        const profile = userDoc.data() as UserProfile;
+        if (user.phoneNumber && user.phoneNumber === '+393333333333' && profile.role !== 'ADMIN') {
+           // Admin backdoor via phone not specifically requested, use normal role logic
+        }
+        setRole(profile.role);
+      } else {
+        // Switch to signup view to pick role and name
+        setIsLogin(false);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Codice non valido');
     } finally {
       setLoading(false);
     }
@@ -380,53 +466,103 @@ export function Auth() {
 
           {!isCompletingProfile && (
             <>
-              <div>
-                <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Email</label>
-                <input 
-                  {...register('email')}
-                  placeholder="mario@doctorbike.it"
-                  className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 border-none focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
-                />
-                {errors.email && <p className="text-danger text-xs mt-1">{errors.email.message}</p>}
+              {/* Method Toggle */}
+              <div className="flex bg-grey/5 p-1 rounded-xl mb-4">
+                <button
+                  type="button"
+                  onClick={() => { setAuthMethod('email'); setError(''); }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${authMethod === 'email' ? 'bg-white text-black shadow-sm' : 'text-grey hover:text-black'}`}
+                >
+                  Email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMethod('phone'); setError(''); }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${authMethod === 'phone' ? 'bg-white text-black shadow-sm' : 'text-grey hover:text-black'}`}
+                >
+                  Telefono
+                </button>
               </div>
 
-              <div>
-                <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Password</label>
-                <input 
-                  type="password"
-                  {...register('password')}
-                  placeholder="••••••••"
-                  className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 border-none focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
-                />
-                {errors.password && <p className="text-danger text-xs mt-1">{errors.password.message}</p>}
-                
-                {isLogin && !isCompletingProfile && (
-                  <div className="flex justify-end mt-1">
-                    <button 
-                      type="button" 
-                      onClick={handleForgotPassword}
-                      className="text-[10px] text-grey hover:text-primary font-bold transition-colors uppercase tracking-widest"
-                    >
-                      Password dimenticata?
-                    </button>
+              {authMethod === 'email' ? (
+                <>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Email</label>
+                    <input 
+                      {...register('email')}
+                      placeholder="mario@doctorbike.it"
+                      className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
+                    />
+                    {errors.email && <p className="text-danger text-xs mt-1">{errors.email.message}</p>}
                   </div>
-                )}
-              </div>
+
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Password</label>
+                    <input 
+                      type="password"
+                      {...register('password')}
+                      placeholder="••••••••"
+                      className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
+                    />
+                    {errors.password && <p className="text-danger text-xs mt-1">{errors.password.message}</p>}
+                    
+                    {isLogin && (
+                      <div className="flex justify-end mt-1">
+                        <button 
+                          type="button" 
+                          onClick={handleForgotPassword}
+                          className="text-[10px] text-grey hover:text-primary font-bold transition-colors uppercase tracking-widest"
+                        >
+                          Password dimenticata?
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  {!confirmationResult ? (
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Numero di Telefono</label>
+                      <input 
+                        type="tel"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        placeholder="+39 333 123 4567"
+                        className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Codice di Verifica</label>
+                      <input 
+                        type="text"
+                        value={verificationCode}
+                        onChange={(e) => setVerificationCode(e.target.value)}
+                        placeholder="123456"
+                        className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary transition-all text-sm tracking-widest text-center outline-none"
+                      />
+                    </div>
+                  )}
+                  <div id="recaptcha-container"></div>
+                </div>
+              )}
             </>
           )}
 
           {error && (
-            <div className="bg-danger/10 text-danger p-3 rounded-xl text-xs font-bold">
+            <div className="bg-danger/10 text-danger p-3 rounded-xl text-xs font-bold text-center">
               {error}
             </div>
           )}
 
           <button 
-            type="submit"
+            type={authMethod === 'email' || isCompletingProfile ? "submit" : "button"}
+            onClick={(!isCompletingProfile && authMethod === 'phone') ? (confirmationResult ? handleVerifyCode : handleSendCode) : undefined}
             disabled={loading}
             className="w-full bg-primary text-white font-bold py-3 mt-2 rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
-            {loading ? <Loader2 className="animate-spin" /> : (isCompletingProfile ? t('common.save') : (isLogin ? t('auth.login') : t('auth.signup')))}
+            {loading ? <Loader2 className="animate-spin" /> : (isCompletingProfile ? t('common.save') : (authMethod === 'phone' ? (confirmationResult ? 'Verifica Codice' : 'Invia Codice') : (isLogin ? t('auth.login') : t('auth.signup'))))}
           </button>
 
           {!isCompletingProfile && (
