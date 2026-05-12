@@ -81,7 +81,8 @@ service cloud.firestore {
           ||
           // Balance change (Send P2P, TopUp, Escrow Refund, etc.)
           (
-             incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) &&
+             (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'firstInterventionDiscount'])) &&
              incoming().lastTxId is string &&
              existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId))
           )

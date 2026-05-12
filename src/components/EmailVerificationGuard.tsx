@@ -62,11 +62,38 @@ export function EmailVerificationGuard({ children }: { children: React.ReactNode
     }
   };
 
-  const isAdminEmail = user?.email?.toLowerCase() === 'doctorbike34@gmail.com';
-
-  if (!user || isVerified || isAdminEmail) {
+  // Skip if no user
+  if (!user) {
     return <>{children}</>;
   }
+
+  // Skip if verified
+  if (isVerified) {
+    return <>{children}</>;
+  }
+
+  // Skip admin
+  if (user.email && user.email.toLowerCase() === 'doctorbike34@gmail.com') {
+    return <>{children}</>;
+  }
+
+  // Skip phone auth (no email verification needed for phone numbers)
+  const isPhoneAuth = user.providerData?.some(p => p.providerId === 'phone') || !!user.phoneNumber;
+  if (isPhoneAuth) {
+    return <>{children}</>;
+  }
+
+  // Skip anonymous users
+  if (user.isAnonymous) {
+    return <>{children}</>;
+  }
+
+  // Skip if email is missing or empty
+  if (!user.email || user.email.trim().length === 0) {
+    return <>{children}</>;
+  }
+
+  // Se arriviamo qui, ha una email non verificata e deve mostrare il blocco
 
   return (
     <div className="fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center p-6 text-center">

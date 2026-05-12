@@ -191,7 +191,10 @@ export default function App() {
               }
             } else {
               setProfile(null);
-              setRole(null);
+              // Prevent cache miss from destroying the role just granted during sign up
+              if (!useAuthStore.getState().role) {
+                setRole(null);
+              }
             }
           }
           setLoading(false); // Done loading initial profile

@@ -85,7 +85,7 @@ export function Auth() {
 
   // Use current user from store if available but missing profile
   const firebaseUser = user;
-  const isCompletingProfile = !!firebaseUser && !isLogin;
+  const isCompletingProfile = !!firebaseUser && !isLogin && !loading;
 
   const { register, handleSubmit, formState: { errors }, watch, setValue, getValues } = useForm<AuthForm>({
     resolver: zodResolver(authSchema),
@@ -113,7 +113,6 @@ export function Auth() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
-      setUser(user);
       const userDoc = await getDoc(doc(db, 'users', user?.uid)).catch(e => {
         handleFirestoreError(e, OperationType.GET, `users/${user?.uid}`);
         throw e;
@@ -135,8 +134,10 @@ export function Auth() {
         } else {
           setRole(profile.role);
         }
+        setUser(user);
       } else {
         // Switch to signup view to pick role
+        setUser(user);
         setIsLogin(false);
         setValue('name', user?.displayName || '');
         setValue('email', user?.email || '');
@@ -197,12 +198,15 @@ export function Auth() {
 
   const handleVerifyCode = async () => {
     if (!verificationCode || !confirmationResult) return;
+    
+    // Capture values synchronously before awaiting anything, in case component unmounts
+    const capturedValues = getValues();
+    
     setLoading(true);
     setError('');
     try {
       const result = await confirmationResult.confirm(verificationCode);
       const user = result.user;
-      setUser(user);
       
       const userDoc = await getDoc(doc(db, 'users', user?.uid)).catch(e => {
         handleFirestoreError(e, OperationType.GET, `users/${user?.uid}`);
@@ -214,20 +218,90 @@ export function Auth() {
         if (user.phoneNumber && user.phoneNumber === '+393333333333' && profile.role !== 'ADMIN') {
            // Admin backdoor via phone not specifically requested, use normal role logic
         }
+        setUser(user);
         setRole(profile.role);
       } else {
-        // Switch to signup view to pick role and name
-        setIsLogin(false);
+        if (!isLogin) {
+          const finalRole = capturedValues.role || 'CYCLIST';
+          const finalName = capturedValues.name || 'Utente';
+          
+          await setDoc(doc(db, 'users', user.uid), {
+            uid: user.uid,
+            email: '',
+            name: finalName,
+            role: finalRole,
+            plan: finalRole === 'CYCLIST' || finalRole === 'PEER_MECHANIC' ? 'BASE' : 'MECHANIC_FREE',
+            presenceStatus: 'OFFLINE',
+            visibility: 'EVERYONE',
+            createdAt: serverTimestamp(),
+            balance: finalRole === 'CYCLIST' ? 10 : 0,
+            hasWelcomeGift: finalRole === 'CYCLIST',
+            firstInterventionDiscount: finalRole === 'CYCLIST' ? 0.5 : 0,
+            sosPrice: finalRole === 'MECHANIC' ? 15 : null,
+            isOnline: true,
+            points: 0,
+            badges: [],
+            weeklyPoints: 0,
+            ...(finalRole === 'PEER_MECHANIC' && {
+              peerMechanicEnabled: true,
+              peerMechanicRate: 10,
+              peerMechanicRadius: 10,
+              peerMechanicSkills: ['Foratura', 'Catena'],
+              peerMechanicEarnings: 0,
+              peerMechanicJobsCompleted: 0,
+            })
+          }).catch(e => {
+            handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`);
+          });
+
+          if (finalRole === 'MECHANIC') {
+            await setDoc(doc(db, 'mechanics', user.uid), {
+              userId: user.uid,
+              businessName: finalName + ' Repairs',
+              radius: 5000,
+              isAvailable: true,
+              completedJobs: 0,
+              avgRating: 5.0,
+              totalEarnings: 0,
+              hoursOnline: 0,
+              satisfaction: 100,
+            }).catch(e => {
+              handleFirestoreError(e, OperationType.WRITE, `mechanics/${user.uid}`);
+            });
+          }
+          
+          setUser(user);
+          setRole(finalRole);
+        } else {
+          // Switch to signup view to pick role and name
+          setUser(user);
+          setIsLogin(false);
+          setError('Numero non registrato. Completa la registrazione.');
+        }
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Codice non valido');
+      if (err.code === 'auth/invalid-verification-code') {
+        setError('Codice di verifica non valido. Riprova.');
+      } else {
+        setError(err.message || 'Codice non valido');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const onSubmit = async (data: AuthForm) => {
+    // If they press Enter while in phone auth mode, manually route to the correct phone handler
+    if (!isCompletingProfile && authMethod === 'phone') {
+      if (confirmationResult && verificationCode) {
+        await handleVerifyCode();
+      } else {
+        await handleSendCode();
+      }
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -276,7 +350,8 @@ export function Auth() {
       }
 
       if (finalUser) {
-        const isAdmin = data.email.toLowerCase() === 'doctorbike34@gmail.com';
+        const adminEmail = (data.email || finalUser.email || '').toLowerCase();
+        const isAdmin = adminEmail === 'doctorbike34@gmail.com';
         const finalRole = isAdmin ? 'ADMIN' : (data.role || 'CYCLIST');
         
         const userRef = doc(db, 'users', finalUser.uid);

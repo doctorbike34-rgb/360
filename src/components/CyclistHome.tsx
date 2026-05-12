@@ -1743,27 +1743,29 @@ export function CyclistHome() {
                   <p className="text-grey text-xs font-bold uppercase mb-4 shrink-0">Trascina la mappa per indicare la tua posizione esatta</p>
 
                   <div className="flex-1 rounded-[1.5rem] overflow-hidden relative border-4 border-primary/20 mb-6 shadow-inner min-h-[220px]">
-                      {sosLocation ? (
-                         <MapContainer 
-                           center={sosLocation} 
-                           zoom={17} 
-                           zoomControl={false} 
-                           style={{ width: '100%', height: '100%' }}
-                         >
-                             <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                             <SOSLocationSelector setLoc={setSosLocation} userLoc={userLocation ? [userLocation.lat, userLocation.lng] : null} />
-                         </MapContainer>
-                      ) : (
-                         <MapContainer 
-                           center={[45.4642, 9.1900]} 
-                           zoom={17} 
-                           zoomControl={false} 
-                           style={{ width: '100%', height: '100%' }}
-                         >
-                             <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                             <SOSLocationSelector setLoc={setSosLocation} userLoc={userLocation ? [userLocation.lat, userLocation.lng] : null} />
-                         </MapContainer>
-                      )}
+                      <div className="absolute inset-0 z-0">
+                        {sosLocation ? (
+                           <MapContainer 
+                             center={sosLocation} 
+                             zoom={17} 
+                             zoomControl={false} 
+                             style={{ width: '100%', height: '100%' }}
+                           >
+                               <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                               <SOSLocationSelector setLoc={setSosLocation} userLoc={userLocation ? [userLocation.lat, userLocation.lng] : null} />
+                           </MapContainer>
+                        ) : (
+                           <MapContainer 
+                             center={[45.4642, 9.1900]} 
+                             zoom={17} 
+                             zoomControl={false} 
+                             style={{ width: '100%', height: '100%' }}
+                           >
+                               <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                               <SOSLocationSelector setLoc={setSosLocation} userLoc={userLocation ? [userLocation.lat, userLocation.lng] : null} />
+                           </MapContainer>
+                        )}
+                      </div>
                       
                       {/* Fixed Reticle/Pin in the center */}
                       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full z-[1001] pointer-events-none mb-1">

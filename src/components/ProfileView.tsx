@@ -617,7 +617,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       </div>
 
       <div className="px-6 mt-6 space-y-6">
-        {user && !user.emailVerified && (
+        {user && !user.emailVerified && (typeof user.email === 'string' && user.email.trim().length > 0) && !user.isAnonymous && !(user.providerData?.some(p => p.providerId === 'phone') || !!user.phoneNumber) && (
           <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="bg-danger/10 border border-danger/20 rounded-[2.5rem] p-6 flex flex-col items-center text-center gap-4">
             <div className="w-12 h-12 bg-danger/20 text-danger rounded-2xl flex items-center justify-center">
               <Mail size={24}/>
