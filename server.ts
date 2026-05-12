@@ -10,12 +10,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// @ts-ignore
+const _filename = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
+// @ts-ignore
+const _dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(_filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const PORT = 3000;
 
   let stripe: Stripe | null = null;
   if (process.env.STRIPE_SECRET_KEY) {
@@ -125,9 +127,9 @@ async function startServer() {
     }
   } else {
     // In production, serve the built static files
-    // Use __dirname to find dist if we're already inside it (bundled), otherwise use cwd/dist
-    const isBundled = __dirname.endsWith('dist') || __dirname.includes('/dist');
-    const distPath = isBundled ? __dirname : path.join(__dirname, 'dist');
+    // Use _dirname to find dist if we're already inside it (bundled), otherwise use cwd/dist
+    const isBundled = _dirname.endsWith('dist') || _dirname.includes('/dist');
+    const distPath = isBundled ? _dirname : path.join(_dirname, 'dist');
     
     console.log(`Serving static files from: ${distPath}`);
     app.use(express.static(distPath));

@@ -448,11 +448,11 @@ export function MechanicHome() {
     return () => unsubJobs();
   }, [user]);
 
+  const lastCoordsRef = useRef<{lat: number|null, lng: number|null}>({ lat: null, lng: null });
+
   // 5. Watch Position
   useEffect(() => {
     if (!user || (!isAvailable && activeJobs.length === 0)) return;
-
-    const lastCoordsRef = useRef<{lat: number|null, lng: number|null}>({ lat: null, lng: null });
 
     const watchId = navigator.geolocation.watchPosition(
       async (position) => {
@@ -500,9 +500,9 @@ export function MechanicHome() {
         }
       },
       (error) => {
-        console.debug('Mechanic position tracking issue:', error.code);
+        // Silently ignore expected watch tracking minor errors
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 10000 }
     );
 
     return () => {

@@ -57,6 +57,7 @@ export interface UserProfile {
   address?: string;
   
   // Peer Mechanic fields
+  completedJobs?: number;
   peerMechanicEnabled?: boolean;
   peerMechanicRate?: number;
   peerMechanicRadius?: number; // in km

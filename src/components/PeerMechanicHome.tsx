@@ -334,6 +334,16 @@ export function PeerMechanicHome() {
                             <h2 className="text-xl font-black uppercase">Ciclista Esperto</h2>
                             <p className="text-sm font-bold text-grey">Disponibilità per emergenze</p>
                         </div>
+                        <button 
+                            onClick={toggleAvailability}
+                            className={`p-4 rounded-2xl flex items-center justify-center transition-all shadow-lg active:scale-95 ${
+                            isAvailable 
+                                ? 'bg-green-500 text-white shadow-green-500/20' 
+                                : 'bg-grey/10 text-grey shadow-black/5'
+                            }`}
+                        >
+                            <Power size={24} />
+                        </button>
                     </div>
 
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-grey/10">

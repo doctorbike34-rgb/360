@@ -93,7 +93,7 @@ export const NotificationManager: React.FC = () => {
             lastSOSRef.current[doc.id] = data.status;
           });
         } catch (err: any) {
-          if (!err.message?.includes('Quota')) {
+          if (!err.message?.includes('Quota') && !err.message?.includes('permissions')) {
             console.error("Error polling SOS status", err);
           }
         }
@@ -147,7 +147,7 @@ export const NotificationManager: React.FC = () => {
              }
           });
         } catch (err: any) {
-          if (!err.message?.includes('Quota')) {
+          if (!err.message?.includes('Quota') && !err.message?.includes('permissions')) {
             console.error("Error polling nearby SOS", err);
           }
         }

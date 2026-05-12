@@ -123,8 +123,8 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                  <AlertTriangle size={80} className="text-grey/30" />
                )}
                <button 
-                 onClick={onClose}
-                 className="absolute top-6 right-6 p-2 bg-black/50 hover:bg-black/70 backdrop-blur-md rounded-full text-white transition-colors"
+                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+                 className="absolute top-6 right-6 p-3 bg-black/50 hover:bg-black/70 backdrop-blur-md rounded-full text-white transition-all z-50 cursor-pointer active:scale-95"
                >
                  <X size={24} />
                </button>

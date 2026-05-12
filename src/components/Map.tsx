@@ -573,10 +573,9 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
                 position: [u.lastLat, u.lastLng],
                 icon: getCachedDivIcon({
                   className: `custom-marker ${isSelected ? 'z-[1000]' : ''}`,
-                  html: `<div class="transition-all duration-300 ${isSelected ? 'scale-125 drop-shadow-2xl' : ''} ${hasSOS ? 'marker-size-lg' : 'marker-size-md'} 
-                              relative flex items-center justify-center bg-${roleColor}/20 ${u.role === 'PEER_MECHANIC' ? 'style="background-color: rgba(139, 92, 246, 0.2)"' : ''} p-0.5 rounded-full transition-all duration-300 ${isSelected ? `ring-4 ring-offset-2 animate-pulse` : ''}" ${isSelected && u.role === 'PEER_MECHANIC' ? 'style="box-shadow: 0 0 0 4px #8B5CF6"' : ''}>
+                  html: `<div class="transition-all duration-300 ${isSelected ? 'scale-125 drop-shadow-2xl' : ''} ${hasSOS ? 'marker-size-lg' : 'marker-size-md'} relative flex items-center justify-center p-0.5 rounded-full transition-all duration-300 ${isSelected ? 'ring-4 ring-offset-2 animate-pulse' : ''} ${u.role === 'MECHANIC' ? 'bg-warning/20' : u.role === 'PEER_MECHANIC' ? 'bg-[#8B5CF6]/20' : 'bg-primary/20'}" ${isSelected && u.role === 'PEER_MECHANIC' ? 'style="box-shadow: 0 0 0 4px #8B5CF6;"' : ''} ${u.role === 'PEER_MECHANIC' ? 'style="background-color: rgba(139, 92, 246, 0.2);"' : ''}>
                             <img src="${u.photoURL || u.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + u.id}" 
-                                 class="${hasSOS ? 'avatar-size-lg' : 'avatar-size-sm'} rounded-full object-cover border-2 shadow-sm" style="border-color: ${roleHex}" />
+                                 class="${hasSOS ? 'avatar-size-lg' : 'avatar-size-sm'} rounded-full object-cover border-2 shadow-sm" style="border-color: ${roleHex};" />
                             ${u.isOnline ? `<div class="status-dot-md absolute bottom-0 right-0 ${['MECHANIC', 'PEER_MECHANIC'].includes(u.role) ? (u.mechanicStatus === 'BUSY' ? 'bg-red-500' : u.mechanicStatus === 'TRAVELING' ? 'bg-blue-500' : 'bg-green-500') : 'bg-green-500'} border border-white rounded-full shadow-sm"></div>` : `<div class="status-dot-md absolute bottom-0 right-0 bg-grey border border-white rounded-full shadow-sm"></div>`}
                             ${hasSOS ? '<div class="absolute -top-3 -right-3 bg-danger text-white text-[8px] px-1.5 py-0.5 rounded-full font-black animate-bounce shadow-lg border-2 border-white">SOS</div>' : ''}
                           </div>`,

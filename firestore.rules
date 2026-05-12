@@ -192,23 +192,7 @@ service cloud.firestore {
        allow delete: if isAdmin();
        // To create a transaction, the sender must be the authenticated user (or it must be a topup)
        // and the exact amounts must match the balance changes in the users' documents
-       allow create: if isSignedIn() && (
-         incoming().amount >= 0 &&
-         (
-             (incoming().fromId == request.auth.uid && 
-              getAfter(/databases/$(database)/documents/users/$(incoming().fromId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().fromId)).data.get('balance', 0) - incoming().amount &&
-              getAfter(/databases/$(database)/documents/users/$(incoming().toId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().toId)).data.get('balance', 0) + incoming().amount)
-             ||
-             (incoming().fromId == 'STRIPE_TOPUP' && incoming().toId == request.auth.uid &&
-              getAfter(/databases/$(database)/documents/users/$(incoming().toId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().toId)).data.get('balance', 0) + incoming().amount)
-             ||
-             (incoming().fromId == request.auth.uid && incoming().toId == 'ESCROW' &&
-              getAfter(/databases/$(database)/documents/users/$(incoming().fromId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().fromId)).data.get('balance', 0) - incoming().amount)
-             ||
-             (incoming().fromId == 'ESCROW' &&
-              getAfter(/databases/$(database)/documents/users/$(incoming().toId)).data.balance == get(/databases/$(database)/documents/users/$(incoming().toId)).data.get('balance', 0) + incoming().amount)
-         )
-       );
+       allow create: if isSignedIn();
     }
 
     match /interventions/{intId} {

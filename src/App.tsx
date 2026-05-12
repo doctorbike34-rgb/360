@@ -322,7 +322,11 @@ export default function App() {
     };
 
     const handleGeoError = async (err: GeolocationPositionError) => {
-      console.warn('Geolocation error during watch:', err.code, err.message);
+      if (err.code === 1) {
+         console.warn('Geolocation error during watch:', err.code, err.message);
+      } else {
+         console.debug('Geolocation error during watch:', err.code, err.message);
+      }
       // Get FRESH state from Zustand to avoid stale closure
       const currentLoc = useAuthStore.getState().userLocation;
       
@@ -369,7 +373,7 @@ export default function App() {
       watchId = navigator.geolocation.watchPosition(
         (pos) => updateLocation(pos.coords),
         handleGeoError,
-        { enableHighAccuracy: true, timeout: 30000, maximumAge: 10000 }
+        { enableHighAccuracy: false, timeout: 30000, maximumAge: 10000 }
       );
     }
 
