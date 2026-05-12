@@ -58,8 +58,13 @@ async function startServer() {
   app.use(cors());
 
   // API Routes
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+  app.get(['/api/health', '/healthz'], (req, res) => {
+    res.status(200).json({ status: 'ok' });
+  });
+
+  // Block common scanner requests to prevent weird logs or index.html serving
+  app.get(/\.(env|git|php|yaml|yml|xml|ini|conf)/, (req, res) => {
+    res.status(404).send('Not Found');
   });
 
   app.get('/api/geoip', async (req, res) => {
@@ -122,7 +127,7 @@ async function startServer() {
     // In production, serve the built static files
     // Use __dirname to find dist if we're already inside it (bundled), otherwise use cwd/dist
     const isBundled = __dirname.endsWith('dist') || __dirname.includes('/dist');
-    const distPath = isBundled ? __dirname : path.join(process.cwd(), 'dist');
+    const distPath = isBundled ? __dirname : path.join(__dirname, 'dist');
     
     console.log(`Serving static files from: ${distPath}`);
     app.use(express.static(distPath));

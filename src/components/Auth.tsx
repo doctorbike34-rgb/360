@@ -262,6 +262,7 @@ export function Auth() {
           // Send verification email for non-Google signups
           try {
             await sendEmailVerification(finalUser);
+            setResetSuccess('Email di conferma inviata. Controlla la tua casella di posta e assicurati di verificare anche la cartella Spam!');
           } catch (vErr) {
             console.error("Error sending verification email:", vErr);
           }
@@ -363,7 +364,7 @@ export function Auth() {
     setLoading(true);
     try {
       await sendPasswordResetEmail(auth, email);
-      setResetSuccess('Email di reset password inviata. Controlla la tua casella di posta.');
+      setResetSuccess('Email di reset password inviata. Controlla la tua casella di posta, inclusa la cartella Spam.');
       setError('');
     } catch (err: any) {
       console.error(err);
