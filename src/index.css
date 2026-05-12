@@ -169,3 +169,17 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-t
 
 /* Removed Focus Mode Styles */
 
+/* React Phone Number Input Customizations */
+.PhoneInput {
+  @apply flex items-center;
+}
+.PhoneInputInput {
+  @apply flex-1 border-none bg-transparent outline-none ml-2 text-sm;
+}
+.PhoneInputCountry {
+  @apply mr-2 border-r border-grey/20 pr-3;
+}
+.PhoneInputCountrySelectArrow {
+  @apply ml-2;
+}
+

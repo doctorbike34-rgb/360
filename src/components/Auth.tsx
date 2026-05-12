@@ -26,6 +26,8 @@ import { Bike, Loader2, Wrench, Languages, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../types';
 import { useAuthStore } from '../store/useAuthStore';
+import 'react-phone-number-input/style.css';
+import PhoneInput from 'react-phone-number-input';
 import { useTranslation } from 'react-i18next';
 import { Logo } from './Logo';
 
@@ -183,7 +185,11 @@ export function Auth() {
       setConfirmationResult(result);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Errore durante l'invio del codice");
+      if (err.code === 'auth/operation-not-allowed' || (err.message && err.message.includes('SMS unable to be sent until this region enabled'))) {
+        setError('Errore: Devi abilitare l\'invio di SMS per questa regione o nel mondo nella console Firebase (Authentication > Settings > SMS Region).');
+      } else {
+        setError(err.message || "Errore durante l'invio del codice");
+      }
     } finally {
       setLoading(false);
     }
@@ -525,13 +531,16 @@ export function Auth() {
                   {!confirmationResult ? (
                     <div>
                       <label className="text-[10px] uppercase tracking-widest font-bold text-grey ml-1">Numero di Telefono</label>
-                      <input 
-                        type="tel"
+                      <PhoneInput
+                        international
+                        defaultCountry="IT"
                         value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="+39 333 123 4567"
-                        className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary transition-all text-sm outline-none"
+                        onChange={(value) => setPhoneNumber(value || '')}
+                        className="w-full bg-white text-black shadow-sm border border-grey/10 rounded-xl px-4 py-2 focus-within:ring-2 focus-within:ring-primary transition-all text-sm outline-none mt-1"
                       />
+                      <p className="text-[10px] text-grey mt-1 ml-1 opacity-70">
+                         Seleziona il prefisso e inserisci il numero.
+                      </p>
                     </div>
                   ) : (
                     <div>
