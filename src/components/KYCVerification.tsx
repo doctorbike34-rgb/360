@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
-import { FileText, ShieldAlert, CheckCircle, AlertTriangle, LogOut, ArrowRight, UploadCloud } from 'lucide-react';
+import { FileText, ShieldAlert, CheckCircle, AlertTriangle, LogOut, ArrowRight, UploadCloud, X, FileCheck } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { db, auth } from '../lib/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 
 export function KYCVerification() {
   const { user, profile } = useAuthStore();
@@ -13,30 +14,82 @@ export function KYCVerification() {
   const [vat, setVat] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  const [idFile, setIdFile] = useState<File | null>(null);
+  const [businessFile, setBusinessFile] = useState<File | null>(null);
+  
+  const idInputRef = useRef<HTMLInputElement>(null);
+  const businessInputRef = useRef<HTMLInputElement>(null);
 
   const status = profile?.kycStatus || 'UNSUBMITTED';
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'business') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("File troppo grande. Massimo 10MB.");
+        return;
+      }
+      if (type === 'id') setIdFile(file);
+      else setBusinessFile(file);
+    }
+  };
+
+  const uploadFile = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Errore durante l\'upload');
+    }
+    const data = await res.json();
+    return data.url;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
      e.preventDefault();
      if (!user) return;
-     if (!vat || vat.length < 5) {
-       setError("Inserisci una Partita IVA o Codice Fiscale valido, oppure allega i file (simulato).");
+     
+     if (!idFile && !profile?.kycDocuments?.idUrl) {
+       setError("Carica un documento d'identità (Fronte/Retro).");
+       return;
+     }
+
+     if (!vat && !businessFile && !profile?.kycDocuments?.businessUrl) {
+       setError("Inserisci la Partita IVA oppure carica la Visura Camerale.");
        return;
      }
 
      setLoading(true);
      setError('');
      try {
+       let finalIdUrl = profile?.kycDocuments?.idUrl || '';
+       let finalBusinessUrl = profile?.kycDocuments?.businessUrl || '';
+
+       if (idFile) {
+         finalIdUrl = await uploadFile(idFile);
+       }
+       if (businessFile) {
+         finalBusinessUrl = await uploadFile(businessFile);
+       }
+
        await updateDoc(doc(db, 'users', user.uid), {
          kycStatus: 'PENDING',
          kycDocuments: {
             vatNumber: vat,
+            idUrl: finalIdUrl,
+            businessUrl: finalBusinessUrl,
             submittedAt: serverTimestamp()
          }
        });
-     } catch (err) {
+       toast.success("Documenti inviati correttamente!");
+     } catch (err: any) {
        console.error("KYC error", err);
-       setError("Si è verificato un errore durante l'invio.");
+       setError(err.message || "Si è verificato un errore durante l'invio.");
      } finally {
        setLoading(false);
      }
@@ -91,18 +144,68 @@ export function KYCVerification() {
             <form onSubmit={handleSubmit} className="space-y-6">
                <div>
                  <label className="block text-[10px] font-black text-grey uppercase tracking-widest mb-2">1. Documento d'Identità</label>
-                 <div className="border-2 border-dashed border-grey/20 rounded-2xl p-6 text-center hover:border-primary/50 transition-colors cursor-pointer bg-grey/5">
-                    <UploadCloud size={24} className="mx-auto text-grey mb-2" />
-                    <p className="text-xs font-bold text-black">Carica Fronte/Retro</p>
-                    <p className="text-[10px] font-bold text-grey mt-1">PDF, JPG o PNG</p>
+                 <input 
+                   type="file" 
+                   ref={idInputRef} 
+                   onChange={(e) => handleFileChange(e, 'id')} 
+                   accept="application/pdf,image/*" 
+                   className="hidden" 
+                 />
+                 <div 
+                   onClick={() => idInputRef.current?.click()}
+                   className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer bg-grey/5 relative ${idFile ? 'border-primary/50 bg-primary/5' : 'border-grey/20 hover:border-primary/50'}`}
+                 >
+                    {idFile ? (
+                      <div className="flex flex-col items-center">
+                        <FileCheck size={24} className="text-primary mb-2" />
+                        <p className="text-xs font-bold text-black truncate max-w-full px-4">{idFile.name}</p>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setIdFile(null); }}
+                          className="absolute top-2 right-2 p-1 bg-white rounded-full shadow-sm text-grey hover:text-danger"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <UploadCloud size={24} className="mx-auto text-grey mb-2" />
+                        <p className="text-xs font-bold text-black">Carica Fronte/Retro</p>
+                        <p className="text-[10px] font-bold text-grey mt-1">PDF, JPG o PNG</p>
+                      </>
+                    )}
                  </div>
                </div>
 
                <div>
                  <label className="block text-[10px] font-black text-grey uppercase tracking-widest mb-2">2. Visura Camerale o P.IVA</label>
-                 <div className="border-2 border-dashed border-grey/20 rounded-2xl p-6 text-center hover:border-primary/50 transition-colors cursor-pointer bg-grey/5 mb-4">
-                    <UploadCloud size={24} className="mx-auto text-grey mb-2" />
-                    <p className="text-xs font-bold text-black">Carica Visura Camerale</p>
+                 <input 
+                   type="file" 
+                   ref={businessInputRef} 
+                   onChange={(e) => handleFileChange(e, 'business')} 
+                   accept="application/pdf,image/*" 
+                   className="hidden" 
+                 />
+                 <div 
+                   onClick={() => businessInputRef.current?.click()}
+                   className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer bg-grey/5 relative mb-4 ${businessFile ? 'border-primary/50 bg-primary/5' : 'border-grey/20 hover:border-primary/50'}`}
+                 >
+                    {businessFile ? (
+                      <div className="flex flex-col items-center">
+                        <FileCheck size={24} className="text-primary mb-2" />
+                        <p className="text-xs font-bold text-black truncate max-w-full px-4">{businessFile.name}</p>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setBusinessFile(null); }}
+                          className="absolute top-2 right-2 p-1 bg-white rounded-full shadow-sm text-grey hover:text-danger"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <UploadCloud size={24} className="mx-auto text-grey mb-2" />
+                        <p className="text-xs font-bold text-black">Carica Visura Camerale (Opzionale)</p>
+                      </>
+                    )}
                  </div>
 
                  <p className="text-xs font-bold text-center text-grey mb-4">OPPURE</p>

@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
 
 console.log('--- SERVER STARTING ---');
 import path from 'path';
@@ -10,14 +11,12 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// @ts-ignore
-const _filename = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
-// @ts-ignore
-const _dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(_filename);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   let stripe: Stripe | null = null;
   if (process.env.STRIPE_SECRET_KEY) {
@@ -108,6 +107,44 @@ async function startServer() {
     }
   });
 
+  // File Upload Configuration
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    }
+  });
+
+  const upload = multer({ 
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+      const allowedTypes = /pdf|png|jpg|jpeg/;
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (allowedTypes.test(ext)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only PDF and images are allowed'));
+      }
+    }
+  });
+
+  app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+  });
+
+  app.use('/uploads', express.static(uploadsDir));
+
   const isProduction = process.env.NODE_ENV === 'production';
   console.log(`Node Environment: ${process.env.NODE_ENV || 'undefined'} (isProduction: ${isProduction})`);
 
@@ -127,9 +164,7 @@ async function startServer() {
     }
   } else {
     // In production, serve the built static files
-    // Use _dirname to find dist if we're already inside it (bundled), otherwise use cwd/dist
-    const isBundled = _dirname.endsWith('dist') || _dirname.includes('/dist');
-    const distPath = isBundled ? _dirname : path.join(_dirname, 'dist');
+    const distPath = path.join(process.cwd(), 'dist');
     
     console.log(`Serving static files from: ${distPath}`);
     app.use(express.static(distPath));

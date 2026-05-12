@@ -24,7 +24,9 @@ import {
   Save,
   Loader2,
   X,
-  User as UserIcon
+  User as UserIcon,
+  Eye,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
@@ -57,6 +59,7 @@ export function AdminHome() {
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [selectedAIConv, setSelectedAIConv] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [kycFilter, setKycFilter] = useState<'ALL' | 'PENDING'>('ALL');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
 
@@ -265,11 +268,13 @@ export function AdminHome() {
     }
   };
 
-  const filteredUsers = allUsers.filter(u => 
-    u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.id?.includes(searchQuery)
-  );
+  const filteredUsers = allUsers.filter(u => {
+    const matchesSearch = u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.id?.includes(searchQuery);
+    const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
+    return matchesSearch && matchesKyc;
+  });
 
   const updateUserRole = async (userId: string, newRole: string) => {
     if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
@@ -295,7 +300,13 @@ export function AdminHome() {
 
   const tabs = [
     { id: 'STATS', label: 'Statistiche', icon: <TrendingUp size={20} /> },
-    { id: 'USERS', label: 'Utenti', icon: <Users size={20} />, badge: allUsers.length },
+    { 
+      id: 'USERS', 
+      label: 'Utenti', 
+      icon: <Users size={20} />, 
+      badge: allUsers.filter(u => u.kycStatus === 'PENDING').length || allUsers.length,
+      badgeColor: allUsers.some(u => u.kycStatus === 'PENDING') ? 'bg-accent' : 'bg-primary'
+    },
     { id: 'MAP', label: 'Mappa Live', icon: <MapIcon size={20} /> },
     { id: 'SUPPORT', label: 'Assistenza', icon: <MessageSquare size={20} />, badge: activeSupportChats.length + supportTickets.length },
     { id: 'AI_ASSISTANCE', label: 'AI Assistance', icon: <Sparkles size={20} /> },
@@ -626,9 +637,19 @@ export function AdminHome() {
                     className="w-full bg-white text-black border border-grey/10 rounded-2xl py-4 pl-12 pr-6 text-sm outline-none focus:ring-2 focus:ring-primary transition-all shadow-sm"
                   />
                 </div>
-                <div className="flex gap-4">
-                  <div className="bg-white text-black px-6 py-4 rounded-2xl border border-grey/5 whitespace-nowrap">
-                    <span className="text-[10px] font-black text-grey uppercase block mb-1">Totale</span>
+                <div className="flex gap-4 items-center">
+                  <button 
+                    onClick={() => setKycFilter(kycFilter === 'ALL' ? 'PENDING' : 'ALL')}
+                    className={`px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-sm flex items-center gap-2 border ${kycFilter === 'PENDING' ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20' : 'bg-white text-grey border-grey/10 hover:bg-grey/5'}`}
+                  >
+                    <ShieldAlert size={14} />
+                    {kycFilter === 'PENDING' ? 'Vedi Tutti' : 'Da Approvare'}
+                    {kycFilter === 'ALL' && allUsers.filter(u => u.kycStatus === 'PENDING').length > 0 && (
+                      <span className="w-2 h-2 bg-danger rounded-full animate-pulse ml-1" />
+                    )}
+                  </button>
+                  <div className="bg-white text-black px-6 py-4 rounded-2xl border border-grey/5 shadow-sm whitespace-nowrap">
+                    <span className="text-[10px] font-black text-grey uppercase block mb-1">Risultati</span>
                     <span className="text-xl font-black text-primary">{filteredUsers.length}</span>
                   </div>
                 </div>
@@ -740,9 +761,21 @@ export function AdminHome() {
                                 </div>
                               )}
                               
-                              {u.kycDocuments?.vatNumber && (
-                                <p className="text-[8px] mt-1 font-bold text-black">VAT/CF: {u.kycDocuments.vatNumber}</p>
-                              )}
+                               <div className="mt-2 space-y-1">
+                                 {u.kycDocuments?.vatNumber && (
+                                   <p className="text-[8px] font-bold text-black uppercase tracking-tight">VAT/CF: {u.kycDocuments.vatNumber}</p>
+                                 )}
+                                 {u.kycDocuments?.idUrl && (
+                                   <a href={u.kycDocuments.idUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[8px] font-black text-primary hover:text-black transition-colors uppercase tracking-widest bg-primary/5 p-1.5 rounded-lg w-full">
+                                     <Eye size={12} /> Vedi Doc. Identità
+                                   </a>
+                                 )}
+                                 {u.kycDocuments?.businessUrl && (
+                                   <a href={u.kycDocuments.businessUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[8px] font-black text-primary hover:text-black transition-colors uppercase tracking-widest bg-primary/5 p-1.5 rounded-lg w-full">
+                                     <Eye size={12} /> Vedi Visura/P.IVA
+                                   </a>
+                                 )}
+                               </div>
                            </div>
                         </div>
                       )}
