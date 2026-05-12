@@ -92,7 +92,7 @@ service cloud.firestore {
         isSignedIn() && (!isOwner(userId)) && (
           incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'peerMechanicEarnings', 'peerMechanicJobsCompleted', 'points', 'weeklyPoints', 'badges']) &&
           (incoming().diff(existing()).affectedKeys().hasAny(['balance', 'lastTxId']) ? (
-              incoming().get('balance', 0) > existing().get('balance', 0) &&
+              incoming().get('balance', 0) >= existing().get('balance', 0) &&
               incoming().lastTxId is string &&
               existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId))
           ) : true)
@@ -104,13 +104,18 @@ service cloud.firestore {
     match /mechanics/{mechId} {
       allow read: if isSignedIn();
       allow create: if isOwner(mechId) && isValidMechanic(incoming());
-      allow update: if isOwner(mechId) || isAdmin();
+      allow update: if isAdmin() || isOwner(mechId) || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['totalEarnings', 'completedJobs', 'updatedAt']));
       allow delete: if isAdmin();
     }
 
     match /platformStats/{statId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
+    }
+
+    match /systemConfig/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /aiConfig/{configId} {
@@ -123,7 +128,7 @@ service cloud.firestore {
       allow create: if isVerified() && isValidSOS(incoming());
       allow update: if isAdmin() || (isSignedIn() && (
         (existing().status == 'PENDING' && incoming().status == 'ACCEPTED' && incoming().mechanicId == request.auth.uid) ||
-        (isOwner(existing().cyclistId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'photos', 'isReviewed', 'mechanicConfirmed', 'updatedAt', 'paymentStatus'])) ||
+        (isOwner(existing().cyclistId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'photos', 'isReviewed', 'mechanicConfirmed', 'updatedAt', 'paymentStatus', 'cyclistConfirmed', 'completedAt', 'platformFee', 'mechanicNet', 'finalPrice'])) ||
         (isOwner(existing().mechanicId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'mechanicConfirmed', 'updatedAt', 'acceptedAt']))
       ));
       allow delete: if isAdmin();

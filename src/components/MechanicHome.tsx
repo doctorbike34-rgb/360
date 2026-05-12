@@ -321,8 +321,26 @@ export function MechanicHome() {
     } catch (e) { console.error(e); }
   };
   const { t, i18n } = useTranslation();
+  const [systemServices, setSystemServices] = useState<any[]>([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'systemConfig', 'services'), (snap) => {
+      if (snap.exists() && snap.data().list) {
+        setSystemServices(snap.data().list);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'systemConfig/services');
+      toast.error('Errore nel caricamento dei servizi. Riprova più tardi.');
+    });
+    return () => unsub();
+  }, []);
+
   const getFaultTypeTranslation = (faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
+    // Check if it's dynamic
+    const dynamicService = systemServices.find(s => s.id === faultType);
+    if (dynamicService) return dynamicService.label;
+
     const key = `cyclist.${faultType.toLowerCase().replace(/_([a-z])/g, (g) => g[1].toUpperCase())}`;
     return t(key);
   };
@@ -802,7 +820,7 @@ export function MechanicHome() {
               )}
             </motion.div>
           ) : activeTab === 'MAP' ? (
-            <motion.div key="map" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 pb-48">
+            <motion.div key="map" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
                <BicycleMap 
                  onStartChat={startDirectChat}
                  onViewReportDetails={(report) => {

@@ -183,17 +183,43 @@ export function CyclistHome() {
   
   const getFaultTypeTranslation = (faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
+    // Check if it's dynamic
+    const dynamicService = systemServices.find(s => s.id === faultType);
+    if (dynamicService) return dynamicService.label;
+
     const key = `cyclist.${faultType.toLowerCase().replace(/_([a-z])/g, (g) => g[1].toUpperCase())}`;
     return t(key);
   };
 
-  const faultTypes = [
-    { id: 'FLAT_TIRE', label: t('cyclist.flatTire'), icon: <Wrench size={20} /> },
-    { id: 'CHAIN_BREAK', label: t('cyclist.chainBreak'), icon: <AlertCircle size={20} /> },
-    { id: 'BRAKE_ISSUE', label: t('cyclist.brakeIssue'), icon: <Navigation2 size={20} /> },
-    { id: 'GEAR_ADJUST', label: t('cyclist.gearAdjust'), icon: <Settings size={20} /> },
-    { id: 'WHEEL_TRUE', label: t('cyclist.wheelTrue'), icon: <AlertCircle size={20} /> },
-    { id: 'OTHER', label: t('cyclist.other'), icon: <Plus size={20} /> },
+  const getServicePrice = (faultType: string | null) => {
+    if (!faultType) return 15;
+    const dynamicService = systemServices.find(s => s.id === faultType);
+    if (dynamicService && dynamicService.defaultPrice !== undefined) {
+      return dynamicService.defaultPrice;
+    }
+    return 15;
+  };
+
+  const iconMap: Record<string, JSX.Element> = {
+    'Wrench': <Wrench size={20} />,
+    'AlertCircle': <AlertCircle size={20} />,
+    'Navigation2': <Navigation2 size={20} />,
+    'Settings': <Settings size={20} />,
+    'Plus': <Plus size={20} />
+  };
+
+  const dynamicFaultTypes = systemServices.length > 0 ? systemServices.map(s => ({
+    id: s.id,
+    label: s.label,
+    icon: iconMap[s.icon] || <Wrench size={20} />,
+    price: s.defaultPrice || 15
+  })) : [
+    { id: 'FLAT_TIRE', label: t('cyclist.flatTire'), icon: <Wrench size={20} />, price: 15 },
+    { id: 'CHAIN_BREAK', label: t('cyclist.chainBreak'), icon: <AlertCircle size={20} />, price: 20 },
+    { id: 'BRAKE_ISSUE', label: t('cyclist.brakeIssue'), icon: <Navigation2 size={20} />, price: 25 },
+    { id: 'GEAR_ADJUST', label: t('cyclist.gearAdjust'), icon: <Settings size={20} />, price: 15 },
+    { id: 'WHEEL_TRUE', label: t('cyclist.wheelTrue'), icon: <AlertCircle size={20} />, price: 30 },
+    { id: 'OTHER', label: t('cyclist.other'), icon: <Plus size={20} />, price: 15 },
   ];
 
   const [selectedFaultType, setSelectedFaultType] = useState<string | null>(null);
@@ -239,6 +265,19 @@ export function CyclistHome() {
   const [focusedPos, setFocusedPos] = useState<[number, number] | null>(null);
   const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [systemServices, setSystemServices] = useState<any[]>([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'systemConfig', 'services'), (snap) => {
+      if (snap.exists() && snap.data().list) {
+        setSystemServices(snap.data().list);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'systemConfig/services');
+      toast.error('Errore nel caricamento dei servizi. Riprova più tardi.');
+    });
+    return () => unsub();
+  }, []);
 
   const handleFocusOnEvent = (lat: number, lng: number) => {
     setFocusedPos([lat, lng]);
@@ -444,22 +483,25 @@ export function CyclistHome() {
 
 
   const finalizeJob = async () => {
+    console.log('FinalizeJob clicked! activeSOS:', activeSOS?.id);
     if (!activeSOS || !user) return;
     
     setIsFinishing(true);
     try {
+      console.log('Updating document...');
       // Mark as COMPLETED in Firestore
       await updateDoc(doc(db, 'sosRequests', activeSOS.id), {
         status: 'COMPLETED',
         updatedAt: serverTimestamp()
       });
+      console.log('Update successful, showing review modal...');
       
       setCompletedJobToReview(activeSOS);
       setShowReviewModal(true);
       setShowCompletionOverlay(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error finalizing job:', error);
-      toast.error('Errore durante la conferma. Riprova.');
+      toast.error('Errore durante la conferma: ' + (error.message || String(error)));
     } finally {
       setIsFinishing(false);
     }
@@ -583,7 +625,7 @@ export function CyclistHome() {
     
     setIsCreatingSOS(true);
     
-    const basePrice = nearestMechanic?.sosPrice || 15;
+    const basePrice = getServicePrice(faultType);
     let price = basePrice;
     
     let discountRate = profile?.firstInterventionDiscount;
@@ -1639,7 +1681,7 @@ export function CyclistHome() {
                   <p className="text-grey text-xs font-bold uppercase mb-8">{t('cyclist.selectIssue')}</p>
 
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-                    {faultTypes.map((type) => (
+                    {dynamicFaultTypes.map((type) => (
                       <button 
                         key={type.id}
                         onClick={() => setSelectedFaultType(type.id)}
@@ -1657,6 +1699,7 @@ export function CyclistHome() {
                         <span className={`text-[10px] font-black uppercase tracking-widest text-center leading-tight ${
                           selectedFaultType === type.id ? 'text-primary' : 'text-dark/80'
                         }`}>{type.label}</span>
+                        <span className={`text-[10px] font-bold mt-1 ${selectedFaultType === type.id ? 'text-primary' : 'text-grey'}`}>⚡ {type.price} DBC</span>
                       </button>
                     ))}
                   </div>

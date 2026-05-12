@@ -174,9 +174,9 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
       gamificationService.awardPoints(userId, 'Chiusura intervento e recensione', 10);
 
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting review:', error);
-      handleFirestoreError(error, OperationType.WRITE, 'reviews');
+      toast.error('Errore durante il completamento: ' + (error.message || String(error)));
     } finally {
       setIsSubmitting(false);
     }
