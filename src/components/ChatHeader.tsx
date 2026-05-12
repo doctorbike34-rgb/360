@@ -41,7 +41,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onB
         }
       }
 
-      if (otherId) {
+      if (otherId && typeof otherId === 'string' && !otherId.includes('/')) {
         unsubscribe = onSnapshot(doc(db, 'users', otherId), (snap) => {
           if (snap.exists()) {
             setProfile({ id: otherId, ...snap.data() });

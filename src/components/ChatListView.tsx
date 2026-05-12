@@ -14,7 +14,7 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
     if (chat.type === 'DIRECT') {
       const participants = chat.participants as string[] | undefined;
       const otherId = participants?.find((p: string) => p !== currentUserId) || chat.id.replace('direct_', '').split('_').find((id: string) => id !== currentUserId);
-      if (otherId) {
+      if (otherId && typeof otherId === 'string' && !otherId.includes('/')) {
         unsubscribe = onSnapshot(doc(db, 'users', otherId), (snap) => {
           if (snap.exists()) setProfile({ id: otherId, ...snap.data() });
         }, (err) => console.error(err));

@@ -131,8 +131,9 @@ service cloud.firestore {
       // Allow any signed in user to see a chat's details (needed for joining groups)
       allow get: if isSignedIn();
       // Only list chats where user is a participant
-      allow list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow list: if (isSignedIn() && request.auth.uid in resource.data.participants) || isAdmin();
       allow create: if isSignedIn();
+      allow delete: if isAdmin();
       
       // Allow update if:
       // 1. User is already a participant
@@ -145,6 +146,7 @@ service cloud.firestore {
       match /messages/{msgId} {
         allow read, create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
         allow update: if isSignedIn() && request.auth.uid == existing().senderId || isAdmin();
+        allow delete: if isAdmin();
       }
     }
 
@@ -168,20 +170,24 @@ service cloud.firestore {
     match /supportTickets/{ticketId} {
        allow create: if isSignedIn() && incoming().userId == request.auth.uid;
        allow read, update: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+       allow delete: if isAdmin();
 
        match /messages/{msgId} {
          allow read, create: if isSignedIn() && (get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.userId == request.auth.uid || isAdmin());
+         allow delete: if isAdmin();
        }
     }
 
     match /aiConversations/{convId} {
        allow create: if isSignedIn() && incoming().userId == request.auth.uid;
        allow read, update: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+       allow delete: if isAdmin();
     }
 
     match /transactions/{txId} {
        // Users can read their own transactions
-       allow read: if isSignedIn() && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin());
+       allow read: if isAdmin() || (isSignedIn() && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid || resource.data.userId == request.auth.uid));
+       allow delete: if isAdmin();
        // To create a transaction, the sender must be the authenticated user (or it must be a topup)
        // and the exact amounts must match the balance changes in the users' documents
        allow create: if isSignedIn() && (
@@ -204,8 +210,12 @@ service cloud.firestore {
     }
 
     match /interventions/{intId} {
-       allow read: if isSignedIn() && (resource.data.cyclistId == request.auth.uid || resource.data.mechanicId == request.auth.uid || isAdmin());
+       allow read: if isAdmin() || (isSignedIn() && (resource.data.cyclistId == request.auth.uid || resource.data.mechanicId == request.auth.uid));
        allow create: if isSignedIn() && (incoming().cyclistId == request.auth.uid || incoming().mechanicId == request.auth.uid);
+       allow update: if isAdmin() || (isSignedIn() && (
+         existing().cyclistId == request.auth.uid || existing().mechanicId == request.auth.uid
+       ) && incoming().diff(existing()).affectedKeys().hasOnly(['aiDiagnosis']));
+       allow delete: if isAdmin();
     }
 
     match /reviews/{reviewId} {
