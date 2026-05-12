@@ -583,8 +583,21 @@ export function CyclistHome() {
     
     setIsCreatingSOS(true);
     
-    const price = nearestMechanic?.sosPrice || 15;
+    const basePrice = nearestMechanic?.sosPrice || 15;
+    let price = basePrice;
     
+    let discountRate = profile?.firstInterventionDiscount;
+    if (discountRate === undefined || discountRate === null) {
+      discountRate = (profile?.completedJobs === 0) ? 0.5 : 0;
+    }
+    
+    let appliedDiscount = false;
+
+    if (discountRate > 0 && discountRate <= 1) {
+      price = Math.max(0, basePrice - (basePrice * discountRate));
+      appliedDiscount = true;
+    }
+
     if ((profile?.balance || 0) < price) {
       setShowInsufficientFunds(true);
       setIsCreatingSOS(false);
@@ -613,11 +626,17 @@ export function CyclistHome() {
         const txRef = doc(collection(db, 'transactions'));
         
         // 1. Deduct balance from cyclist
-        transaction.update(userRef, {
+        const updateData: any = {
           balance: increment(-price),
           updatedAt: serverTimestamp(),
           lastTxId: txRef.id
-        });
+        };
+        
+        if (appliedDiscount) {
+            updateData.firstInterventionDiscount = 0;
+        }
+
+        transaction.update(userRef, updateData);
         
         transaction.set(txRef, {
             fromId: user?.uid,
@@ -640,6 +659,8 @@ export function CyclistHome() {
           lat,
           lng,
           estimatedPrice: price,
+          originalPrice: basePrice, // Track the original price if discounted
+          hasDiscount: appliedDiscount,
           paymentStatus: 'ESCROW',
           createdAt: serverTimestamp(),
         });
@@ -1759,19 +1780,42 @@ export function CyclistHome() {
                   </div>
 
                   {nearestMechanic && (
-                    <div className="bg-accent/5 p-4 rounded-[1.5rem] border border-accent/10 mb-6 flex items-center justify-between shadow-sm shrink-0">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl overflow-hidden border border-accent/20 bg-white">
-                          <img src={nearestMechanic.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${nearestMechanic.uid}`} alt="N" className="w-full h-full object-cover" />
+                    <div className="bg-accent/5 p-4 rounded-[1.5rem] border border-accent/10 mb-6 flex flex-col gap-2 shadow-sm shrink-0">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl overflow-hidden border border-accent/20 bg-white">
+                            <img src={nearestMechanic.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${nearestMechanic.uid}`} alt="N" className="w-full h-full object-cover" />
+                          </div>
+                          <div>
+                            <p className="text-[7px] font-black uppercase text-accent tracking-[0.2em]">Tariffa Meccanico</p>
+                            <h4 className="font-black text-black text-sm uppercase">DBC {nearestMechanic.sosPrice || 15}</h4>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[7px] font-black uppercase text-accent tracking-[0.2em]">Tariffa</p>
-                          <h4 className="font-black text-black text-sm uppercase">Meccanico ⚡{nearestMechanic.sosPrice || 15}</h4>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[10px] font-black text-primary uppercase">Saldo: {profile?.balance || 0} DBC</span>
                         </div>
                       </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-[10px] font-black text-primary uppercase">Saldo: {profile?.balance || 0} DBC</span>
-                      </div>
+                      
+                      {(() => {
+                        const discount = profile?.firstInterventionDiscount !== undefined && profile?.firstInterventionDiscount !== null ? profile.firstInterventionDiscount : (profile?.completedJobs === 0 ? 0.5 : 0);
+                        if (discount > 0) {
+                          return (
+                            <div className="mt-2 bg-primary/10 border border-primary/20 rounded-xl p-3 flex justify-between items-center relative overflow-hidden">
+                              <div className="absolute top-0 right-0 w-16 h-16 bg-primary/10 rounded-full blur-xl -translate-y-1/2 translate-x-1/2"></div>
+                              <div>
+                                <p className="text-[9px] font-black uppercase text-primary tracking-widest flex items-center gap-1">
+                                  <Sparkles size={10} /> Sconto 1° Intervento ({(discount * 100).toFixed(0)}%)
+                                </p>
+                                <p className="text-sm font-black text-black">
+                                  Totale: DBC {Math.max(0, (nearestMechanic.sosPrice || 15) - ((nearestMechanic.sosPrice || 15) * discount))}
+                                </p>
+                              </div>
+                              <p className="text-xs font-bold text-grey line-through decoration-danger decoration-2 opacity-60">DBC {nearestMechanic.sosPrice || 15}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   )}
 

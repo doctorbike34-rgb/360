@@ -484,7 +484,7 @@ export function AdminHome() {
         </header>
 
         {/* Dynamic Content */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12 bg-white/40">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12 bg-white/40 relative">
           <AnimatePresence mode="wait">
           {activeTab === 'STATS' && (
             <motion.div
