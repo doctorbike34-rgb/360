@@ -191,6 +191,20 @@ export function CyclistHome() {
     return t(key);
   };
 
+  const [systemServices, setSystemServices] = useState<any[]>([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'systemConfig', 'services'), (snap) => {
+      if (snap.exists() && snap.data().list) {
+        setSystemServices(snap.data().list);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'systemConfig/services');
+      toast.error('Errore nel caricamento dei servizi. Riprova più tardi.');
+    });
+    return () => unsub();
+  }, []);
+
   const getServicePrice = (faultType: string | null) => {
     if (!faultType) return 15;
     const dynamicService = systemServices.find(s => s.id === faultType);
@@ -200,7 +214,7 @@ export function CyclistHome() {
     return 15;
   };
 
-  const iconMap: Record<string, JSX.Element> = {
+  const iconMap: Record<string, React.ReactNode> = {
     'Wrench': <Wrench size={20} />,
     'AlertCircle': <AlertCircle size={20} />,
     'Navigation2': <Navigation2 size={20} />,
@@ -208,7 +222,7 @@ export function CyclistHome() {
     'Plus': <Plus size={20} />
   };
 
-  const dynamicFaultTypes = systemServices.length > 0 ? systemServices.map(s => ({
+  const dynamicFaultTypes = React.useMemo(() => systemServices.length > 0 ? systemServices.map(s => ({
     id: s.id,
     label: s.label,
     icon: iconMap[s.icon] || <Wrench size={20} />,
@@ -220,7 +234,7 @@ export function CyclistHome() {
     { id: 'GEAR_ADJUST', label: t('cyclist.gearAdjust'), icon: <Settings size={20} />, price: 15 },
     { id: 'WHEEL_TRUE', label: t('cyclist.wheelTrue'), icon: <AlertCircle size={20} />, price: 30 },
     { id: 'OTHER', label: t('cyclist.other'), icon: <Plus size={20} />, price: 15 },
-  ];
+  ], [systemServices, t]);
 
   const [selectedFaultType, setSelectedFaultType] = useState<string | null>(null);
   const [showSOSForm, setShowSOSForm] = useState(false);
@@ -265,19 +279,6 @@ export function CyclistHome() {
   const [focusedPos, setFocusedPos] = useState<[number, number] | null>(null);
   const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
-  const [systemServices, setSystemServices] = useState<any[]>([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'systemConfig', 'services'), (snap) => {
-      if (snap.exists() && snap.data().list) {
-        setSystemServices(snap.data().list);
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'systemConfig/services');
-      toast.error('Errore nel caricamento dei servizi. Riprova più tardi.');
-    });
-    return () => unsub();
-  }, []);
 
   const handleFocusOnEvent = (lat: number, lng: number) => {
     setFocusedPos([lat, lng]);

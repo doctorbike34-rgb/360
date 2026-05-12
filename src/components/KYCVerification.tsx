@@ -54,12 +54,12 @@ export function KYCVerification() {
      e.preventDefault();
      if (!user) return;
      
-     if (!idFile && !profile?.kycDocuments?.idUrl) {
+     if (!idFile && !profile?.kycDocuments?.identityDoc) {
        setError("Carica un documento d'identità (Fronte/Retro).");
        return;
      }
 
-     if (!vat && !businessFile && !profile?.kycDocuments?.businessUrl) {
+     if (!vat && !businessFile && !profile?.kycDocuments?.visuraDoc) {
        setError("Inserisci la Partita IVA oppure carica la Visura Camerale.");
        return;
      }
@@ -67,8 +67,8 @@ export function KYCVerification() {
      setLoading(true);
      setError('');
      try {
-       let finalIdUrl = profile?.kycDocuments?.idUrl || '';
-       let finalBusinessUrl = profile?.kycDocuments?.businessUrl || '';
+       let finalIdUrl = profile?.kycDocuments?.identityDoc || '';
+       let finalBusinessUrl = profile?.kycDocuments?.visuraDoc || '';
 
        if (idFile) {
          finalIdUrl = await uploadFile(idFile);
@@ -81,8 +81,8 @@ export function KYCVerification() {
          kycStatus: 'PENDING',
          kycDocuments: {
             vatNumber: vat,
-            idUrl: finalIdUrl,
-            businessUrl: finalBusinessUrl,
+            identityDoc: finalIdUrl,
+            visuraDoc: finalBusinessUrl,
             submittedAt: serverTimestamp()
          }
        });
