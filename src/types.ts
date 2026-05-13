@@ -33,8 +33,8 @@ export interface UserProfile {
   
   kycStatus?: KYCStatus;
   kycDocuments?: {
-    identityDoc?: string;
-    visuraDoc?: string;
+    idUrl?: string;
+    businessUrl?: string;
     vatNumber?: string;
     submittedAt?: any;
     rejectedReason?: string;

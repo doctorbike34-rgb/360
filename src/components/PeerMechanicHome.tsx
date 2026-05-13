@@ -50,23 +50,8 @@ export function PeerMechanicHome() {
 
   const isAvailable = profile?.peerMechanicEnabled || false;
 
-  const [systemServices, setSystemServices] = useState<any[]>([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'systemConfig', 'services'), (snap) => {
-      if (snap.exists() && snap.data().list) {
-        setSystemServices(snap.data().list);
-      }
-    });
-    return () => unsub();
-  }, []);
-
   const getFaultTypeTranslation = (faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
-    // Check if it's dynamic
-    const dynamicService = systemServices.find(s => s.id === faultType);
-    if (dynamicService) return dynamicService.label;
-
     const key = `cyclist.${faultType.toLowerCase().replace(/_([a-z])/g, (g) => g[1].toUpperCase())}`;
     return t(key);
   };

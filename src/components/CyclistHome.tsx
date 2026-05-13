@@ -183,43 +183,17 @@ export function CyclistHome() {
   
   const getFaultTypeTranslation = (faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
-    // Check if it's dynamic
-    const dynamicService = systemServices.find(s => s.id === faultType);
-    if (dynamicService) return dynamicService.label;
-
     const key = `cyclist.${faultType.toLowerCase().replace(/_([a-z])/g, (g) => g[1].toUpperCase())}`;
     return t(key);
   };
 
-  const getServicePrice = (faultType: string | null) => {
-    if (!faultType) return 15;
-    const dynamicService = systemServices.find(s => s.id === faultType);
-    if (dynamicService && dynamicService.defaultPrice !== undefined) {
-      return dynamicService.defaultPrice;
-    }
-    return 15;
-  };
-
-  const iconMap: Record<string, JSX.Element> = {
-    'Wrench': <Wrench size={20} />,
-    'AlertCircle': <AlertCircle size={20} />,
-    'Navigation2': <Navigation2 size={20} />,
-    'Settings': <Settings size={20} />,
-    'Plus': <Plus size={20} />
-  };
-
-  const dynamicFaultTypes = systemServices.length > 0 ? systemServices.map(s => ({
-    id: s.id,
-    label: s.label,
-    icon: iconMap[s.icon] || <Wrench size={20} />,
-    price: s.defaultPrice || 15
-  })) : [
-    { id: 'FLAT_TIRE', label: t('cyclist.flatTire'), icon: <Wrench size={20} />, price: 15 },
-    { id: 'CHAIN_BREAK', label: t('cyclist.chainBreak'), icon: <AlertCircle size={20} />, price: 20 },
-    { id: 'BRAKE_ISSUE', label: t('cyclist.brakeIssue'), icon: <Navigation2 size={20} />, price: 25 },
-    { id: 'GEAR_ADJUST', label: t('cyclist.gearAdjust'), icon: <Settings size={20} />, price: 15 },
-    { id: 'WHEEL_TRUE', label: t('cyclist.wheelTrue'), icon: <AlertCircle size={20} />, price: 30 },
-    { id: 'OTHER', label: t('cyclist.other'), icon: <Plus size={20} />, price: 15 },
+  const faultTypes = [
+    { id: 'FLAT_TIRE', label: t('cyclist.flatTire'), icon: <Wrench size={20} /> },
+    { id: 'CHAIN_BREAK', label: t('cyclist.chainBreak'), icon: <AlertCircle size={20} /> },
+    { id: 'BRAKE_ISSUE', label: t('cyclist.brakeIssue'), icon: <Navigation2 size={20} /> },
+    { id: 'GEAR_ADJUST', label: t('cyclist.gearAdjust'), icon: <Settings size={20} /> },
+    { id: 'WHEEL_TRUE', label: t('cyclist.wheelTrue'), icon: <AlertCircle size={20} /> },
+    { id: 'OTHER', label: t('cyclist.other'), icon: <Plus size={20} /> },
   ];
 
   const [selectedFaultType, setSelectedFaultType] = useState<string | null>(null);
@@ -265,16 +239,6 @@ export function CyclistHome() {
   const [focusedPos, setFocusedPos] = useState<[number, number] | null>(null);
   const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
-  const [systemServices, setSystemServices] = useState<any[]>([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'systemConfig', 'services'), (snap) => {
-      if (snap.exists() && snap.data().list) {
-        setSystemServices(snap.data().list);
-      }
-    });
-    return () => unsub();
-  }, []);
 
   const handleFocusOnEvent = (lat: number, lng: number) => {
     setFocusedPos([lat, lng]);
@@ -622,7 +586,7 @@ export function CyclistHome() {
     
     setIsCreatingSOS(true);
     
-    const basePrice = getServicePrice(faultType);
+    const basePrice = nearestMechanic?.sosPrice || 15;
     let price = basePrice;
     
     let discountRate = profile?.firstInterventionDiscount;
@@ -1678,7 +1642,7 @@ export function CyclistHome() {
                   <p className="text-grey text-xs font-bold uppercase mb-8">{t('cyclist.selectIssue')}</p>
 
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-                    {dynamicFaultTypes.map((type) => (
+                    {faultTypes.map((type) => (
                       <button 
                         key={type.id}
                         onClick={() => setSelectedFaultType(type.id)}
@@ -1696,7 +1660,6 @@ export function CyclistHome() {
                         <span className={`text-[10px] font-black uppercase tracking-widest text-center leading-tight ${
                           selectedFaultType === type.id ? 'text-primary' : 'text-dark/80'
                         }`}>{type.label}</span>
-                        <span className={`text-[10px] font-bold mt-1 ${selectedFaultType === type.id ? 'text-primary' : 'text-grey'}`}>⚡ {type.price} DBC</span>
                       </button>
                     ))}
                   </div>
