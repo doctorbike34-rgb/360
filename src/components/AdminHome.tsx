@@ -36,10 +36,9 @@ import { Map } from './Map';
 import { RoadReportDetailModal } from './RoadReportDetailModal';
 import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
-import { ServicePricingAdmin } from './ServicePricingAdmin';
 import ReactMarkdown from 'react-markdown';
 
-type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'SERVICES' | 'PROFILE';
+type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE';
 
 export function AdminHome() {
   const [disputedJobs, setDisputedJobs] = useState<any[]>([]);
@@ -313,7 +312,6 @@ export function AdminHome() {
     { id: 'AI_ASSISTANCE', label: 'AI Assistance', icon: <Sparkles size={20} /> },
     { id: 'DISPUTES', label: 'Contestazioni', icon: <ShieldAlert size={20} />, badge: disputedJobs.length, badgeColor: 'bg-danger' },
     { id: 'REPORTS', label: 'Segnalazioni', icon: <MapIcon size={20} />, badge: roadReports.length },
-    { id: 'SERVICES', label: 'Servizi e Prezzi', icon: <DollarSign size={20} /> },
     { id: 'PROFILE', label: 'Profilo', icon: <UserIcon size={20} /> },
   ];
 
@@ -1383,17 +1381,6 @@ export function AdminHome() {
                   </div>
                 ))}
               </div>
-            </motion.div>
-          )}
-
-          {activeTab === 'SERVICES' && (
-            <motion.div
-              key="services"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.05 }}
-            >
-              <ServicePricingAdmin />
             </motion.div>
           )}
 

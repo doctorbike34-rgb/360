@@ -57,9 +57,6 @@ export function PeerMechanicHome() {
       if (snap.exists() && snap.data().list) {
         setSystemServices(snap.data().list);
       }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'systemConfig/services');
-      toast.error('Errore nel caricamento dei servizi. Riprova più tardi.');
     });
     return () => unsub();
   }, []);
