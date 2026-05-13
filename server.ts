@@ -16,7 +16,8 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
+  console.log(`Starting server on port ${PORT}...`);
 
   let stripe: Stripe | null = null;
   if (process.env.STRIPE_SECRET_KEY) {
