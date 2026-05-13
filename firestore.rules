@@ -94,7 +94,9 @@ service cloud.firestore {
           (incoming().diff(existing()).affectedKeys().hasAny(['balance', 'lastTxId']) ? (
               incoming().get('balance', 0) >= existing().get('balance', 0) &&
               incoming().lastTxId is string &&
-              existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId))
+              existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)) &&
+              getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (incoming().get('balance', 0) - existing().get('balance', 0)) &&
+              getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.toId == userId
           ) : true)
         )
       );
@@ -192,7 +194,11 @@ service cloud.firestore {
        allow delete: if isAdmin();
        // To create a transaction, the sender must be the authenticated user (or it must be a topup)
        // and the exact amounts must match the balance changes in the users' documents
-       allow create: if isSignedIn();
+       allow create: if isSignedIn() && (
+         incoming().fromId == request.auth.uid ||
+         incoming().fromId == 'ESCROW' ||
+         incoming().fromId == 'STRIPE'
+       ) && incoming().amount > 0;
     }
 
     match /interventions/{intId} {

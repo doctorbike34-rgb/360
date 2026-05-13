@@ -1,5 +1,6 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
+import imageCompression from 'browser-image-compression';
 import { Map } from './Map';
 import { 
   Bell, 
@@ -384,36 +385,50 @@ export function CyclistHome() {
     };
   }, [user, userLocation, setQuotaError]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isForNewSOS: boolean = false) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isForNewSOS: boolean = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("L'immagine è troppo grande. Usa un'immagine inferiore a 5MB.");
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("L'immagine è troppo grande (Max 15MB).");
       return;
     }
 
     setIsUploading(true);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64String = reader.result as string;
-      try {
-        if (isForNewSOS) {
-          setSosPhotos(prev => [...prev, base64String]);
-        } else if (activeSOS) {
-          await updateDoc(doc(db, 'sosRequests', activeSOS.id), {
-            photos: arrayUnion(base64String),
-            updatedAt: serverTimestamp()
-          });
+    
+    try {
+      const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true,
+      };
+      
+      const compressedFile = await imageCompression(file, options);
+      
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result as string;
+        try {
+          if (isForNewSOS) {
+            setSosPhotos(prev => [...prev, base64String]);
+          } else if (activeSOS) {
+            await updateDoc(doc(db, 'sosRequests', activeSOS.id), {
+              photos: arrayUnion(base64String),
+              updatedAt: serverTimestamp()
+            });
+          }
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setIsUploading(false);
         }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      toast.error("Errore durante la compressione dell'immagine");
+      setIsUploading(false);
+    }
   };
 
   const startDirectChat = async (otherUserId: string, otherName: string) => {
@@ -1667,7 +1682,7 @@ export function CyclistHome() {
                   <button
                     disabled={!selectedFaultType}
                     onClick={() => setSosStep(2)}
-                    className="w-full bg-primary text-white py-5 rounded-2xl font-black uppercase tracking-[0.1em] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-3 mt-4"
+                    className="w-full bg-primary text-white py-5 rounded-2xl font-black uppercase tracking-[0.1em] shadow-xl shadow-primary/20 hover:bg-primary/90 hover:scale-[1.02] focus:ring-4 focus:ring-primary/50 focus:outline-none active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-3 mt-4"
                   >
                     Avanti <ArrowRight size={20} />
                   </button>
@@ -1730,7 +1745,7 @@ export function CyclistHome() {
 
                   <button
                     onClick={() => setSosStep(3)}
-                    className="w-full bg-primary text-white py-5 rounded-2xl font-black uppercase tracking-[0.1em] shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+                    className="w-full bg-primary text-white py-5 rounded-2xl font-black uppercase tracking-[0.1em] shadow-xl shadow-primary/20 hover:bg-primary/90 hover:scale-[1.02] focus:ring-4 focus:ring-primary/50 focus:outline-none active:scale-95 transition-all flex items-center justify-center gap-3"
                   >
                     Conferma Dettagli <ArrowRight size={20} />
                   </button>

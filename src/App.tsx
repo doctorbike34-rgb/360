@@ -402,7 +402,7 @@ export default function App() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className={`flex flex-col h-[100dvh] w-full ${role === 'ADMIN' ? 'max-w-none' : 'sm:max-w-[440px] sm:mx-auto shadow-[0_0_50px_-15px_rgba(0,0,0,0.1)]'} relative overflow-hidden transition-colors duration-500 bg-white text-black`}>
+    <div className={`flex flex-col h-[100dvh] w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black`}>
       <>
         <AnimatePresence>
           {quotaError && (
@@ -458,7 +458,7 @@ export default function App() {
                     <div className="w-full space-y-4">
                       <button 
                         onClick={retryLocation}
-                        className="w-full bg-primary text-white font-black py-5 rounded-2xl shadow-2xl shadow-primary/30 active:scale-95 transition-all text-sm uppercase tracking-widest"
+                        className="w-full bg-primary text-white font-black py-5 rounded-2xl shadow-2xl shadow-primary/30 hover:bg-primary/90 hover:scale-[1.02] focus:ring-4 focus:ring-primary/50 focus:outline-none active:scale-95 transition-all text-sm uppercase tracking-widest"
                       >
                         Abilita GPS Ora
                       </button>
@@ -538,7 +538,7 @@ export default function App() {
                             }
                             setLocationPermissionError(false);
                           }}
-                          className="w-full bg-grey/10 text-black font-black py-4 rounded-2xl active:scale-95 transition-all text-xs uppercase tracking-widest"
+                          className="w-full bg-grey/10 text-black font-black py-4 rounded-2xl hover:bg-grey/20 focus:ring-4 focus:ring-grey/30 focus:outline-none active:scale-95 transition-all text-xs uppercase tracking-widest"
                         >
                           Usa Posizione Rete (Approssimativa)
                         </button>

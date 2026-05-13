@@ -457,7 +457,7 @@ export function Auth() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full sm:max-w-[440px] sm:mx-auto shadow-[20px_0_50px_-15px_rgba(0,0,0,0.2)] relative overflow-hidden bg-primary transition-colors duration-500 pt-safe pb-safe">
+    <div className="flex flex-col h-[100dvh] w-full max-w-none shadow-[20px_0_50px_-15px_rgba(0,0,0,0.2)] relative overflow-hidden bg-primary transition-colors duration-500 pt-safe pb-safe">
       <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
         <div className="w-full max-w-sm flex justify-end mb-4 z-50 relative">
           {/* Selettore Lingua */}
