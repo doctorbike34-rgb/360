@@ -41,7 +41,23 @@ export default defineConfig(({mode}) => {
     ],
     build: {
       outDir: 'dist',
-      chunkSizeWarningLimit: 2000,
+      chunkSizeWarningLimit: 5000,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase')) return 'vendor-firebase';
+              if (id.includes('react')) return 'vendor-react';
+              if (id.includes('leaflet')) return 'vendor-maps';
+              if (id.includes('lucide-react')) return 'vendor-ui';
+              if (id.includes('motion')) return 'vendor-ui';
+              if (id.includes('stripe')) return 'vendor-stripe';
+              if (id.includes('recharts') || id.includes('d3')) return 'vendor-charts';
+              return 'vendor-utils';
+            }
+          }
+        }
+      }
     },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

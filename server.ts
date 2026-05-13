@@ -3,21 +3,29 @@ import cors from 'cors';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
-
-console.log('--- SERVER STARTING ---');
 import path from 'path';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const getDirname = () => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch (e) {
+    return process.cwd();
+  }
+};
+const __dirname = getDirname();
 
 async function startServer() {
+  console.log('--- SERVER STARTING ---');
   const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   console.log(`Starting server on port ${PORT}...`);
+  console.log(`PORT env var: ${process.env.PORT}`);
+  console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+  console.log(`BUILDING: ${process.env.BUILDING}`);
 
   let stripe: Stripe | null = null;
   if (process.env.STRIPE_SECRET_KEY) {
@@ -175,8 +183,12 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
-startServer().catch(console.error);
+if (process.env.BUILDING !== 'true') {
+  startServer().catch(console.error);
+} else {
+  console.log('Skipping server start during build phase.');
+}
