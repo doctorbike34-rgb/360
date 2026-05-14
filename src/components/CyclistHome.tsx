@@ -312,6 +312,8 @@ export function CyclistHome() {
 
   // const [nearbyCyclists, setNearbyCyclists] = useState<any[]>([]);
 
+  const [rawMechanics, setRawMechanics] = useState<any[]>([]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -323,31 +325,7 @@ export function CyclistHome() {
       limit(20)
     );
     const unsubMechanics = onSnapshot(qMechanic, (snapshot) => {
-      const now = Date.now();
-      let activeCount = 0;
-      let minDoc: any = null;
-      let minDistance = Infinity;
-
-      snapshot.docs.forEach(doc => {
-        if (doc.id === user?.uid) return;
-        const data = doc.data();
-        const lastSeen = data.lastSeenAt instanceof Date ? data.lastSeenAt.getTime() : (data.lastSeenAt?.seconds ? data.lastSeenAt.seconds * 1000 : 0);
-        if ((now - lastSeen) < (15 * 60 * 1000)) {
-          activeCount++;
-          if (userLocation && data.lastLat && data.lastLng) {
-            const d = getDistance(userLocation.lat, userLocation.lng, data.lastLat, data.lastLng);
-            if (d < minDistance) {
-              minDistance = d;
-              minDoc = { id: doc.id, ...data, distance: d };
-            }
-          } else if (!minDoc) {
-             minDoc = { id: doc.id, ...data, distance: 0 };
-          }
-        }
-      });
-      
-      setNearbyCount(activeCount);
-      setNearestMechanic(minDoc);
+      setRawMechanics(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setQuotaError(false);
     }, (error) => {
       if (error.message.includes('Quota exceeded')) setQuotaError(true);
@@ -383,7 +361,36 @@ export function CyclistHome() {
       unsubMechanics();
       unsubCyclists();
     };
-  }, [user, userLocation, setQuotaError]);
+  }, [user, setQuotaError]); // CRITICAL: Removed userLocation to prevent infinite read loops
+
+  // Calculate nearest mechanic without hitting database
+  useEffect(() => {
+    if (!user) return;
+    const now = Date.now();
+    let activeCount = 0;
+    let minDoc: any = null;
+    let minDistance = Infinity;
+
+    rawMechanics.forEach(data => {
+      if (data.id === user?.uid) return;
+      const lastSeen = data.lastSeenAt instanceof Date ? data.lastSeenAt.getTime() : (data.lastSeenAt?.seconds ? data.lastSeenAt.seconds * 1000 : 0);
+      if ((now - lastSeen) < (15 * 60 * 1000)) {
+        activeCount++;
+        if (userLocation && data.lastLat && data.lastLng) {
+          const d = getDistance(userLocation.lat, userLocation.lng, data.lastLat, data.lastLng);
+          if (d < minDistance) {
+            minDistance = d;
+            minDoc = { ...data, distance: d };
+          }
+        } else if (!minDoc) {
+           minDoc = { ...data, distance: 0 };
+        }
+      }
+    });
+    
+    setNearbyCount(activeCount);
+    setNearestMechanic(minDoc);
+  }, [rawMechanics, user, userLocation]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isForNewSOS: boolean = false) => {
     const file = e.target.files?.[0];
