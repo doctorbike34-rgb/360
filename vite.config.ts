@@ -21,8 +21,8 @@ export default defineConfig(({mode}) => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           navigateFallback: 'index.html',
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
-          // Avoid caching API calls or internal preview paths
-          navigateFallbackDenylist: [/^\/api/, /^\/google/],
+          // Avoid caching API calls, Firebase internals or internal preview paths
+          navigateFallbackDenylist: [/^\/api/, /^\/google/, /^\/__\//],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,

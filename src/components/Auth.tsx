@@ -486,9 +486,16 @@ export function Auth() {
         )}
         <div className="flex flex-col items-center mb-4">
           <Logo size="lg" className="mb-2 scale-90 sm:scale-100" />
-          <p className="text-grey  font-medium text-center text-sm">
-            {isCompletingProfile ? t('auth.completingProfile') : t('auth.subtitle')}
-          </p>
+          {isCompletingProfile ? (
+            <div className="bg-success/10 border-2 border-success text-success p-4 rounded-xl mb-2 text-center w-full animate-pulse">
+              <p className="font-black text-lg uppercase tracking-widest mb-1">🎉 Login Riuscito!</p>
+              <p className="font-bold text-xs">Manca solo un ultimo passo: seleziona se sei un Ciclista o un Meccanico e clicca "Salva" qui sotto.</p>
+            </div>
+          ) : (
+            <p className="text-grey font-medium text-center text-sm">
+              {t('auth.subtitle')}
+            </p>
+          )}
         </div>
 
         {resetSuccess && (
