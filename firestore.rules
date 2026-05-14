@@ -197,7 +197,7 @@ service cloud.firestore {
        allow create: if isSignedIn() && (
          incoming().fromId == request.auth.uid ||
          incoming().fromId == 'ESCROW' ||
-         incoming().fromId == 'STRIPE'
+         incoming().fromId.matches('^STRIPE.*')
        ) && incoming().amount > 0;
     }
 
