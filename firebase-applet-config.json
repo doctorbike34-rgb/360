@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0291563844",
-  "appId": "1:972706522286:web:6a7a537cb10f48d26b393f",
-  "apiKey": "AIzaSyAOXr7ixToJUOhpyZtJgMYZBkyZBXqUYm8",
-  "authDomain": "gen-lang-client-0291563844.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-f85e4cae-8d2f-4bd2-8e3a-299709652dda",
-  "storageBucket": "gen-lang-client-0291563844.firebasestorage.app",
-  "messagingSenderId": "972706522286",
-  "measurementId": ""
+  "projectId": "doctorbike-v2",
+  "appId": "1:513494631917:web:78691138fd0df02ee253e4",
+  "apiKey": "AIzaSyADxqb1dYF5TzOZTzF3MwvOqDvAcl4T-5g",
+  "authDomain": "doctorbike-v2.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "doctorbike-v2.firebasestorage.app",
+  "messagingSenderId": "513494631917",
+  "measurementId": "G-C03EN37W29"
 }
