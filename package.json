@@ -8,7 +8,8 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
@@ -59,6 +60,7 @@
   "devDependencies": {
     "@eslint/js": "^9.21.0",
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
