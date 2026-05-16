@@ -27,7 +27,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
+exports.createSOS = exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
@@ -118,18 +118,37 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
             ]);
             console.log('User and stats snapshots fetched');
             const mechanicData = mechanicSnap.data() || {};
-            const plan = sosData.mechanicPlan || 'BASE';
-            // Calculate Fee
-            let feePercent = 0.15; // default 15%
-            if (mechanicData.role === 'PEER_MECHANIC') {
-                feePercent = 0.05; // 5% for expert cyclists
+            // Use mechanic's actual plan from their user doc
+            const mechanicPlan = mechanicData.plan || 'BASE';
+            const mechanicRole = mechanicData.role || 'MECHANIC';
+            // Calculate Fee based on mechanic role and plan
+            // PEER_MECHANIC: 5% fixed fee
+            // PRO: 5%, CLUB: 10%, BASE: 15%
+            let feePercent = 0.15; // default 15% for BASE
+            if (mechanicRole === 'PEER_MECHANIC') {
+                feePercent = 0.05; // 5% fixed for peer mechanics
             }
             else {
                 const feeMultipliers = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
-                feePercent = feeMultipliers[plan] !== undefined ? feeMultipliers[plan] : 0.15;
+                feePercent = feeMultipliers[mechanicPlan] !== undefined ? feeMultipliers[mechanicPlan] : 0.15;
             }
             const feeAmount = amount * feePercent;
             const netAmount = amount - feeAmount;
+            console.log(`Fee calculation: plan=${mechanicPlan}, role=${mechanicRole}, feePercent=${feePercent}, amount=${amount}, fee=${feeAmount}, net=${netAmount}`);
+            // Create fee transaction record (mechanic -> platform)
+            const feeTxRef = db.collection('transactions').doc();
+            t.set(feeTxRef, {
+                fromId: mechanicId,
+                toId: 'PLATFORM',
+                amount: feeAmount,
+                fee: 0,
+                type: 'PLATFORM_FEE',
+                status: 'COMPLETED',
+                sosId: sosId,
+                mechanicPlan: mechanicPlan,
+                feePercent: feePercent,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
             const txRef = db.collection('transactions').doc();
             const txData = {
                 fromId: cyclistId,
@@ -150,7 +169,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 cyclistName: sosData.cyclistName || 'Cyclist',
                 mechanicId: mechanicId,
                 mechanicName: mechanicData.name || 'Mechanic',
-                mechanicType: plan,
+                mechanicType: mechanicRole,
                 problemDescription: sosData.description || sosData.faultType || 'Intervento',
                 problemSeverity: 'medium',
                 location: {
@@ -231,10 +250,11 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
-            // Platform Stats (Admin Wallet)
+            // Platform Stats (Admin Wallet) - Fee is credited to platform balance
             if (platformSnap.exists) {
                 t.update(platformStatsRef, {
                     totalFees: admin.firestore.FieldValue.increment(feeAmount),
+                    platformBalance: admin.firestore.FieldValue.increment(feeAmount),
                     totalTransactions: admin.firestore.FieldValue.increment(amount),
                     completedJobs: admin.firestore.FieldValue.increment(1),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -243,6 +263,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
             else {
                 t.set(platformStatsRef, {
                     totalFees: feeAmount,
+                    platformBalance: feeAmount,
                     totalTransactions: amount,
                     completedJobs: 1,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -258,7 +279,10 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 platformFee: feeAmount,
                 mechanicNet: netAmount,
                 finalPrice: netAmount,
+                mechanicPlan: mechanicPlan,
+                feePercent: feePercent,
                 releaseTxId: txRef.id,
+                feeTxId: feeTxRef.id,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
             // Finalize Cyclist Profile & Award Points (Balance already deducted during HELD phase)
@@ -689,6 +713,85 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
     catch (error) {
         console.error('Error sending KYC email:', error);
         throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
+    }
+});
+/**
+ * Create SOS Request - Server-side transaction to avoid client-side race conditions
+ * with location tracker updates on the user document.
+ */
+exports.createSOS = functions.region('europe-west1').https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+    }
+    const { faultType, description, photos, lat, lng, price, basePrice, hasDiscount, sosId, txId, } = data;
+    if (!faultType || !lat || !lng || !price || !sosId || !txId) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing required fields.');
+    }
+    const cyclistId = context.auth.uid;
+    const sosRef = db.collection('sosRequests').doc(sosId);
+    const userRef = db.collection('users').doc(cyclistId);
+    const txRef = db.collection('transactions').doc(txId);
+    try {
+        await db.runTransaction(async (t) => {
+            const userSnap = await t.get(userRef);
+            if (!userSnap.exists) {
+                throw new functions.https.HttpsError('not-found', 'User not found.');
+            }
+            const userData = userSnap.data();
+            // Idempotency check
+            if (userData.lastTxId === txId) {
+                console.log('Transaction already processed, skipping.');
+                return { sosId, txId, alreadyProcessed: true };
+            }
+            const currentBalance = userData.balance || 0;
+            if (currentBalance < price) {
+                throw new functions.https.HttpsError('resource-exhausted', 'Insufficient balance');
+            }
+            const updateData = {
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastTxId: txId,
+                balance: admin.firestore.FieldValue.increment(-price),
+            };
+            if (hasDiscount) {
+                updateData.firstInterventionDiscount = 0;
+            }
+            t.update(userRef, updateData);
+            t.set(txRef, {
+                fromId: cyclistId,
+                toId: 'ESCROW',
+                amount: price,
+                currency: 'DoctorBike Coin',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                type: 'SOS_PAYMENT',
+                sosId,
+            });
+            t.set(sosRef, {
+                cyclistId,
+                cyclistName: userData.name || userData.displayName || 'Cyclist',
+                description: description || '',
+                photos: photos || [],
+                status: 'PENDING',
+                mechanicId: null,
+                faultType,
+                lat,
+                lng,
+                estimatedPrice: price,
+                originalPrice: basePrice,
+                hasDiscount,
+                paymentStatus: 'ESCROW',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return { success: true };
+        });
+        console.log(`SOS ${sosId} created successfully for user ${cyclistId}`);
+        return { success: true, sosId };
+    }
+    catch (error) {
+        console.error('Error creating SOS:', error);
+        if (error instanceof functions.https.HttpsError) {
+            throw error;
+        }
+        throw new functions.https.HttpsError('internal', error.message || 'Failed to create SOS');
     }
 });
 //# sourceMappingURL=index.js.map

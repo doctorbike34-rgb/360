@@ -771,3 +771,107 @@ export const sendKycEmail = functions.region('europe-west1').https.onCall(async 
     throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
   }
 });
+
+/**
+ * Create SOS Request - Server-side transaction to avoid client-side race conditions
+ * with location tracker updates on the user document.
+ */
+export const createSOS = functions.region('europe-west1').https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+  }
+
+  const {
+    faultType,
+    description,
+    photos,
+    lat,
+    lng,
+    price,
+    basePrice,
+    hasDiscount,
+    sosId,
+    txId,
+  } = data;
+
+  if (!faultType || !lat || !lng || !price || !sosId || !txId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required fields.');
+  }
+
+  const cyclistId = context.auth.uid;
+  const sosRef = db.collection('sosRequests').doc(sosId);
+  const userRef = db.collection('users').doc(cyclistId);
+  const txRef = db.collection('transactions').doc(txId);
+
+  try {
+    await db.runTransaction(async (t) => {
+      const userSnap = await t.get(userRef);
+      if (!userSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'User not found.');
+      }
+
+      const userData = userSnap.data()!;
+
+      // Idempotency check
+      if (userData.lastTxId === txId) {
+        console.log('Transaction already processed, skipping.');
+        return { sosId, txId, alreadyProcessed: true };
+      }
+
+      const currentBalance = userData.balance || 0;
+      if (currentBalance < price) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Insufficient balance');
+      }
+
+      const updateData: any = {
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastTxId: txId,
+        balance: admin.firestore.FieldValue.increment(-price),
+      };
+
+      if (hasDiscount) {
+        updateData.firstInterventionDiscount = 0;
+      }
+
+      t.update(userRef, updateData);
+
+      t.set(txRef, {
+        fromId: cyclistId,
+        toId: 'ESCROW',
+        amount: price,
+        currency: 'DoctorBike Coin',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        type: 'SOS_PAYMENT',
+        sosId,
+      });
+
+      t.set(sosRef, {
+        cyclistId,
+        cyclistName: userData.name || userData.displayName || 'Cyclist',
+        description: description || '',
+        photos: photos || [],
+        status: 'PENDING',
+        mechanicId: null,
+        faultType,
+        lat,
+        lng,
+        estimatedPrice: price,
+        originalPrice: basePrice,
+        hasDiscount,
+        paymentStatus: 'ESCROW',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return { success: true };
+    });
+
+    console.log(`SOS ${sosId} created successfully for user ${cyclistId}`);
+    return { success: true, sosId };
+  } catch (error: any) {
+    console.error('Error creating SOS:', error);
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    throw new functions.https.HttpsError('internal', error.message || 'Failed to create SOS');
+  }
+});

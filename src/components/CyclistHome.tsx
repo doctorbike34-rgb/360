@@ -683,12 +683,6 @@ export function CyclistHome() {
     }
     
     setIsCreatingSOS(true);
-    (window as any).firebaseTransactionInProgress = true;
-    localStorage.setItem('fb_tx_lock', Date.now().toString());
-    
-    // Wait for any pending background location updates to finish
-    // before we start the optimistic transaction snapshot
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
     const basePrice = nearestMechanic?.sosPrice || 15;
     let price = basePrice;
@@ -708,13 +702,11 @@ export function CyclistHome() {
     if ((profile?.balance || 0) < price) {
       setShowInsufficientFunds(true);
       setIsCreatingSOS(false);
-      (window as any).firebaseTransactionInProgress = false;
-      localStorage.removeItem('fb_tx_lock');
       return;
     }
 
     try {
-      let lat = 45.4642; // Default Milan
+      let lat = 45.4642;
       let lng = 9.1900;
 
       if (sosLocation) {
@@ -722,113 +714,36 @@ export function CyclistHome() {
         lng = sosLocation[1];
       }
 
-      const sosRef = doc(collection(db, 'sosRequests'));
-      const userRef = doc(db, 'users', user.uid);
-      const txRef = doc(collection(db, 'transactions'));
+      const sosId = doc(collection(db, 'sosRequests')).id;
+      const txId = doc(collection(db, 'transactions')).id;
 
-      // Retry loop with exponential backoff to handle Firestore version conflicts
-      const maxRetries = 5;
-      let lastError: Error | null = null;
-      
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          await runTransaction(db, async (transaction) => {
-            const userSnap = await transaction.get(userRef);
-            if (!userSnap.exists()) throw new Error('User not found');
-            
-            const userData = userSnap.data();
-            
-            // IDEMPOTENCY CHECK: If this transaction ID was already processed, skip
-            if (userData.lastTxId === txRef.id) {
-              console.log("Transaction already processed, skipping balance decrement.");
-              return;
-            }
-
-            const currentBalance = userData.balance || 0;
-            
-            // 1. Deduct balance from cyclist
-            const updateData: any = {
-              updatedAt: serverTimestamp(),
-              lastTxId: txRef.id
-            };
-            
-            // Only decrement if we haven't already (double-safety with lastTxId check above)
-            if (userData.lastTxId !== txRef.id) {
-              if (currentBalance < price) throw new Error('Insufficient balance');
-              updateData.balance = increment(-price);
-            }
-
-            if (appliedDiscount) {
-                updateData.firstInterventionDiscount = 0;
-            }
-
-            transaction.update(userRef, updateData);
-            
-            transaction.set(txRef, {
-                fromId: user?.uid,
-                toId: 'ESCROW',
-                amount: price,
-                currency: 'DoctorBike Coin',
-                createdAt: serverTimestamp(),
-                type: 'SOS_PAYMENT',
-                sosId: sosRef.id // Link to SOS request
-            });
-
-            // 2. Create the SOS request
-            transaction.set(sosRef, {
-              cyclistId: user?.uid,
-              cyclistName: user?.displayName || 'Cyclist',
-              description: sosDescription,
-              photos: sosPhotos,
-              status: 'PENDING',
-              mechanicId: null,
-              faultType,
-              lat,
-              lng,
-              estimatedPrice: price,
-              originalPrice: basePrice, 
-              hasDiscount: appliedDiscount,
-              paymentStatus: 'ESCROW',
-              createdAt: serverTimestamp(),
-            });
-          });
-          
-          // Success - break out of retry loop
-          lastError = null;
-          break;
-        } catch (txError: any) {
-          lastError = txError;
-          // Check if it's a version conflict error
-          if (txError.message?.includes('stored version') || txError.message?.includes('base version')) {
-            console.log(`Transaction version conflict, retry ${attempt + 1}/${maxRetries}`);
-            // Wait with exponential backoff before retrying
-            await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
-          } else {
-            // Non-retryable error, throw immediately
-            throw txError;
-          }
-        }
-      }
-      
-      if (lastError) {
-        throw lastError;
-      }
+      const createSOSFn = httpsCallable(functions, 'createSOS');
+      await createSOSFn({
+        faultType,
+        description: sosDescription,
+        photos: sosPhotos,
+        lat,
+        lng,
+        price,
+        basePrice,
+        hasDiscount: appliedDiscount,
+        sosId,
+        txId,
+      });
 
       setShowSOSForm(false);
       setSosDescription('');
       setSosPhotos([]);
       setSelectedFaultType(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      if ((err as Error).message === 'Insufficient balance') {
+      if (err.message?.includes('Insufficient balance') || err.code === 'resource-exhausted') {
         setShowInsufficientFunds(true);
       } else {
         handleFirestoreError(err, OperationType.WRITE, 'sosRequests/creation');
       }
     } finally {
       setIsCreatingSOS(false);
-      (window as any).firebaseTransactionInProgress = false;
-      localStorage.removeItem('fb_tx_lock');
     }
   };
 
