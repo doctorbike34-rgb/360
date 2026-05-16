@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { roadReportService } from '../roadReportService';
+import { roadReportService } from './roadReportService';
 import { addDoc } from 'firebase/firestore';
-import { handleFirestoreError, OperationType } from '../../lib/firebase';
-import { RoadReport } from '../../types';
+import { handleFirestoreError, OperationType } from '../lib/firebase';
+import { RoadReport } from '../types';
 
 // Mock dependencies
 vi.mock('firebase/firestore', async () => {
@@ -22,7 +22,7 @@ vi.mock('firebase/firestore', async () => {
   };
 });
 
-vi.mock('../../lib/firebase', () => ({
+vi.mock('../lib/firebase', () => ({
   db: {},
   handleFirestoreError: vi.fn(),
   OperationType: {
