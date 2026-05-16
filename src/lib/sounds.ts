@@ -35,7 +35,7 @@ class SoundService {
       
       switch(type) {
         case 'MESSAGE':
-        case 'MESSAGE_CYCLIST':
+        case 'MESSAGE_CYCLIST': {
           // A bright, friendly double beep
           oscillator.type = 'sine';
           oscillator.frequency.setValueAtTime(800, now);
@@ -59,6 +59,7 @@ class SoundService {
           osc2.start(now + 0.15);
           osc2.stop(now + 0.35);
           break;
+        }
           
         case 'MESSAGE_MECHANIC':
           // A lower, more "working" pop
@@ -94,7 +95,7 @@ class SoundService {
           oscillator.stop(now + 0.4);
           break;
           
-        case 'INTERVENTION_PEER':
+        case 'INTERVENTION_PEER': {
           // Slightly different, softer alert for peers
           oscillator.type = 'square';
           oscillator.frequency.setValueAtTime(500, now);
@@ -117,6 +118,7 @@ class SoundService {
           pOsc2.start(now + 0.2);
           pOsc2.stop(now + 0.6);
           break;
+        }
       }
     } catch (e) {
       console.warn('Sound service error:', e);

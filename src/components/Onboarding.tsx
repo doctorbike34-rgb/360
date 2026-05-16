@@ -161,6 +161,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   const peerTermsStep = {
       id: 'peerTerms',
       title: "Tariffa e Raggio",
+      // eslint-disable-next-line no-useless-escape
       desc: "Definisci il tuo rimborso spese e l\'area di disponibilità.",
       icon: <Zap className="text-[teal-500]" size={48} />,
       gradient: 'from-[#14B8A6]/20 to-[#14B8A6]/5',

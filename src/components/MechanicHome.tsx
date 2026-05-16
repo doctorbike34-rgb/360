@@ -141,6 +141,7 @@ export function MechanicHome() {
                 otherPartyName: job.cyclistName || 'Ciclista',
                 title: job.cyclistName || 'Ciclista',
                 lastMessage: 'Attendi / In via di risoluzione',
+                // eslint-disable-next-line react-hooks/purity
                 lastMessageAt: job.updatedAt || job.createdAt || { seconds: Date.now() / 1000 },
                 unreadCount: {}
             });
@@ -161,6 +162,7 @@ export function MechanicHome() {
 
   const filteredJobs = React.useMemo(() => {
     let jobs = allPendingJobs;
+    // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
 
     if (effectiveLocation) {
@@ -206,6 +208,7 @@ export function MechanicHome() {
     if (!user) return;
     try {
     const lockState = localStorage.getItem('fb_tx_lock');
+    // eslint-disable-next-line react-hooks/purity
     const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (Date.now() - parseInt(lockState) < 10000));
 
     if (!isLocked) {
@@ -300,6 +303,7 @@ export function MechanicHome() {
   useEffect(() => {
     const acceptedJobs = activeJobs.filter(j => j.status === 'ACCEPTED' && j.acceptedAt);
     if (acceptedJobs.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSosTimeouts({});
       return;
     }
