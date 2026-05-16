@@ -335,8 +335,6 @@ export function CyclistHome() {
     return () => unsubscribe();
   }, [user]);
 
-  // const [nearbyCyclists, setNearbyCyclists] = useState<any[]>([]);
-
   const [rawMechanics, setRawMechanics] = useState<any[]>([]);
   const [isBackground, setIsBackground] = useState(false);
 
