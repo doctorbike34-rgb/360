@@ -106,29 +106,46 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
       console.log('User and stats snapshots fetched');
 
       const mechanicData = mechanicSnap.data() || {};
-      // Use mechanic's actual plan from their user doc, not from SOS data
+      // Use mechanic's actual plan from their user doc
       const mechanicPlan = mechanicData.plan || 'BASE';
       const mechanicRole = mechanicData.role || 'MECHANIC';
       
       // Calculate Fee based on mechanic role and plan
       // PEER_MECHANIC: 5% fixed fee
-      // PRO: 5%, CLUB: 10%, BASE/MECHANIC_FREE: 15%
-      let feePercent = 0.15; // default 15%
+      // PRO: 5%, CLUB: 10%, BASE: 15%
+      let feePercent = 0.15; // default 15% for BASE
       if (mechanicRole === 'PEER_MECHANIC') {
         feePercent = 0.05; // 5% fixed for peer mechanics
       } else {
-        const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15, MECHANIC_FREE: 0.15 };
+        const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
         feePercent = feeMultipliers[mechanicPlan] !== undefined ? feeMultipliers[mechanicPlan] : 0.15;
       }
 
       const feeAmount = amount * feePercent;
       const netAmount = amount - feeAmount;
 
+      console.log(`Fee calculation: plan=${mechanicPlan}, role=${mechanicRole}, feePercent=${feePercent}, amount=${amount}, fee=${feeAmount}, net=${netAmount}`);
+
+      // Create fee transaction record (mechanic -> platform)
+      const feeTxRef = db.collection('transactions').doc();
+      t.set(feeTxRef, {
+        fromId: mechanicId,
+        toId: 'PLATFORM',
+        amount: feeAmount,
+        fee: 0,
+        type: 'PLATFORM_FEE',
+        status: 'COMPLETED',
+        sosId: sosId,
+        mechanicPlan: mechanicPlan,
+        feePercent: feePercent,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
       const txRef = db.collection('transactions').doc();
       const txData = {
-        fromId: cyclistId, // We use cyclistId to satisfy balance subtraction rule if any
+        fromId: cyclistId,
         toId: mechanicId,
-        amount: netAmount, // Only giving net amount to mechanic
+        amount: netAmount,
         fee: feeAmount,
         type: 'SOS_PAYMENT',
         status: 'COMPLETED',
@@ -237,10 +254,11 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
         });
       }
 
-      // Platform Stats (Admin Wallet)
+      // Platform Stats (Admin Wallet) - Fee is credited to platform balance
       if (platformSnap.exists) {
         t.update(platformStatsRef, {
           totalFees: admin.firestore.FieldValue.increment(feeAmount),
+          platformBalance: admin.firestore.FieldValue.increment(feeAmount),
           totalTransactions: admin.firestore.FieldValue.increment(amount),
           completedJobs: admin.firestore.FieldValue.increment(1),
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -248,6 +266,7 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
       } else {
         t.set(platformStatsRef, {
           totalFees: feeAmount,
+          platformBalance: feeAmount,
           totalTransactions: amount,
           completedJobs: 1,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -264,7 +283,10 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
         platformFee: feeAmount,
         mechanicNet: netAmount,
         finalPrice: netAmount,
+        mechanicPlan: mechanicPlan,
+        feePercent: feePercent,
         releaseTxId: txRef.id,
+        feeTxId: feeTxRef.id,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
