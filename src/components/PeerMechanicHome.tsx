@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Wrench, 
   Settings, 
@@ -19,7 +19,7 @@ import {
   ArrowRight 
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, orderBy, limit, increment } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, orderBy, limit, increment, GeoPoint } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { ProfileView } from './ProfileView';
 import { Map as BicycleMap } from './Map';
@@ -250,6 +250,63 @@ export function PeerMechanicHome() {
     return () => unsubChats();
   }, [user]);
 
+  // Position tracking during active jobs
+  const peerLastUpdateRef = useRef<number>(0);
+  const peerLastCoordsRef = useRef<{lat: number|null, lng: number|null}>({ lat: null, lng: null });
+
+  useEffect(() => {
+    if (!user || (!isAvailable && activeJobs.length === 0)) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+
+        if (activeJobs.length > 0) {
+          const now = Date.now();
+          if (now - peerLastUpdateRef.current > 5000) {
+            const hasMovedSignificantly = () => {
+              if (!peerLastCoordsRef.current.lat || !peerLastCoordsRef.current.lng) return true;
+              const R = 6371e3;
+              const lat1 = peerLastCoordsRef.current.lat * Math.PI/180;
+              const lat2 = latitude * Math.PI/180;
+              const deltaLat = (latitude-peerLastCoordsRef.current.lat) * Math.PI/180;
+              const deltaLng = (longitude-peerLastCoordsRef.current.lng) * Math.PI/180;
+              const a = Math.sin(deltaLat/2) * Math.sin(deltaLat/2) +
+                        Math.cos(lat1) * Math.cos(lat2) *
+                        Math.sin(deltaLng/2) * Math.sin(deltaLng/2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+              return (R * c) > 5;
+            };
+
+            if (!hasMovedSignificantly() && (now - peerLastUpdateRef.current < 60000)) {
+               return;
+            }
+
+            try {
+              await updateDoc(doc(db, 'users', user.uid), {
+                lastLat: latitude,
+                lastLng: longitude,
+                location: new GeoPoint(latitude, longitude),
+                updatedAt: serverTimestamp()
+              });
+              peerLastUpdateRef.current = now;
+              peerLastCoordsRef.current.lat = latitude;
+              peerLastCoordsRef.current.lng = longitude;
+            } catch (e) {
+              console.warn('Peer position update failure', e);
+            }
+          }
+        }
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 10000 }
+    );
+
+    return () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [user, isAvailable, activeJobs.length]);
+
   const toggleAvailability = async () => {
     if (!user) return;
     try {
@@ -290,7 +347,7 @@ export function PeerMechanicHome() {
         mechanicConfirmed: true,
         updatedAt: serverTimestamp()
       });
-      toast.error('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
+      toast.success('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
     } catch (err) {
       console.error('Error completing job:', err);
       handleFirestoreError(err, OperationType.UPDATE, `sosRequests/${jobId}`);
@@ -487,7 +544,7 @@ export function PeerMechanicHome() {
                                           updatedAt: serverTimestamp()
                                       }, { merge: true });
                                     });
-                                    toast.error(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
+                                    toast.success(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
                                 } catch(e: any) {
                                   if (e.message === 'SOS already accepted or invalid') {
                                      toast.error("Questa richiesta SOS è già stata presa in carico da un altro utente.");
