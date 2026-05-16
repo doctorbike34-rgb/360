@@ -71,6 +71,7 @@ service cloud.firestore {
       
       // Security Logic:
       // - Normal updates: Owners can update their profile (except role, balance, lastTxId, peerMechanicEarnings).
+      // - Location updates: Owners can update their location fields.
       // - Sent P2P: Owner can update balance + lastTxId IF their balance decreases and a valid transaction is created.
       // - Receive P2P: Any user can update another's balance + lastTxId IF their balance increases and a valid transaction is created.
       // - Admin has full control.
@@ -78,6 +79,12 @@ service cloud.firestore {
         isOwner(userId) && (
           // Normal profile update
           (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'balance', 'lastTxId', 'peerMechanicEarnings']) || (incoming().diff(existing()).affectedKeys().hasOnly(['role']) && incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC']))
+          ||
+          // Location update (lastLat, lastLng, location, lastSeenAt, updatedAt, isOnline, geohash)
+          (incoming().diff(existing()).affectedKeys().hasOnly(['lastLat', 'lastLng', 'location', 'lastSeenAt', 'updatedAt', 'isOnline', 'geohash']) ||
+           incoming().diff(existing()).affectedKeys().hasOnly(['lastLat', 'lastLng', 'location', 'lastSeenAt', 'updatedAt', 'isOnline', 'geohash', 'mechanicStatus']) ||
+           incoming().diff(existing()).affectedKeys().hasOnly(['lastLat', 'lastLng', 'location', 'lastSeenAt', 'updatedAt', 'isOnline', 'geohash', 'isSOSActive']) ||
+           incoming().diff(existing()).affectedKeys().hasOnly(['lastLat', 'lastLng', 'location', 'lastSeenAt', 'updatedAt', 'isOnline', 'geohash', 'mechanicStatus', 'isSOSActive']))
           ||
           // Balance change (Send P2P, TopUp, Escrow Refund, etc.)
           (

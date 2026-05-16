@@ -452,7 +452,7 @@ export default function App() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className={`flex flex-col h-[100dvh] w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black`}>
+    <div className="flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black" style={{ height: '100dvh', width: '100%' }}>
       <>
         <AnimatePresence>
           {quotaError && (

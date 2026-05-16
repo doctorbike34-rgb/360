@@ -1022,7 +1022,7 @@ export function CyclistHome() {
   };
 
   return (
-    <div className="flex-1 flex flex-col relative bg-white transition-colors duration-500">
+    <div className="flex flex-col relative bg-white transition-colors duration-500" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
       <AnimatePresence>
         {showAcceptedToast && (
           <motion.div
@@ -1133,9 +1133,9 @@ export function CyclistHome() {
       )}
 
       {/* Main View */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="relative overflow-hidden" style={{ flex: '1 1 0%', minHeight: 0 }}>
         {/* Main Content Area - Render all tabs but show only active one for instant switching */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
           {/* SOS Overlay Chat / Direct Chat View */}
           <AnimatePresence>
             {showChat && directChat && (

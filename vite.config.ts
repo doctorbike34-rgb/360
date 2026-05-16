@@ -17,13 +17,13 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         manifest: false, // Use public/manifest.json
-        workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-          navigateFallback: 'index.html',
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
-          // Avoid caching API calls, Firebase internals or internal preview paths
-          navigateFallbackDenylist: [/^\/api/, /^\/google/, /^\/__\//, /cloudfunctions\.net/, /googleapis\.com/, /firebase\.io/],
-          runtimeCaching: [
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        navigateFallback: 'index.html',
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
+        // Avoid caching API calls, Firebase internals or internal preview paths
+        navigateFallbackDenylist: [/^\/api/, /^\/google\//, /^\/__\//, /cloudfunctions\.net/, /googleapis\.com/, /firebase\.io/, /mt1\.google\.com/],
+        runtimeCaching: [
             {
               urlPattern: ({ url }) => {
                 return url.hostname.includes('cloudfunctions.net') || 
@@ -77,7 +77,9 @@ export default defineConfig(({mode}) => {
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cross-Origin-Resource-Policy': 'same-origin',
       },
     },
   };
