@@ -190,7 +190,7 @@ service cloud.firestore {
     }
 
     match /supportTickets/{ticketId} {
-       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+       allow create: if isSignedIn() && (incoming().userId == request.auth.uid || isAdmin());
        allow read, update: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
        allow delete: if isAdmin();
 
@@ -241,6 +241,13 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.auth.uid == adminId;
       allow create: if isSignedIn() && request.auth.token.email.lower() == 'doctorbike34@gmail.com';
       allow write: if isAdmin(); // Admins can manage other admins
+    }
+
+    match /subscriptions/{subId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() || (isSignedIn() && isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']));
+      allow delete: if isAdmin();
     }
   }
 }

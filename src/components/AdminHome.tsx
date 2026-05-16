@@ -2,7 +2,7 @@ import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { db, auth, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
 import { 
   ShieldAlert, 
   CheckCircle, 
@@ -31,7 +31,8 @@ import {
   ArrowRight,
   CreditCard,
   Receipt,
-  RotateCcw
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
@@ -73,6 +74,48 @@ export function AdminHome() {
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [selectedUserForInvoice, setSelectedUserForInvoice] = useState<any | null>(null);
+  const [sosChatTicket, setSosChatTicket] = useState<any | null>(null);
+  const [reportFilter, setReportFilter] = useState<'all' | 'open' | 'resolved' | 'rejected'>('all');
+  const [reportSeverityFilter, setReportSeverityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
+  const [reportAdminNote, setReportAdminNote] = useState<Record<string, string>>({});
+  const [showReportNoteModal, setShowReportNoteModal] = useState<string | null>(null);
+  const [aiSearchQuery, setAiSearchQuery] = useState('');
+
+  const openSOSChat = async (sos: any) => {
+    setSelectedChat(sos);
+    try {
+      const existingQ = query(
+        collection(db, 'supportTickets'),
+        where('sosId', '==', sos.id),
+        where('status', '==', 'OPEN'),
+        limit(1)
+      );
+      const existingSnap = await getDocs(existingQ);
+      if (!existingSnap.empty) {
+        const ticket = { id: existingSnap.docs[0].id, ...existingSnap.docs[0].data() };
+        setSosChatTicket(ticket);
+        return;
+      }
+
+      const ticketRef = doc(collection(db, 'supportTickets'));
+      const newTicket = {
+        id: ticketRef.id,
+        userId: sos.cyclistId,
+        userName: sos.cyclistName || 'Ciclista',
+        userRole: 'CYCLIST',
+        sosId: sos.id,
+        status: 'OPEN',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastMessage: `SOS #${sos.id.slice(-6)} - ${sos.faultType || 'Guasto'}`,
+        type: 'SOS_SUPPORT'
+      };
+      await setDoc(ticketRef, newTicket);
+      setSosChatTicket({ ...newTicket, id: ticketRef.id });
+    } catch (err) {
+      console.error('Error creating SOS support ticket:', err);
+    }
+  };
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -285,6 +328,35 @@ export function AdminHome() {
       });
       toast.success('Contestazione risolta con successo.');
       setDisputedJobs(prev => prev.filter(job => job.id !== jobId));
+
+      // Create notification ticket for the affected user
+      try {
+        const sosSnap = await getDoc(doc(db, 'sosRequests', jobId));
+        if (sosSnap.exists()) {
+          const sosData = sosSnap.data();
+          const notifyUserId = favorOf === 'CYCLIST' ? sosData?.cyclistId : sosData?.mechanicId;
+          const notifyUserName = favorOf === 'CYCLIST' ? (sosData?.cyclistName || 'Ciclista') : 'Meccanico';
+          const msg = favorOf === 'CYCLIST' 
+            ? `La tua disputa per SOS #${jobId.slice(-6)} è stata risolta a tuo favore. Rimborso di €${price} accreditato.`
+            : `La disputa per SOS #${jobId.slice(-6)} è stata risolta. Pagamento di €${price} accreditato.`;
+          
+          const ticketRef = doc(collection(db, 'supportTickets'));
+          await setDoc(ticketRef, {
+            id: ticketRef.id,
+            userId: notifyUserId,
+            userName: notifyUserName,
+            userRole: favorOf === 'CYCLIST' ? 'CYCLIST' : 'MECHANIC',
+            sosId: jobId,
+            status: 'OPEN',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            lastMessage: msg,
+            type: 'DISPUTE_RESOLUTION'
+          });
+        }
+      } catch (notifyErr) {
+        console.error('Failed to create dispute notification ticket:', notifyErr);
+      }
     } catch (err) {
       console.error(err);
       toast.error('Errore durante la risoluzione. Controlla i permessi o la connessione.');
@@ -783,21 +855,21 @@ export function AdminHome() {
                          <span className="text-[8px] font-black text-grey uppercase tracking-widest">Azioni Rapide</span>
                       </div>
                       
-                      {/* Role Management */}
-                      <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
-                        {(['CYCLIST', 'MECHANIC', 'ADMIN'] as const).map(r => (
-                          <button
-                            key={r}
-                            onClick={() => updateUserRole(u.id, r)}
-                            className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.role === r ? 'bg-primary text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
-                          >
-                            {r}
-                          </button>
-                        ))}
-                      </div>
+                       {/* Role Management */}
+                       <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
+                         {(['CYCLIST', 'MECHANIC', 'PEER_MECHANIC', 'ADMIN'] as const).map(r => (
+                           <button
+                             key={r}
+                             onClick={() => updateUserRole(u.id, r)}
+                             className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.role === r ? 'bg-primary text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
+                           >
+                             {r === 'PEER_MECHANIC' ? 'PEER' : r}
+                           </button>
+                         ))}
+                       </div>
 
-                      {/* Plan Management (for Mechanics) */}
-                      {u.role === 'MECHANIC' && (
+                       {/* Plan Management (for Mechanics & Peer Mechanics) */}
+                       {(u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC') && (
                         <div className="w-full mt-2">
                            <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl w-fit">
                              {(['BASE', 'CLUB', 'PRO'] as const).map(p => (
@@ -1043,15 +1115,15 @@ export function AdminHome() {
                                             <span>CicLista: {chat.cyclistName || 'N/A'}</span>
                                             <span>Mecc: {chat.mechanicName || 'N/A'}</span>
                                          </div>
-                                         <button
-                                           onClick={(e) => {
-                                             e.stopPropagation();
-                                             setSelectedChat(chat);
-                                           }}
-                                           className="w-full mt-3 bg-white text-primary py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-grey/10 transition-colors shadow-sm"
-                                         >
-                                           Apri Chat
-                                         </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openSOSChat(chat);
+                                            }}
+                                            className="w-full mt-3 bg-white text-primary py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-grey/10 transition-colors shadow-sm"
+                                          >
+                                            Apri Chat
+                                          </button>
                                      </div>
                                   </motion.div>
                                )}
@@ -1098,43 +1170,49 @@ export function AdminHome() {
                       <X size={20} />
                     </button>
                   )}
-                  {supportMode === 'SOS' && selectedChat && (
-                    <>
-                      <div className="bg-primary p-6 flex justify-between items-center text-white shrink-0">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
-                            <ShieldAlert size={24} />
-                          </div>
-                          <div>
-                            <h3 className="font-black uppercase tracking-tight">Monitoraggio SOS #{selectedChat.id.slice(-6)}</h3>
-                            <p className="text-[10px] font-bold text-white/60 uppercase">Intervento di tipo: {selectedChat.faultType}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-black italic">⚡{selectedChat.estimatedPrice}</p>
-                        </div>
-                      </div>
-                      <div className="flex-1 flex flex-col overflow-hidden">
-                        <Chat chatId={selectedChat.id} otherPartyName="SISTEMA" />
-                      </div>
-                      {selectedChat.status === 'DISPUTED' && (
-                        <div className="p-4 bg-danger/5 border-t border-danger/20 flex gap-3 shrink-0">
-                          <button 
-                            onClick={() => resolveDispute(selectedChat.id, 'CYCLIST')}
-                            className="flex-1 bg-white border-2 border-danger text-danger py-3 rounded-2xl font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all"
-                          >
-                            Rimborsa Ciclista
-                          </button>
-                          <button 
-                            onClick={() => resolveDispute(selectedChat.id, 'MECHANIC')}
-                            className="flex-1 bg-danger text-white py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-danger/20 active:scale-95 transition-all"
-                          >
-                            Paga Meccanico
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
+                   {supportMode === 'SOS' && selectedChat && (
+                     <>
+                       <div className="bg-primary p-6 flex justify-between items-center text-white shrink-0">
+                         <div className="flex items-center gap-4">
+                           <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                             <ShieldAlert size={24} />
+                           </div>
+                           <div>
+                             <h3 className="font-black uppercase tracking-tight">Monitoraggio SOS #{selectedChat.id.slice(-6)}</h3>
+                             <p className="text-[10px] font-bold text-white/60 uppercase">Intervento di tipo: {selectedChat.faultType}</p>
+                           </div>
+                         </div>
+                         <div className="text-right">
+                           <p className="text-2xl font-black italic">€{selectedChat.estimatedPrice}</p>
+                         </div>
+                       </div>
+                       <div className="flex-1 flex flex-col overflow-hidden">
+                         {sosChatTicket ? (
+                           <Chat chatId={sosChatTicket.id} otherPartyName={selectedChat.cyclistName || 'Ciclista'} isAdminSupport targetUserId={selectedChat.cyclistId} />
+                         ) : (
+                           <div className="flex-1 flex items-center justify-center text-grey">
+                             <p>Creazione chat in corso...</p>
+                           </div>
+                         )}
+                       </div>
+                       {selectedChat.status === 'DISPUTED' && (
+                         <div className="p-4 bg-danger/5 border-t border-danger/20 flex gap-3 shrink-0">
+                           <button 
+                             onClick={() => resolveDispute(selectedChat.id, 'CYCLIST')}
+                             className="flex-1 bg-white border-2 border-danger text-danger py-3 rounded-2xl font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all"
+                           >
+                             Rimborsa Ciclista
+                           </button>
+                           <button 
+                             onClick={() => resolveDispute(selectedChat.id, 'MECHANIC')}
+                             className="flex-1 bg-danger text-white py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-danger/20 active:scale-95 transition-all"
+                           >
+                             Paga Meccanico
+                           </button>
+                         </div>
+                       )}
+                     </>
+                   )}
 
                   {supportMode === 'DIRECT' && selectedTicket && (
                     <>
@@ -1222,39 +1300,83 @@ export function AdminHome() {
 
                 {/* Chat Log History */}
                 <div className="lg:col-span-2 xl:col-span-3 flex flex-col lg:flex-row gap-6 h-full overflow-hidden">
-                  <div className={`w-full lg:w-80 flex flex-col gap-4 ${selectedAIConv ? 'hidden lg:flex' : 'flex'}`}>
-                     <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-2 px-4 flex items-center gap-3 shrink-0">
-                        <Bot size={16} /> History Logs
-                     </h3>
-                     <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
-                        {aiConversations.length === 0 ? (
-                          <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5">
-                            Nessuna conversazione AI salvata
-                          </div>
-                        ) : (
-                          aiConversations.map(conv => (
-                            <button
-                              key={conv.id}
-                              onClick={() => setSelectedAIConv(conv)}
-                              className={`w-full text-left p-4 rounded-3xl border-2 transition-all shadow-sm ${selectedAIConv?.id === conv.id ? 'bg-primary border-primary text-white scale-[1.02]' : 'bg-white text-black border-grey/5 text-black  hover:border-primary/30'}`}
-                            >
-                              <div className="flex justify-between items-start mb-2">
-                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${selectedAIConv?.id === conv.id ? 'bg-white/20 text-white' : 'bg-primary/5 text-primary border-primary/20'}`}>
-                                  {conv.role}
-                                </span>
-                                <span className="text-[8px] opacity-60 font-bold uppercase">
-                                  {conv.updatedAt ? formatDistanceToNow(conv.updatedAt.toDate(), { locale: it }) : ''}
-                                </span>
-                              </div>
-                              <h4 className="font-black uppercase text-xs truncate">{conv.userName || 'Anonimo'}</h4>
-                              <p className={`text-[8px] font-bold mt-1 opacity-70 line-clamp-1 italic`}>
-                                UltimoMsg: {conv.messages[conv.messages.length - 1]?.text}
-                              </p>
-                            </button>
+                   <div className={`w-full lg:w-80 flex flex-col gap-4 ${selectedAIConv ? 'hidden lg:flex' : 'flex'}`}>
+                      <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-2 px-4 flex items-center gap-3 shrink-0">
+                         <Bot size={16} /> History Logs
+                      </h3>
+                      <div className="px-4">
+                        <input
+                          type="text"
+                          value={aiSearchQuery}
+                          onChange={(e) => setAiSearchQuery(e.target.value)}
+                          placeholder="Cerca conversazioni..."
+                          className="w-full px-4 py-2.5 bg-grey/5 border border-grey/10 rounded-xl text-xs outline-none focus:ring-2 focus:ring-primary/50"
+                        />
+                      </div>
+                      <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+                         {aiConversations
+                           .filter(c => {
+                             if (!aiSearchQuery) return true;
+                             const q = aiSearchQuery.toLowerCase();
+                             return (c.userName || '').toLowerCase().includes(q) ||
+                                    (c.role || '').toLowerCase().includes(q) ||
+                                    (c.messages || []).some((m: any) => (m.text || '').toLowerCase().includes(q));
+                           })
+                           .length === 0 ? (
+                           <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5 mx-4">
+                             Nessuna conversazione trovata
+                           </div>
+                         ) : (
+                           aiConversations
+                           .filter(c => {
+                             if (!aiSearchQuery) return true;
+                             const q = aiSearchQuery.toLowerCase();
+                             return (c.userName || '').toLowerCase().includes(q) ||
+                                    (c.role || '').toLowerCase().includes(q) ||
+                                    (c.messages || []).some((m: any) => (m.text || '').toLowerCase().includes(q));
+                           })
+                           .map(conv => (
+                            <div key={conv.id} className="flex gap-2">
+                              <button
+                                onClick={() => setSelectedAIConv(conv)}
+                                className={`flex-1 text-left p-4 rounded-3xl border-2 transition-all shadow-sm ${selectedAIConv?.id === conv.id ? 'bg-primary border-primary text-white scale-[1.02]' : 'bg-white text-black border-grey/5 text-black  hover:border-primary/30'}`}
+                              >
+                                <div className="flex justify-between items-start mb-2">
+                                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${selectedAIConv?.id === conv.id ? 'bg-white/20 text-white' : 'bg-primary/5 text-primary border-primary/20'}`}>
+                                    {conv.role}
+                                  </span>
+                                  <span className="text-[8px] opacity-60 font-bold uppercase">
+                                    {conv.updatedAt ? formatDistanceToNow(conv.updatedAt.toDate(), { locale: it }) : ''}
+                                  </span>
+                                </div>
+                                <h4 className="font-black uppercase text-xs truncate">{conv.userName || 'Anonimo'}</h4>
+                                <p className={`text-[8px] font-bold mt-1 opacity-70 line-clamp-1 italic`}>
+                                  UltimoMsg: {conv.messages[conv.messages.length - 1]?.text}
+                                </p>
+                              </button>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (!window.confirm('Eliminare questa conversazione AI?')) return;
+                                  try {
+                                    await deleteDoc(doc(db, 'aiConversations', conv.id));
+                                    if (selectedAIConv?.id === conv.id) setSelectedAIConv(null);
+                                    toast.success('Conversazione eliminata');
+                                  } catch (err) {
+                                    console.error(err);
+                                    toast.error('Errore durante l\'eliminazione');
+                                  }
+                                }}
+                                className="shrink-0 self-center p-2 text-grey hover:text-danger hover:bg-danger/10 rounded-xl transition-all"
+                                title="Elimina conversazione"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           ))
                         )}
-                     </div>
-                  </div>
+                      </div>
+                   </div>
 
                   {/* Conversation Detail */}
                   <div className="flex-1 bg-white text-black rounded-[3rem] border border-grey/5 shadow-xl flex flex-col overflow-hidden">
@@ -1424,73 +1546,133 @@ export function AdminHome() {
               )}
             </motion.div>
           )}
-          {activeTab === 'REPORTS' && (
-            <motion.div
-              key="reports"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="max-w-6xl mx-auto space-y-6"
-            >
-              <h2 className="text-xl font-black text-black  uppercase mb-8 flex items-center gap-2">
-                <MapIcon className="text-primary" /> Segnalazioni Dissesto
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {roadReports.map((report) => (
-                  <div key={report.id} className="bg-white text-black rounded-3xl p-6 border border-grey/10 shadow-sm relative overflow-hidden flex flex-col">
-                     <div className="flex justify-between items-start mb-4">
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${
-                            report.severity === 'high' ? 'bg-danger/10 text-danger border-danger/20' : 
-                            report.severity === 'medium' ? 'bg-warning/10 text-warning border-warning/20' : 
-                            'bg-primary/10 text-primary border-primary/20'
-                        }`}>
-                            {report.severity}
-                        </span>
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${report.status === 'resolved' ? 'bg-success/10 text-success border-success/20' : 'bg-grey/10 text-grey border-grey/20'}`}>
-                            {report.status}
-                        </span>
-                     </div>
-                     <h3 className="font-black text-lg mb-2 uppercase">{report.category}</h3>
-                     <p className="text-sm text-grey mb-4 flex-1">{report.description}</p>
-                     <div className="flex items-center justify-between text-[10px] font-bold text-grey uppercase tracking-widest mb-4">
-                        <span>Upvotes: {report.upvotes?.length || 0}</span>
-                        <span>{report.createdAt ? new Date(report.createdAt.seconds ? report.createdAt.seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
-                     </div>
-                     <div className="flex gap-2">
-                        {report.status !== 'resolved' && (
-                            <button 
-                              onClick={async () => {
-                                  try {
-                                      await updateDoc(doc(db, 'roadReports', report.id), { status: 'resolved', updatedAt: serverTimestamp() });
-                                  } catch (e) {
-                                      console.error(e);
-                                  }
-                              }}
-                              className="flex-1 bg-success/10 hover:bg-success/20 text-success py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
-                            >
-                              Risolvi
-                            </button>
-                        )}
-                        {report.status !== 'rejected' && (
-                            <button 
-                              onClick={async () => {
-                                  try {
-                                      await updateDoc(doc(db, 'roadReports', report.id), { status: 'rejected', updatedAt: serverTimestamp() });
-                                  } catch (e) {
-                                      console.error(e);
-                                  }
-                              }}
-                              className="flex-1 bg-danger/10 hover:bg-danger/20 text-danger py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
-                            >
-                              Rifiuta
-                            </button>
-                        )}
-                     </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
+           {activeTab === 'REPORTS' && (
+             <motion.div
+               key="reports"
+               initial={{ opacity: 0, y: 20 }}
+               animate={{ opacity: 1, y: 0 }}
+               exit={{ opacity: 0, y: -20 }}
+               className="max-w-6xl mx-auto space-y-6"
+             >
+               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+                 <h2 className="text-xl font-black text-black  uppercase flex items-center gap-2">
+                   <MapIcon className="text-primary" /> Segnalazioni Dissesto
+                 </h2>
+                 <div className="flex gap-2 flex-wrap">
+                   {(['all', 'open', 'resolved', 'rejected'] as const).map(f => (
+                     <button
+                       key={f}
+                       onClick={() => setReportFilter(f)}
+                       className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reportFilter === f ? 'bg-primary text-white' : 'bg-grey/10 text-grey hover:bg-grey/20'}`}
+                     >
+                       {f === 'all' ? 'Tutti' : f === 'open' ? 'Aperte' : f === 'resolved' ? 'Risolte' : 'Rifiutate'}
+                     </button>
+                   ))}
+                   <div className="w-px h-6 bg-grey/20 self-center mx-1" />
+                   {(['all', 'low', 'medium', 'high'] as const).map(s => (
+                     <button
+                       key={s}
+                       onClick={() => setReportSeverityFilter(s)}
+                       className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reportSeverityFilter === s ? 'bg-accent text-white' : 'bg-grey/10 text-grey hover:bg-grey/20'}`}
+                     >
+                       {s === 'all' ? 'Tutte' : s.charAt(0).toUpperCase() + s.slice(1)}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 {roadReports
+                   .filter(r => reportFilter === 'all' || r.status === reportFilter)
+                   .filter(r => reportSeverityFilter === 'all' || r.severity === reportSeverityFilter)
+                   .map((report) => (
+                   <div key={report.id} className="bg-white text-black rounded-3xl p-6 border border-grey/10 shadow-sm relative overflow-hidden flex flex-col">
+                      <div className="flex justify-between items-start mb-4">
+                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${
+                             report.severity === 'high' ? 'bg-danger/10 text-danger border-danger/20' : 
+                             report.severity === 'medium' ? 'bg-warning/10 text-warning border-warning/20' : 
+                             'bg-primary/10 text-primary border-primary/20'
+                         }`}>
+                             {report.severity}
+                         </span>
+                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${report.status === 'resolved' ? 'bg-success/10 text-success border-success/20' : report.status === 'rejected' ? 'bg-grey/10 text-grey border-grey/20' : 'bg-accent/10 text-accent border-accent/20'}`}>
+                             {report.status}
+                         </span>
+                      </div>
+                      <h3 className="font-black text-lg mb-2 uppercase">{report.category}</h3>
+                      <p className="text-sm text-grey mb-4 flex-1">{report.description}</p>
+                      {report.adminNote && (
+                        <div className="mb-3 p-2 bg-primary/5 rounded-xl border border-primary/10">
+                          <p className="text-[10px] font-black text-primary uppercase mb-1">Nota Admin</p>
+                          <p className="text-xs text-grey ">{report.adminNote}</p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-[10px] font-bold text-grey uppercase tracking-widest mb-4">
+                         <span>Upvotes: {report.upvotes?.length || 0}</span>
+                         <span>{report.createdAt ? new Date(report.createdAt.seconds ? report.createdAt.seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
+                      </div>
+                      <div className="flex gap-2">
+                         {report.status !== 'resolved' && (
+                             <button 
+                               onClick={async () => {
+                                   try {
+                                       const note = reportAdminNote[report.id] || '';
+                                       await updateDoc(doc(db, 'roadReports', report.id), { status: 'resolved', updatedAt: serverTimestamp(), adminNote: note });
+                                       setReportAdminNote(prev => { const n = {...prev}; delete n[report.id]; return n; });
+                                   } catch (e) {
+                                       console.error(e);
+                                   }
+                               }}
+                               className="flex-1 bg-success/10 hover:bg-success/20 text-success py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
+                             >
+                               Risolvi
+                             </button>
+                         )}
+                         {report.status !== 'rejected' && (
+                             <button 
+                               onClick={async () => {
+                                   try {
+                                       await updateDoc(doc(db, 'roadReports', report.id), { status: 'rejected', updatedAt: serverTimestamp() });
+                                   } catch (e) {
+                                       console.error(e);
+                                   }
+                               }}
+                               className="flex-1 bg-danger/10 hover:bg-danger/20 text-danger py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
+                             >
+                               Rifiuta
+                             </button>
+                         )}
+                         <button
+                           onClick={() => setShowReportNoteModal(report.id)}
+                           className="px-3 bg-grey/10 hover:bg-grey/20 text-grey py-3 rounded-2xl font-black uppercase text-[10px] transition-colors"
+                           title="Aggiungi nota"
+                         >
+                           Nota
+                         </button>
+                      </div>
+                   </div>
+                 ))}
+               </div>
+             </motion.div>
+           )}
+
+           {/* Report Note Modal */}
+           {showReportNoteModal && (
+             <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+               <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl">
+                 <h3 className="font-black text-lg uppercase mb-4">Nota Admin</h3>
+                 <textarea
+                   value={reportAdminNote[showReportNoteModal] || ''}
+                   onChange={(e) => setReportAdminNote(prev => ({...prev, [showReportNoteModal!]: e.target.value}))}
+                   placeholder="Aggiungi una nota interna..."
+                   className="w-full h-32 p-3 border border-grey/20 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                 />
+                 <div className="flex gap-3 mt-4">
+                   <button onClick={() => setShowReportNoteModal(null)} className="flex-1 py-3 rounded-2xl font-black text-[10px] uppercase bg-grey/10 text-grey">Annulla</button>
+                   <button onClick={() => setShowReportNoteModal(null)} className="flex-1 py-3 rounded-2xl font-black text-[10px] uppercase bg-primary text-white">Salva</button>
+                 </div>
+               </div>
+             </div>
+           )}
 
           {activeTab === 'FINANCE' && (
             <motion.div

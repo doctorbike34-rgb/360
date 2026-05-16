@@ -152,8 +152,10 @@ export default function App() {
         unsubscribeProfile = onSnapshot(doc(db, 'users', fbUser.uid), (snapshot) => {
           if (snapshot.exists()) {
             const profileData = snapshot.data() as UserProfile;
+            const adminEmails = ['doctorbike34@gmail.com', 'doctorbike@gmail.com', 'doctorbike@email.it'];
+            const isAdminEmail = adminEmails.includes(fbUser.email?.toLowerCase() || '');
             
-            if (fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+            if (isAdminEmail) {
               if (profileData.role !== 'ADMIN' && !(window as any).firebaseTransactionInProgress) {
                 updateDoc(doc(db, 'users', fbUser.uid), { role: 'ADMIN' });
               }
@@ -213,7 +215,9 @@ export default function App() {
             // Reset quota error if we successfully get data
             setQuotaError(false);
           } else {
-            if (fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+            const adminEmails = ['doctorbike34@gmail.com', 'doctorbike@gmail.com', 'doctorbike@email.it'];
+            const isAdminEmail = adminEmails.includes(fbUser.email?.toLowerCase() || '');
+            if (isAdminEmail) {
               try {
                 const adminProfile = {
                   uid: fbUser.uid,

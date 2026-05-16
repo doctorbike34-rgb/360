@@ -666,9 +666,15 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
  * Send KYC Notification Email (Manual Trigger)
  */
 exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data, context) => {
-    var _a, _b;
+    var _a, _b, _c, _d;
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+    }
+    const adminEmails = ['doctorbike34@gmail.com', 'doctorbike@gmail.com', 'doctorbike@email.it'];
+    const userDoc = await db.collection('users').doc(context.auth.uid).get();
+    const isAdmin = userDoc.exists && ((_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.role) === 'ADMIN' || adminEmails.includes(((_b = context.auth.token) === null || _b === void 0 ? void 0 : _b.email) || '');
+    if (!isAdmin) {
+        throw new functions.https.HttpsError('permission-denied', 'Only admins can send KYC emails.');
     }
     const { userId, status, reason } = data;
     if (!userId || !status) {
@@ -682,8 +688,8 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
         const userEmail = userData.email;
         if (!userEmail)
             return { success: false, message: 'No email found' };
-        const mailUser = (_a = functions.config().mail) === null || _a === void 0 ? void 0 : _a.user;
-        const mailPass = (_b = functions.config().mail) === null || _b === void 0 ? void 0 : _b.pass;
+        const mailUser = (_c = functions.config().mail) === null || _c === void 0 ? void 0 : _c.user;
+        const mailPass = (_d = functions.config().mail) === null || _d === void 0 ? void 0 : _d.pass;
         if (!mailUser || !mailPass) {
             console.warn('Mail configuration missing.');
             return { success: false, message: 'Mail config missing' };

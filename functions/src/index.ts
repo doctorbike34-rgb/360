@@ -722,6 +722,13 @@ export const sendKycEmail = functions.region('europe-west1').https.onCall(async 
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
 
+  const adminEmails = ['doctorbike34@gmail.com', 'doctorbike@gmail.com', 'doctorbike@email.it'];
+  const userDoc = await db.collection('users').doc(context.auth.uid).get();
+  const isAdmin = userDoc.exists && userDoc.data()?.role === 'ADMIN' || adminEmails.includes(context.auth.token?.email || '');
+  if (!isAdmin) {
+    throw new functions.https.HttpsError('permission-denied', 'Only admins can send KYC emails.');
+  }
+
   const { userId, status, reason } = data;
   if (!userId || !status) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing parameters.');
