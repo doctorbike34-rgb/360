@@ -37,7 +37,15 @@ interface MechanicPopupProps {
   getFaultTypeTranslation: (type: string | undefined) => string;
 }
 
-function MechanicPopup({ mechanic, onStartChat, t, sos, currentUserRole, currentUser, getFaultTypeTranslation }: MechanicPopupProps) {
+function MechanicPopup({ 
+  mechanic, 
+  onStartChat, 
+  t, 
+  sos, 
+  currentUserRole, 
+  currentUser, 
+  getFaultTypeTranslation 
+}: MechanicPopupProps) {
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [isAccepting, setIsAccepting] = useState(false);
@@ -360,7 +368,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     );
     const unsubGlobalMech = onSnapshot(qGlobalMech, (snap) => {
       snap.docs.forEach(docSnap => {
-        const u = { id: docSnap.id, ...docSnap.data() } as any;
+        const u = { id: docSnap.id, ...(docSnap.data() as UserProfile) };
         if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
            delete localUsersRef.current[u.id];
            return;
@@ -381,7 +389,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     );
     const unsubGlobalCyclists = onSnapshot(qGlobalCyclists, (snap) => {
       snap.docs.forEach(docSnap => {
-        const u = { id: docSnap.id, ...docSnap.data() } as any;
+        const u = { id: docSnap.id, ...(docSnap.data() as UserProfile) };
         if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
            delete localUsersRef.current[u.id];
            return;
@@ -427,7 +435,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
       const unsub = onSnapshot(qUsers, (snapshot) => {
         snapshot.docs.forEach(docSnap => {
-          const u = { id: docSnap.id, ...docSnap.data() } as any;
+          const u = { id: docSnap.id, ...(docSnap.data() as UserProfile) };
           if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
              delete localUsersRef.current[u.id];
              return;
@@ -463,6 +471,13 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
   // 2-4. Real-time listeners for Events, SOS, and Reports
   useEffect(() => {
+    if (!currentUser) {
+      setVisibleEvents([]);
+      setVisibleReports([]);
+      setActiveSOSs({});
+      return;
+    }
+
     // Events
     const qEvents = query(
       collection(db, 'events'), 
@@ -472,11 +487,13 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     const unsubEvents = onSnapshot(qEvents, (snapshot) => {
       const events = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((event: any) => event.lastLat && event.lastLng);
+        .filter((event: any) => (event.lastLat || event.lat || event.location?.latitude) && (event.lastLng || event.lng || event.location?.longitude));
       setVisibleEvents(events);
+    }, (err) => {
+      console.warn("Events listener error:", err);
     });
 
-    // 3. SOS real-time - ATTACH REGARDLESS OF userPos
+    // 3. SOS real-time
     const qSOS = query(
       collection(db, 'sosRequests'),
       where('status', 'in', ['PENDING', 'ACCEPTED', 'IN_PROGRESS']),
@@ -499,7 +516,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       console.warn("SOS listener error:", err);
     });
 
-    // 4. Road Reports real-time - ATTACH REGARDLESS OF userPos
+    // 4. Road Reports real-time
     const q = query(
       collection(db, 'roadReports'),
       where('status', 'in', ['open', 'confirmed', 'in_review']),
@@ -525,6 +542,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         if (snapshot.exists()) {
           setTrackedMechanic({ id: snapshot.id, ...snapshot.data() });
         }
+      }, (err) => {
+        console.warn("Track listener error:", err);
       });
     }
 
@@ -534,7 +553,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       unsubReports();
       unsubTrack();
     };
-  }, [mechanicToTrackId]);
+  }, [mechanicToTrackId, currentUser]);
 
 
   const openExternalMap = (provider: 'google' | 'waze') => {

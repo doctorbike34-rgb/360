@@ -46,7 +46,7 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
 
       onClose();
     } catch (error: any) {
-      logger.error('Error submitting review', { error });
+      logger.error('Error submitting review', { error, sosId: sosRequest.id });
       toast.error('Errore durante il completamento: ' + (error.message || String(error)));
     } finally {
       setIsSubmitting(false);
@@ -63,7 +63,7 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
       toast.error('Contestazione inviata all\'assistenza. I fondi rimarranno bloccati e verrai contattato a breve.');
       onClose();
     } catch (err) {
-      logger.error('Error creating dispute', { error: err });
+      logger.error('Error creating dispute', { error: err, sosId: sosRequest.id });
       handleFirestoreError(err, OperationType.UPDATE, 'sosRequests');
     } finally {
       setIsSubmitting(false);

@@ -29,7 +29,6 @@ window.addEventListener('error', (event) => {
     errorDiv.style.color = 'red';
     errorDiv.style.padding = '20px';
     errorDiv.style.background = 'white';
-
     const h1 = document.createElement('h1');
     h1.textContent = 'Inizializzazione fallita';
 
@@ -42,7 +41,6 @@ window.addEventListener('error', (event) => {
     errorDiv.appendChild(h1);
     errorDiv.appendChild(preMessage);
     errorDiv.appendChild(preLocation);
-
     document.body.appendChild(errorDiv);
   }
 });

@@ -19,6 +19,16 @@ export const Logo: React.FC<LogoProps> = ({ className = '', size = 'md' }) => {
 
   const currentHeight = sizes[size];
 
+  if (hasError) {
+    return (
+      <div className={`flex flex-col items-center justify-center ${className}`}>
+        <div className="text-xs text-center border-2 border-dashed border-primary p-2 rounded text-primary font-bold">
+          Carica l'immagine come<br/> /public/logo.png
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
       {hasError ? (
@@ -47,10 +57,7 @@ export const Logo: React.FC<LogoProps> = ({ className = '', size = 'md' }) => {
           },
           tap: { scale: 0.95 }
         }}
-          onError={() => {
-            // Se non trova logo.png, mostra un messaggio che richiede il caricamento
-            setHasError(true);
-          }}
+          onError={() => setHasError(true)}
         />
       )}
     </div>

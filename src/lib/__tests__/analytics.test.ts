@@ -35,7 +35,7 @@ describe('analyticsTracker', () => {
 
     // Reset env vars before each test
     vi.stubEnv('VITE_MIXPANEL_TOKEN', 'test-token');
-    vi.stubEnv('DEV', 'false');
+    vi.stubEnv('DEV', false);
 
     // Reset console spies
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -104,7 +104,7 @@ describe('analyticsTracker', () => {
     });
 
     it('logs to console in DEV mode', () => {
-      vi.stubEnv('DEV', 'true');
+      vi.stubEnv('DEV', true);
 
       analyticsTracker.trackEvent('test_event');
 
