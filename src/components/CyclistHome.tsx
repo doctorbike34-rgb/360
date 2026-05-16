@@ -686,9 +686,9 @@ export function CyclistHome() {
     (window as any).firebaseTransactionInProgress = true;
     localStorage.setItem('fb_tx_lock', Date.now().toString());
     
-    // Give a small window for any pending background location updates to finish
+    // Wait for any pending background location updates to finish
     // before we start the optimistic transaction snapshot
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
     const basePrice = nearestMechanic?.sosPrice || 15;
     let price = basePrice;
@@ -708,6 +708,8 @@ export function CyclistHome() {
     if ((profile?.balance || 0) < price) {
       setShowInsufficientFunds(true);
       setIsCreatingSOS(false);
+      (window as any).firebaseTransactionInProgress = false;
+      localStorage.removeItem('fb_tx_lock');
       return;
     }
 
@@ -724,66 +726,93 @@ export function CyclistHome() {
       const userRef = doc(db, 'users', user.uid);
       const txRef = doc(collection(db, 'transactions'));
 
-      await runTransaction(db, async (transaction) => {
-        const userSnap = await transaction.get(userRef);
-        if (!userSnap.exists()) throw new Error('User not found');
-        
-        const userData = userSnap.data();
-        
-        // IDEMPOTENCY CHECK: If this transaction ID was already processed, skip
-        if (userData.lastTxId === txRef.id) {
-          console.log("Transaction already processed, skipping balance decrement.");
-          return;
+      // Retry loop with exponential backoff to handle Firestore version conflicts
+      const maxRetries = 5;
+      let lastError: Error | null = null;
+      
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists()) throw new Error('User not found');
+            
+            const userData = userSnap.data();
+            
+            // IDEMPOTENCY CHECK: If this transaction ID was already processed, skip
+            if (userData.lastTxId === txRef.id) {
+              console.log("Transaction already processed, skipping balance decrement.");
+              return;
+            }
+
+            const currentBalance = userData.balance || 0;
+            
+            // 1. Deduct balance from cyclist
+            const updateData: any = {
+              updatedAt: serverTimestamp(),
+              lastTxId: txRef.id
+            };
+            
+            // Only decrement if we haven't already (double-safety with lastTxId check above)
+            if (userData.lastTxId !== txRef.id) {
+              if (currentBalance < price) throw new Error('Insufficient balance');
+              updateData.balance = increment(-price);
+            }
+
+            if (appliedDiscount) {
+                updateData.firstInterventionDiscount = 0;
+            }
+
+            transaction.update(userRef, updateData);
+            
+            transaction.set(txRef, {
+                fromId: user?.uid,
+                toId: 'ESCROW',
+                amount: price,
+                currency: 'DoctorBike Coin',
+                createdAt: serverTimestamp(),
+                type: 'SOS_PAYMENT',
+                sosId: sosRef.id // Link to SOS request
+            });
+
+            // 2. Create the SOS request
+            transaction.set(sosRef, {
+              cyclistId: user?.uid,
+              cyclistName: user?.displayName || 'Cyclist',
+              description: sosDescription,
+              photos: sosPhotos,
+              status: 'PENDING',
+              mechanicId: null,
+              faultType,
+              lat,
+              lng,
+              estimatedPrice: price,
+              originalPrice: basePrice, 
+              hasDiscount: appliedDiscount,
+              paymentStatus: 'ESCROW',
+              createdAt: serverTimestamp(),
+            });
+          });
+          
+          // Success - break out of retry loop
+          lastError = null;
+          break;
+        } catch (txError: any) {
+          lastError = txError;
+          // Check if it's a version conflict error
+          if (txError.message?.includes('stored version') || txError.message?.includes('base version')) {
+            console.log(`Transaction version conflict, retry ${attempt + 1}/${maxRetries}`);
+            // Wait with exponential backoff before retrying
+            await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+          } else {
+            // Non-retryable error, throw immediately
+            throw txError;
+          }
         }
-
-        const currentBalance = userData.balance || 0;
-        
-        // 1. Deduct balance from cyclist
-        const updateData: any = {
-          updatedAt: serverTimestamp(),
-          lastTxId: txRef.id
-        };
-        
-        // Only decrement if we haven't already (double-safety with lastTxId check above)
-        if (userData.lastTxId !== txRef.id) {
-          if (currentBalance < price) throw new Error('Insufficient balance');
-          updateData.balance = increment(-price);
-        }
-
-        if (appliedDiscount) {
-            updateData.firstInterventionDiscount = 0;
-        }
-
-        transaction.update(userRef, updateData);
-        
-        transaction.set(txRef, {
-            fromId: user?.uid,
-            toId: 'ESCROW',
-            amount: price,
-            currency: 'DoctorBike Coin',
-            createdAt: serverTimestamp(),
-            type: 'SOS_PAYMENT',
-            sosId: sosRef.id // Link to SOS request
-        });
-
-        // 2. Create the SOS request
-        transaction.set(sosRef, {
-          cyclistId: user?.uid,
-          cyclistName: user?.displayName || 'Cyclist',
-          description: sosDescription,
-          photos: sosPhotos,
-          status: 'PENDING',
-          mechanicId: null,
-          faultType,
-          lat,
-          lng,
-          estimatedPrice: price,
-          originalPrice: basePrice, 
-          hasDiscount: appliedDiscount,
-          paymentStatus: 'ESCROW', // Fix: match the log's expectation of ESCROW
-          createdAt: serverTimestamp(),
-        });
-      });
+      }
+      
+      if (lastError) {
+        throw lastError;
+      }
 
       setShowSOSForm(false);
       setSosDescription('');
@@ -805,44 +834,73 @@ export function CyclistHome() {
 
   const autoCancelSOS = async () => {
     if (!activeSOS || !user) return;
+    (window as any).firebaseTransactionInProgress = true;
+    localStorage.setItem('fb_tx_lock', Date.now().toString());
     try {
       const sosRef = doc(db, 'sosRequests', activeSOS.id);
       const userRef = doc(db, 'users', user.uid);
 
-      await runTransaction(db, async (transaction) => {
-        const sosSnap = await transaction.get(sosRef);
-        if (!sosSnap.exists()) return;
-        
-        const data = sosSnap.data();
-        if (data.status !== 'ACCEPTED') return;
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-        const refundAmount = data.estimatedPrice || 15.00;
-        const txRef = doc(collection(db, 'transactions'));
-        
-        transaction.update(userRef, {
-          balance: increment(refundAmount),
-          updatedAt: serverTimestamp(),
-          lastTxId: txRef.id
-        });
-        
-        transaction.set(txRef, {
-            fromId: 'ESCROW',
-            toId: user?.uid,
-            amount: refundAmount,
-            currency: 'DoctorBike Coin',
-            createdAt: serverTimestamp(),
-            type: 'SOS_REFUND_TIMEOUT'
-        });
-        
-        transaction.update(sosRef, {
-          status: 'CANCELLED',
-          cancelReason: 'TIMEOUT',
-          paymentStatus: 'REFUNDED',
-          updatedAt: serverTimestamp()
-        });
-      });
+      const maxRetries = 5;
+      let lastError: Error | null = null;
+      
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const sosSnap = await transaction.get(sosRef);
+            if (!sosSnap.exists()) return;
+            
+            const data = sosSnap.data();
+            if (data.status !== 'ACCEPTED') return;
+
+            const refundAmount = data.estimatedPrice || 15.00;
+            const txRef = doc(collection(db, 'transactions'));
+            
+            transaction.update(userRef, {
+              balance: increment(refundAmount),
+              updatedAt: serverTimestamp(),
+              lastTxId: txRef.id
+            });
+            
+            transaction.set(txRef, {
+                fromId: 'ESCROW',
+                toId: user?.uid,
+                amount: refundAmount,
+                currency: 'DoctorBike Coin',
+                createdAt: serverTimestamp(),
+                type: 'SOS_REFUND_TIMEOUT'
+            });
+            
+            transaction.update(sosRef, {
+              status: 'CANCELLED',
+              cancelReason: 'TIMEOUT',
+              paymentStatus: 'REFUNDED',
+              updatedAt: serverTimestamp()
+            });
+          });
+          
+          lastError = null;
+          break;
+        } catch (txError: any) {
+          lastError = txError;
+          if (txError.message?.includes('stored version') || txError.message?.includes('base version')) {
+            console.log(`Auto-cancel transaction version conflict, retry ${attempt + 1}/${maxRetries}`);
+            await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+          } else {
+            throw txError;
+          }
+        }
+      }
+      
+      if (lastError) {
+        throw lastError;
+      }
     } catch (e) {
       console.error('Auto-cancel error:', e);
+    } finally {
+      (window as any).firebaseTransactionInProgress = false;
+      localStorage.removeItem('fb_tx_lock');
     }
   };
 
@@ -881,44 +939,68 @@ export function CyclistHome() {
     setIsCancelling(true);
     (window as any).firebaseTransactionInProgress = true;
     localStorage.setItem('fb_tx_lock', Date.now().toString());
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     try {
       const sosRef = doc(db, 'sosRequests', activeSOS.id);
       const userRef = doc(db, 'users', user.uid);
 
-      await runTransaction(db, async (transaction) => {
-        const sosSnap = await transaction.get(sosRef);
-        if (!sosSnap.exists()) throw new Error('SOS not found');
-        
-        const data = sosSnap.data();
-        if (data.status !== 'PENDING') {
-          throw new Error('Cannot cancel an accepted request');
-        }
+      const maxRetries = 5;
+      let lastError: Error | null = null;
+      
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const sosSnap = await transaction.get(sosRef);
+            if (!sosSnap.exists()) throw new Error('SOS not found');
+            
+            const data = sosSnap.data();
+            if (data.status !== 'PENDING') {
+              throw new Error('Cannot cancel an accepted request');
+            }
 
-        // Refund the escrowed amount
-        const refundAmount = data.estimatedPrice || 15.00;
-        const txRef = doc(collection(db, 'transactions'));
-        
-        transaction.update(userRef, {
-          balance: increment(refundAmount),
-          updatedAt: serverTimestamp(),
-          lastTxId: txRef.id
-        });
-        
-        transaction.set(txRef, {
-            fromId: 'ESCROW',
-            toId: user?.uid,
-            amount: refundAmount,
-            currency: 'DoctorBike Coin',
-            createdAt: serverTimestamp(),
-            type: 'SOS_REFUND_CANCEL'
-        });
-        
-        transaction.update(sosRef, {
-          status: 'CANCELLED',
-          paymentStatus: 'REFUNDED',
-          updatedAt: serverTimestamp()
-        });
-      });
+            const refundAmount = data.estimatedPrice || 15.00;
+            const txRef = doc(collection(db, 'transactions'));
+            
+            transaction.update(userRef, {
+              balance: increment(refundAmount),
+              updatedAt: serverTimestamp(),
+              lastTxId: txRef.id
+            });
+            
+            transaction.set(txRef, {
+                fromId: 'ESCROW',
+                toId: user?.uid,
+                amount: refundAmount,
+                currency: 'DoctorBike Coin',
+                createdAt: serverTimestamp(),
+                type: 'SOS_REFUND_CANCEL'
+            });
+            
+            transaction.update(sosRef, {
+              status: 'CANCELLED',
+              paymentStatus: 'REFUNDED',
+              updatedAt: serverTimestamp()
+            });
+          });
+          
+          lastError = null;
+          break;
+        } catch (txError: any) {
+          lastError = txError;
+          if (txError.message?.includes('stored version') || txError.message?.includes('base version')) {
+            console.log(`Cancel SOS transaction version conflict, retry ${attempt + 1}/${maxRetries}`);
+            await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+          } else {
+            throw txError;
+          }
+        }
+      }
+      
+      if (lastError) {
+        throw lastError;
+      }
 
       setShowSOSDetails(false);
       setActiveSOS(null);
