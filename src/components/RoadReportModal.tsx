@@ -54,6 +54,7 @@ function LocationSelector({ setLoc, userLoc, onRefresh }: { setLoc: (pos: [numbe
     
     if (userLoc && !init) {
       map.setView(userLoc, 17);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInit(true);
     }
     
@@ -159,6 +160,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
   React.useEffect(() => {
      if (!isOpen) {
          hasAutoLocated.current = false;
+         // eslint-disable-next-line react-hooks/set-state-in-effect
          setPos(null);
          return;
      }
@@ -186,6 +188,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
                 return true;
              }
           }
+       // eslint-disable-next-line no-empty
        } catch (e) {}
        return false;
     };

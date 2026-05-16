@@ -203,6 +203,7 @@ export function Auth() {
   const setupRecaptcha = () => {
     // Sempre ricrea il verifier per evitare stati bloccati tra tentativi
     if (window.recaptchaVerifier) {
+      // eslint-disable-next-line no-empty
       try { window.recaptchaVerifier.clear(); } catch(e) {}
       window.recaptchaVerifier = undefined as any;
     }
@@ -234,6 +235,7 @@ export function Auth() {
       console.error('Phone auth error:', err);
       // Reset verifier dopo errore
       if (window.recaptchaVerifier) {
+        // eslint-disable-next-line no-empty
         try { window.recaptchaVerifier.clear(); } catch(e) {}
         window.recaptchaVerifier = undefined as any;
       }

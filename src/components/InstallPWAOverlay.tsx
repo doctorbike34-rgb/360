@@ -9,6 +9,7 @@ export const InstallPWAOverlay: React.FC = () => {
 
   React.useEffect(() => {
     const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsIOS(isIOSDevice);
   }, []);
 

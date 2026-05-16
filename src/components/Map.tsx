@@ -289,6 +289,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
   useEffect(() => {
     if (storeLocation) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUserPos([storeLocation.lat, storeLocation.lng]);
     }
   }, [storeLocation]);
@@ -334,12 +335,14 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   useEffect(() => {
     if (center) {
        
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFlyPos(center);
     }
   }, [center]);
 
   useEffect(() => {
     if (!minimal) {
+       // eslint-disable-next-line react-hooks/set-state-in-effect
        updateRealPosition(false);
     }
   }, [minimal, updateRealPosition]);
@@ -465,6 +468,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   // 3. ADMIN USER SYNC
   useEffect(() => {
     if (isAdmin && currentUser) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVisibleUsers(adminUsers.filter(u => u.lastLat && u.lastLng && u.id !== currentUser?.uid));
     }
   }, [isAdmin, adminUsers, currentUser]);

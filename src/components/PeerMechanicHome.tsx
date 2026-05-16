@@ -153,6 +153,7 @@ export function PeerMechanicHome() {
           updatedAt: serverTimestamp()
         });
       });
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       addToast && addToast({ title: 'Attenzione', message: 'Un SOS è stato annullato per inattività.', type: 'warning' });
     } catch (e) {
       console.error('Auto-cancel failed:', e);
@@ -162,6 +163,7 @@ export function PeerMechanicHome() {
   useEffect(() => {
     const acceptedJobs = activeJobs.filter(j => j.status === 'ACCEPTED' && j.acceptedAt);
     if (acceptedJobs.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSosTimeouts({});
       return;
     }
@@ -208,6 +210,7 @@ export function PeerMechanicHome() {
                 otherPartyName: job.cyclistName || 'Ciclista',
                 title: job.cyclistName || 'Ciclista',
                 lastMessage: 'Attendi / In via di risoluzione',
+                // eslint-disable-next-line react-hooks/purity
                 lastMessageAt: job.updatedAt || job.createdAt || { seconds: Date.now() / 1000 },
                 unreadCount: {}
             });

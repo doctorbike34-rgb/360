@@ -1,5 +1,7 @@
 export const fileToBase64 = async (file: File | Blob): Promise<string> => {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
+    const run = async () => {
+
     try {
       if (typeof window !== 'undefined' && 'FileReader' in window && typeof FileReader === 'function') {
         const reader = new FileReader();
@@ -22,5 +24,7 @@ export const fileToBase64 = async (file: File | Blob): Promise<string> => {
     } catch (e: any) {
       reject(new Error('Impossibile convertire: ' + e.message));
     }
+    };
+    run();
   });
 };

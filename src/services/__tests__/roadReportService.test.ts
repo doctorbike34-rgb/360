@@ -44,11 +44,12 @@ describe('roadReportService', () => {
       vi.mocked(addDoc).mockRejectedValueOnce(mockError);
 
       const mockReportData: Omit<RoadReport, 'id' | 'createdAt' | 'updatedAt' | 'upvotes' | 'status'> = {
-        type: 'pothole',
+        category: 'pothole',
         location: { lat: 40.7128, lng: -74.0060 },
         description: 'Large pothole on main street',
-        imageUrl: 'http://example.com/image.jpg',
-        userId: 'user123',
+        photoUrl: 'http://example.com/image.jpg',
+        reporterId: 'user123',
+        reporterName: 'Test User',
       };
 
       await expect(roadReportService.createRoadReport(mockReportData as any)).rejects.toThrow(mockError);

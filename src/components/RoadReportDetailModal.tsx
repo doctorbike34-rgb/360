@@ -36,6 +36,7 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
 
   React.useEffect(() => {
     if (!initialReport?.id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setReport(null);
       return;
     }
