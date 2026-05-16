@@ -33,16 +33,10 @@ export function GlobalNotifications() {
           const prevUnread = unreadRef.current[change.doc.id] || 0;
 
           if (!initialLoadRef.current && currentUnread > prevUnread) {
-            // Check if this is the active chat
-            if (activeChatId === change.doc.id) {
-               // We don't notify if the user is currently viewing this chat
-               // We might even auto-reset unread here, but Chat.tsx handles it when messages arrive
-            } else {
-              // New message arrived
+            if (activeChatId !== change.doc.id) {
               const title = chatData.title || chatData.otherPartyName || 'Nuovo messaggio';
               const body = chatData.lastMessage || 'Hai ricevuto un nuovo messaggio.';
 
-              // Internal Toast
               addToast({
                 title,
                 message: body,
@@ -50,33 +44,55 @@ export function GlobalNotifications() {
                 icon: <MessageCircle size={20} />
               });
 
-              // Play Sound if enabled
               if (profile?.notificationsEnabled) {
                 const role = useAuthStore.getState().role;
                 soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
               }
 
-              // Browser Notification
               if ('Notification' in window && Notification.permission === 'granted') {
-                 new Notification(title, {
-                   body,
-                   icon: '/pwa-192x192.png'
-                 });
+                 new Notification(title, { body, icon: '/pwa-192x192.png' });
               }
             }
           }
-
           unreadRef.current[change.doc.id] = currentUnread;
         }
       });
-      
-      // After processing the initial snapshot, future changes are real updates
       initialLoadRef.current = false;
     }, (err) => {
       console.warn("Global chat listener warning:", err);
     });
 
-    return () => unsubscribe();
+    // 2. Support Tickets Listener (Admin -> User)
+    const qSupport = query(
+      collection(db, 'supportTickets'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'OPEN')
+    );
+
+    const unsubSupport = onSnapshot(qSupport, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        const ticketData = change.doc.data();
+        // If the ticket was modified and has a new lastMessage
+        if (change.type === 'modified' && ticketData.lastMessage) {
+           // We only notify if it's NOT just the very first system message
+           const skipMessages = ["Richiesta di assistenza avviata", "Chat avviata dall'admin"];
+           if (ticketData.updatedAt && !skipMessages.includes(ticketData.lastMessage)) {
+              addToast({
+                title: "Assistenza DoctorBike",
+                message: ticketData.lastMessage,
+                type: 'info',
+                icon: <MessageCircle size={20} className="text-accent" />
+              });
+              soundService.play('MESSAGE');
+           }
+        }
+      });
+    });
+
+    return () => {
+      unsubscribe();
+      unsubSupport();
+    };
   }, [user, addToast, activeChatId, profile?.notificationsEnabled]);
 
   return (

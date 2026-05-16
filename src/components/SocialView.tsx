@@ -114,94 +114,58 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
   const lastUpdateRef = React.useRef<number>(0);
 
   useEffect(() => {
-    let isMounted = true;
-    let timeoutId: NodeJS.Timeout | null = null;
+    const qNearby = query(
+      collection(db, 'users'),
+      where('role', '==', 'CYCLIST'),
+      where('isOnline', '==', true),
+      limit(100) // Increase from 20 to 100 to catch more local users
+    );
 
-    const fetchNearbyCyclists = async () => {
-      if (!isMounted || document.visibilityState !== 'visible') return;
-      try {
-        const qNearby = query(
-          collection(db, 'users'),
-          where('role', '==', 'CYCLIST'),
-          where('isOnline', '==', true),
-          limit(20)
-        );
-        const snapshot = await getDocs(qNearby);
-        if (isMounted) {
-          const docs = snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as UserSuggestion))
-            .filter(u => {
-              if (u.id === user?.uid) return false;
-              const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : ((u.lastSeenAt as any)?.seconds ? (u.lastSeenAt as any).seconds * 1000 : 0);
-              const now = Date.now();
-              return (now - lastSeen) < (15 * 60 * 1000);
-            })
-            .sort((a, b) => {
-              const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
-              const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
-              return valB - valA;
-            });
-          setNearbyCyclists(docs);
-        }
-      } catch (error: any) {
-        if (error.message.includes('Quota exceeded')) setQuotaError(true);
-        console.warn('Error fetching nearby cyclists', error);
-      }
-    };
+    const unsubscribe = onSnapshot(qNearby, (snapshot) => {
+      const docs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as UserSuggestion))
+        .filter(u => {
+          if (u.id === user?.uid) return false;
+          const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : ((u.lastSeenAt as any)?.seconds ? (u.lastSeenAt as any).seconds * 1000 : 0);
+          const now = Date.now();
+          // Filter users seen in last 30 mins (increased from 15)
+          return (now - lastSeen) < (30 * 60 * 1000);
+        })
+        .sort((a, b) => {
+          const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
+          const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
+          return valB - valA;
+        });
+      setNearbyCyclists(docs);
+    }, (error: any) => {
+      if (error.message.includes('Quota exceeded')) setQuotaError(true);
+      console.warn('Error listening to nearby cyclists', error);
+    });
 
-    const poll = async () => {
-      await fetchNearbyCyclists();
-      if (isMounted) {
-        const nextInterval = 420000 + Math.random() * 60000; // ~7 minutes
-        timeoutId = setTimeout(poll, nextInterval);
-      }
-    };
-
-    poll();
-    return () => {
-      isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    return () => unsubscribe();
   }, [user, setQuotaError]);
 
   useEffect(() => {
-    let isMounted = true;
-    let timeoutId: NodeJS.Timeout | null = null;
+    const q = query(
+      collection(db, 'events'), 
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Event))
+        .sort((a, b) => {
+           const dateA = a.startAt ? new Date(a.startAt).getTime() : 0;
+           const dateB = b.startAt ? new Date(b.startAt).getTime() : 0;
+           return dateA - dateB;
+        });
+      setEvents(docs);
+    }, (error: any) => {
+      if (error.message.includes('Quota exceeded')) setQuotaError(true);
+      console.warn('Error listening to events', error);
+    });
 
-    const fetchEvents = async () => {
-      if (!isMounted || document.visibilityState !== 'visible') return;
-      try {
-        const q = query(collection(db, 'events'), limit(30));
-        const snapshot = await getDocs(q);
-        if (isMounted) {
-          const docs = snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as Event))
-            .sort((a, b) => {
-               const dateA = a.startAt ? new Date(a.startAt).getTime() : 0;
-               const dateB = b.startAt ? new Date(b.startAt).getTime() : 0;
-               return dateA - dateB;
-            });
-          setEvents(docs);
-        }
-      } catch (error: any) {
-        if (error.message.includes('Quota exceeded')) setQuotaError(true);
-        console.warn('Error fetching events', error);
-      }
-    };
-
-    const poll = async () => {
-      await fetchEvents();
-      if (isMounted) {
-        const nextInterval = 420000 + Math.random() * 60000;
-        timeoutId = setTimeout(poll, nextInterval);
-      }
-    };
-
-    poll();
-    return () => {
-      isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    return () => unsubscribe();
   }, [setQuotaError]);
 
   const geocodeAddress = async (address: string): Promise<{ lat: number, lng: number } | null> => {
@@ -218,13 +182,13 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
          return null;
       }
       
-      const text = await response.text();
-      if (!text) {
-         console.warn('Geocoding returned empty body');
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+         console.warn('Geocoding returned non-JSON response:', contentType);
          return null;
       }
       
-      const data = JSON.parse(text);
+      const data = await response.json();
       if (data && data.length > 0) {
         // Log for debug
         console.log('Location found:', data[0].display_name);
@@ -273,13 +237,13 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
            return;
         }
 
-        const text = await response.text();
-        if (!text) {
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
            setAddressSuggestions([]);
            return;
         }
 
-        const data = JSON.parse(text);
+        const data = await response.json();
         setAddressSuggestions(data || []);
       } catch (err) {
         console.warn(err);

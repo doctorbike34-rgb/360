@@ -2,8 +2,18 @@ import { getToken, onMessage } from 'firebase/messaging';
 import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, getFCM } from './firebase';
 
+let lastRequestTime = 0;
+
 export const requestNotificationPermission = async () => {
   if (!('Notification' in window)) return null;
+  
+  // Throttle: don't request more than once every 1 minute to avoid 429 errors
+  const now = Date.now();
+  if (now - lastRequestTime < 60000) {
+    console.debug('Notification permission request throttled');
+    return null;
+  }
+  lastRequestTime = now;
   
   try {
     const permission = await Notification.requestPermission();

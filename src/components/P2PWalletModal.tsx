@@ -44,7 +44,15 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
     if (result && result.length > 0) {
       const qrData = result[0].rawValue;
       if (qrData.startsWith('dbcoin:')) {
-        const uid = qrData.split(':')[1];
+        const rawUid = qrData.split(':')[1];
+        // Security: sanitize UID to prevent injection/path traversal
+        const uid = rawUid.replace(/[^a-zA-Z0-9_-]/g, '');
+        
+        if (uid !== rawUid || !uid) {
+           toast.error('Codice QR non valido o corrotto.');
+           return;
+        }
+
         if (uid === user?.uid) {
             toast.error('Non puoi inviare fondi a te stesso.');
             return;
@@ -87,57 +95,32 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
     if (!user || !scannedUserId || !amountToSend) return;
     
     const amountNum = parseFloat(amountToSend);
+    
+    // Security: Block zero, negative, or invalid amounts exactly before transaction
+    if (isNaN(amountNum) || amountNum <= 0) {
+        toast.error('Importo non valido.');
+        return;
+    }
+
     setIsProcessing(true);
     try {
-        await runTransaction(db, async (transaction) => {
-           const senderRef = doc(db, 'users', user.uid);
-           const receiverRef = doc(db, 'users', scannedUserId);
-
-           const senderDoc = await transaction.get(senderRef);
-           const receiverDoc = await transaction.get(receiverRef);
-
-           if (!senderDoc.exists() || !receiverDoc.exists()) {
-               throw new Error('Utente inesistente');
-           }
-
-           const senderBalance = senderDoc.data().balance || 0;
-           if (senderBalance < amountNum) {
-               throw new Error('insufficient_funds');
-           }
-
-           // Record transaction
-           const txRef = doc(collection(db, 'transactions'));
-           
-           transaction.update(senderRef, {
-               balance: senderBalance - amountNum,
-               updatedAt: serverTimestamp(),
-               lastTxId: txRef.id
-           });
-
-           const receiverBalance = receiverDoc.data().balance || 0;
-           transaction.update(receiverRef, {
-               balance: receiverBalance + amountNum,
-               updatedAt: serverTimestamp(),
-               lastTxId: txRef.id
-           });
-
-           transaction.set(txRef, {
-               fromId: user.uid,
-               toId: scannedUserId,
-               fromName: profile?.name || 'Utente',
-               toName: scannedUserName || 'Destinatario',
-               amount: amountNum,
-               currency: 'DoctorBike Coin',
-               createdAt: serverTimestamp(),
-               type: 'P2P_TRANSFER'
-           });
+        const httpsCallable = (await import('firebase/functions')).httpsCallable;
+        const { functions } = await import('../lib/firebase');
+        const transferFundsCallable = httpsCallable(functions, 'transferFunds');
+        
+        await transferFundsCallable({
+            toId: scannedUserId,
+            amount: amountNum,
+            toName: scannedUserName || 'Destinatario'
         });
+
         setMode('SUCCESS');
     } catch (e: any) {
-        if (e.message === 'insufficient_funds') {
+        if (e.message?.includes('Insufficient') || e.message?.includes('resource-exhausted')) {
             toast.error('Fondi insufficienti nel momento della transazione.');
         } else {
-            handleFirestoreError(e, OperationType.WRITE, 'transactions');
+            console.error("P2P Transfer failed:", e);
+            toast.error('Errore durante il trasferimento.');
         }
     } finally {
         setIsProcessing(false);

@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { Star, X, MessageSquare, Send, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, runTransaction, increment, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
 
 import { gamificationService } from '../services/gamificationService';
@@ -29,149 +30,18 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
     setIsSubmitting(true);
     console.log('handleSubmit called for SOS:', sosRequest.id);
     try {
-      // 1. Finalize Transaction (Unlock Funds)
-      console.log('Finalizing transaction...');
-      await runTransaction(db, async (transaction) => {
-        const sosRef = doc(db, 'sosRequests', sosRequest.id);
-        const mechanicUserRef = doc(db, 'users', mechanicId);
-        const mechStatsRef = doc(db, 'mechanics', mechanicId);
-        const platformStatsRef = doc(db, 'platformStats', 'global');
-
-        const [sosSnap, mechStatsSnap, platformSnap, mechanicUserSnap] = await Promise.all([
-          transaction.get(sosRef),
-          transaction.get(mechStatsRef),
-          transaction.get(platformStatsRef),
-          transaction.get(mechanicUserRef)
-        ]);
-        
-        if (!sosSnap.exists()) throw new Error('SOS not found');
-        const data = sosSnap.data();
-        
-        // Idempotency check: if already reviewed, skip most of the work but ensure we finish cleanly
-        if (data.isReviewed) {
-          console.log('SOS already reviewed, skipping transaction updates');
-          return;
-        }
-
-        const price = Number(data.estimatedPrice) || 0;
-        const plan = data.mechanicPlan || 'BASE';
-        
-        // Fee logic: PRO 5%, CLUB 10%, BASE 15%
-        const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
-        const feePercent = feeMultipliers[plan as string] || 0.15;
-        const fee = price * feePercent;
-        const netAmount = price - fee;
-
-        // Release funds and complete job
-        transaction.update(sosRef, {
-          isReviewed: true,
-          cyclistConfirmed: true,
-          status: 'COMPLETED',
-          paymentStatus: 'RELEASED',
-          completedAt: serverTimestamp(),
-          platformFee: fee,
-          mechanicNet: netAmount,
-          finalPrice: netAmount 
-        });
-
-        // Add funds to mechanic (net amount)
-        const txRef = doc(collection(db, 'transactions'));
-        const userUpdates: any = {
-          balance: increment(netAmount),
-          updatedAt: serverTimestamp(),
-          lastTxId: txRef.id
-        };
-        // Update peer mechanic if applicable
-        if (mechanicUserSnap.data()?.role === 'PEER_MECHANIC') {
-            userUpdates.peerMechanicEarnings = increment(netAmount);
-            userUpdates.peerMechanicJobsCompleted = increment(1);
-        }
-        transaction.update(mechanicUserRef, userUpdates);
-        
-        transaction.set(txRef, {
-            fromId: 'ESCROW',
-            toId: mechanicId,
-            amount: netAmount,
-            currency: 'DoctorBike Coin',
-            createdAt: serverTimestamp(),
-            type: 'SOS_PAYMENT_RELEASE',
-            fee: fee
-        });
-
-        // Add fee to platform stats
-        if (platformSnap.exists()) {
-          transaction.update(platformStatsRef, {
-            totalFees: increment(fee),
-            totalTransactions: increment(price),
-            completedJobs: increment(1),
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          transaction.set(platformStatsRef, {
-            totalFees: fee,
-            totalTransactions: price,
-            completedJobs: 1,
-            updatedAt: serverTimestamp()
-          });
-        }
-
-        if (mechStatsSnap.exists()) {
-          transaction.update(mechStatsRef, {
-            totalEarnings: increment(netAmount),
-            completedJobs: increment(1),
-            updatedAt: serverTimestamp()
-          });
-        }
-
-        // Create Intervention Record
-        const interventionRef = doc(collection(db, 'interventions'));
-        transaction.set(interventionRef, {
-            sosId: sosRequest.id,
-            date: new Date().toISOString(),
-            cyclistId: userId,
-            cyclistName: data.cyclistName || 'Cyclist',
-            mechanicId: mechanicId,
-            mechanicName: mechanicName || 'Mechanic',
-            mechanicType: plan,
-            problemDescription: data.description || data.faultType || 'Intervento',
-            problemSeverity: 'medium',
-            location: {
-                lat: data.lat,
-                lng: data.lng,
-                address: data.address || ''
-            },
-            duration: 0,
-            cost: price,
-            stripePaymentId: data.stripePaymentId || '',
-            status: 'completed',
-            review: {
-                rating, comment
-            }
-        });
+      // 1. Call Cloud Function to safely transfer funds & update Escrow
+      console.log('Calling completeSOS Cloud Function for:', sosRequest.id);
+      const { functions } = await import('../lib/firebase');
+      const completeSOS = httpsCallable(functions, 'completeSOS');
+      
+      const response = await completeSOS({
+         sosId: sosRequest.id,
+         rating: rating,
+         text: comment
       });
-      
-      // 2. Create review (Done after transaction success or if already reviewed check passes)
-      // Note: we might want to check if a review for this SOS already exists
-      try {
-        await addDoc(collection(db, 'reviews'), {
-          sosRequestId: sosRequest.id,
-          cyclistId: userId,
-          mechanicId,
-          rating,
-          comment,
-          createdAt: serverTimestamp()
-        });
-      } catch (e) {
-        console.warn('Silent failure creating review (might be duplicate):', e);
-      }
 
-      // Gamification
-      let pointsToAward = 5;
-      if (rating === 5) pointsToAward = 20;
-      else if (rating === 4) pointsToAward = 10;
-      
-      gamificationService.awardPoints(mechanicId, 'Ricevuta recensione', pointsToAward);
-      gamificationService.awardPoints(userId, 'Chiusura intervento e recensione', 10);
+      console.log('Cloud Function success:', response.data);
 
       onClose();
     } catch (error: any) {

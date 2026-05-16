@@ -1,6 +1,7 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
-import { db, auth } from '../lib/firebase';
+import { db, auth, functions } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
 import { 
   ShieldAlert, 
@@ -26,7 +27,11 @@ import {
   X,
   User as UserIcon,
   Eye,
-  ExternalLink
+  ExternalLink,
+  ArrowRight,
+  CreditCard,
+  Receipt,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
@@ -36,9 +41,10 @@ import { Map } from './Map';
 import { RoadReportDetailModal } from './RoadReportDetailModal';
 import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
+import { ManualInvoiceModal } from './ManualInvoiceModal';
 import ReactMarkdown from 'react-markdown';
 
-type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE';
+type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE' | 'FINANCE';
 
 export function AdminHome() {
   const [disputedJobs, setDisputedJobs] = useState<any[]>([]);
@@ -50,6 +56,9 @@ export function AdminHome() {
   const [aiConversations, setAiConversations] = useState<any[]>([]);
   const [aiGuidelines, setAiGuidelines] = useState('');
   const [isSavingAI, setIsSavingAI] = useState(false);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [financialTransactions, setFinancialTransactions] = useState<any[]>([]);
+  const [isRefunding, setIsRefunding] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandedSupportId, setExpandedSupportId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,6 +71,8 @@ export function AdminHome() {
   const [kycFilter, setKycFilter] = useState<'ALL' | 'PENDING'>('ALL');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [selectedUserForInvoice, setSelectedUserForInvoice] = useState<any | null>(null);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -107,6 +118,16 @@ export function AdminHome() {
       setRoadReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // 9. Listen for subscriptions
+    const unsubSubs = onSnapshot(query(collection(db, 'subscriptions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+      setSubscriptions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 10. Listen for financial transactions (SUBSCRIPTION, TOPUP, SOS_PAYMENT)
+    const unsubFinTx = onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+      setFinancialTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubStats();
       unsubAiConfig();
@@ -116,6 +137,8 @@ export function AdminHome() {
       unsubDisputes();
       unsubSupport();
       unsubReports();
+      unsubSubs();
+      unsubFinTx();
     };
   }, []);
 
@@ -312,8 +335,43 @@ export function AdminHome() {
     { id: 'AI_ASSISTANCE', label: 'AI Assistance', icon: <Sparkles size={20} /> },
     { id: 'DISPUTES', label: 'Contestazioni', icon: <ShieldAlert size={20} />, badge: disputedJobs.length, badgeColor: 'bg-danger' },
     { id: 'REPORTS', label: 'Segnalazioni', icon: <MapIcon size={20} />, badge: roadReports.length },
+    { id: 'FINANCE', label: 'Finanze', icon: <DollarSign size={20} /> },
     { id: 'PROFILE', label: 'Profilo', icon: <UserIcon size={20} /> },
   ];
+
+  const handleKycRejection = async (userId: string, paymentIntentId?: string) => {
+    const reason = window.prompt("Motivo rifiuto?");
+    if (!reason) return;
+
+    try {
+      // 1. Update Firestore
+      await updateDoc(doc(db, 'users', userId), { 
+        kycStatus: 'REJECTED', 
+        'kycDocuments.rejectedReason': reason,
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. If there's a payment, refund it
+      if (paymentIntentId) {
+        toast.loading("Emissione rimborso in corso...");
+        const refundPayment = httpsCallable(functions, 'refundPayment');
+        await refundPayment({ paymentIntentId });
+      }
+
+      // 3. Send notification email
+      try {
+        const sendKycEmail = httpsCallable(functions, 'sendKycEmail');
+        await sendKycEmail({ userId, status: 'REJECTED', reason });
+      } catch (e) {
+        console.warn("Email function not deployed yet");
+      }
+
+      toast.success(paymentIntentId ? "Utente rifiutato e rimborsato." : "Utente rifiutato.");
+    } catch (err: any) {
+      console.error("Error rejecting KYC:", err);
+      toast.error("Errore durante il rifiuto: " + (err.message || String(err)));
+    }
+  };
 
   if (loading) {
     return (
@@ -546,6 +604,25 @@ export function AdminHome() {
                     </div>
                   </div>
                 </motion.div>
+                
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  transition={{ delay: 0.3 }} 
+                  onClick={() => { setActiveTab('USERS'); setKycFilter('PENDING'); }}
+                  className="bg-white text-black p-8 rounded-[2.5rem] shadow-sm border-2 border-danger/10 hover:border-danger/30 transition-all cursor-pointer group"
+                >
+                  <div className="w-12 h-12 bg-danger/10 text-danger rounded-2xl flex items-center justify-center mb-6 shadow-inner group-hover:scale-110 transition-transform">
+                    <ShieldAlert size={24} />
+                  </div>
+                  <h3 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-2">Richieste KYC Pendenti</h3>
+                  <div className="text-4xl font-black text-danger italic">
+                    {allUsers.filter(u => u.kycStatus === 'PENDING').length}
+                  </div>
+                  <p className="text-[10px] text-danger font-bold mt-4 uppercase flex items-center gap-1">
+                    Da validare subito <ArrowRight size={10} />
+                  </p>
+                </motion.div>
               </div>
 
               {/* Recruitment / Growth & Activity */}
@@ -555,7 +632,7 @@ export function AdminHome() {
                     <Clock size={16} /> Ultimi Utenti Registrati
                   </h3>
                   <div className="space-y-3">
-                    {allUsers.slice(0, 6).map(u => (
+                    {allUsers.filter(u => u.role !== 'MECHANIC' || u.kycStatus === 'APPROVED').slice(0, 6).map(u => (
                       <div key={u.id} className="flex justify-between items-center p-5 bg-white text-black border border-grey/10 shadow-sm rounded-3xl hover:border-primary/20 hover:bg-primary/5 transition-all cursor-default">
                         <div className="flex items-center gap-4">
                           <img 
@@ -570,8 +647,12 @@ export function AdminHome() {
                           </div>
                         </div>
                         <div className="text-right flex flex-col items-end">
-                          <span className={`text-[8px] font-black px-3 py-1.5 rounded-full border uppercase ${u.role === 'MECHANIC' ? 'bg-warning/10 text-warning border-warning/20' : 'bg-primary/10 text-primary border-primary/20'}`}>
-                            {u.role}
+                          <span className={`text-[8px] font-black px-3 py-1.5 rounded-full border uppercase ${
+                            u.role === 'MECHANIC' ? 'bg-warning/10 text-warning border-warning/20' : 
+                            u.kycStatus === 'PENDING' ? 'bg-danger/10 text-danger border-danger/20 animate-pulse' :
+                            'bg-primary/10 text-primary border-primary/20'
+                          }`}>
+                            {u.kycStatus === 'PENDING' ? 'PENDING KYC' : u.role}
                           </span>
                           <p className="text-[8px] text-grey mt-2 italic font-bold">
                             {u.createdAt ? formatDistanceToNow(u.createdAt.toDate(), { locale: it, addSuffix: true }) : 'Tempo fa'}
@@ -729,56 +810,83 @@ export function AdminHome() {
                                </button>
                              ))}
                            </div>
-                           
-                           {/* KYC Actions */}
-                           <div className="mt-2 bg-grey/5 p-2 rounded-xl">
-                              <p className="text-[8px] font-black text-grey uppercase tracking-widest mb-2">KYC Status: <span className={u.kycStatus === 'PENDING' ? 'text-accent' : u.kycStatus === 'APPROVED' ? 'text-primary' : 'text-warning'}>{u.kycStatus || 'UNSUBMITTED'}</span></p>
+                        </div>
+                      )}
+
+                      {/* KYC Actions */}
+                      {u.kycStatus && (
+                        <div className="w-full mt-2">
+                           <div className="bg-grey/5 p-3 rounded-2xl border border-grey/5">
+                              <p className="text-[8px] font-black text-grey uppercase tracking-widest mb-3 flex justify-between">
+                                <span>KYC Status</span>
+                                <span className={u.kycStatus === 'PENDING' ? 'text-accent' : u.kycStatus === 'APPROVED' ? 'text-primary' : 'text-danger'}>{u.kycStatus}</span>
+                              </p>
                               
                               {u.kycStatus === 'PENDING' && (
-                                <div className="flex gap-2">
-                                  <button onClick={() => updateDoc(doc(db, 'users', u.id), { kycStatus: 'APPROVED' })} className="flex-1 bg-primary text-white text-[8px] font-black py-1.5 rounded-lg uppercase">Approva</button>
-                                  <button onClick={() => {
-                                    toast((t) => (
-                                      <div className="flex flex-col gap-3 w-64 items-center">
-                                        <span className="font-bold text-sm text-center">Motivo rifiuto P2P/KYC per {u.name}?</span>
-                                        <input id={`reject-reason-${u.id}`} className="w-full text-black border p-2 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary" placeholder="Es. Documento illeggibile" />
-                                        <div className="flex gap-2 w-full mt-1">
-                                          <button onClick={() => toast.dismiss(t.id)} className="flex-1 py-1.5 text-grey text-xs font-bold hover:underline">Annulla</button>
-                                          <button onClick={() => { 
-                                            const reason = (document.getElementById(`reject-reason-${u.id}`) as HTMLInputElement)?.value;
-                                            if(reason) {
-                                              updateDoc(doc(db, 'users', u.id), { kycStatus: 'REJECTED', 'kycDocuments.rejectedReason': reason });
-                                              toast.success("Rifiutato");
-                                              toast.dismiss(t.id);
-                                            } else {
-                                              toast.error("Inserisci un motivo valido");
-                                            }
-                                          }} className="flex-1 bg-danger text-white rounded-lg py-1.5 font-bold text-xs">Conferma</button>
-                                        </div>
-                                      </div>
-                                    ), { duration: 10000 });
-                                  }} className="flex-1 bg-danger text-white text-[8px] font-black py-1.5 rounded-lg uppercase">Rifiuta</button>
+                                <div className="flex gap-2 mb-3">
+                                  <button 
+                                    onClick={async () => {
+                                      try {
+                                        await updateDoc(doc(db, 'users', u.id), { 
+                                          kycStatus: 'APPROVED', 
+                                          role: 'MECHANIC',
+                                          updatedAt: serverTimestamp() 
+                                        });
+                                        // Send notification email
+                                        try {
+                                          const sendKycEmail = httpsCallable(functions, 'sendKycEmail');
+                                          await sendKycEmail({ userId: u.id, status: 'APPROVED' });
+                                        } catch (e) { /* silent fail */ }
+                                        toast.success("Meccanico approvato!");
+                                      } catch (e) {
+                                        toast.error("Errore nell'approvazione");
+                                      }
+                                    }} 
+                                    className="flex-1 bg-primary text-white text-[10px] font-black py-2 rounded-xl uppercase shadow-sm hover:bg-black transition-colors"
+                                  >
+                                    Approva
+                                  </button>
+                                  <button 
+                                    onClick={() => handleKycRejection(u.id, u.subscriptionPaymentIntentId)}
+                                    className="flex-1 bg-danger/10 text-danger text-[10px] font-black py-2 rounded-xl uppercase hover:bg-danger hover:text-white transition-colors"
+                                  >
+                                    Rifiuta e Rimborsa
+                                  </button>
                                 </div>
                               )}
                               
-                               <div className="mt-2 space-y-1">
+                               <div className="space-y-2">
                                  {u.kycDocuments?.vatNumber && (
-                                   <p className="text-[8px] font-bold text-black uppercase tracking-tight">VAT/CF: {u.kycDocuments.vatNumber}</p>
+                                   <div className="bg-white p-2 rounded-lg border border-grey/10">
+                                      <p className="text-[7px] font-black text-grey uppercase mb-0.5">P.IVA / CF</p>
+                                      <p className="text-[10px] font-bold text-black">{u.kycDocuments.vatNumber}</p>
+                                   </div>
                                  )}
-                                 {u.kycDocuments?.idUrl && (
-                                   <a href={u.kycDocuments.idUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[8px] font-black text-primary hover:text-black transition-colors uppercase tracking-widest bg-primary/5 p-1.5 rounded-lg w-full">
-                                     <Eye size={12} /> Vedi Doc. Identità
-                                   </a>
-                                 )}
-                                 {u.kycDocuments?.businessUrl && (
-                                   <a href={u.kycDocuments.businessUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[8px] font-black text-primary hover:text-black transition-colors uppercase tracking-widest bg-primary/5 p-1.5 rounded-lg w-full">
-                                     <Eye size={12} /> Vedi Visura/P.IVA
-                                   </a>
-                                 )}
+                                 <div className="grid grid-cols-1 gap-2">
+                                   {u.kycDocuments?.idUrl && (
+                                     <a href={u.kycDocuments.idUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between bg-white text-primary hover:bg-primary hover:text-white p-2.5 rounded-xl border border-primary/20 transition-all group/link">
+                                       <span className="text-[9px] font-black uppercase tracking-wider">Documento Identità</span>
+                                       <ExternalLink size={14} />
+                                     </a>
+                                   )}
+                                   {u.kycDocuments?.businessUrl && (
+                                     <a href={u.kycDocuments.businessUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between bg-white text-primary hover:bg-primary hover:text-white p-2.5 rounded-xl border border-primary/20 transition-all group/link">
+                                       <span className="text-[9px] font-black uppercase tracking-wider">Visura / P.IVA</span>
+                                       <ExternalLink size={14} />
+                                     </a>
+                                   )}
+                                 </div>
                                </div>
                            </div>
                         </div>
                       )}
+
+                      <button 
+                        onClick={() => { setSelectedUserForInvoice(u); setIsInvoiceModalOpen(true); }}
+                        className="w-full mt-3 flex items-center justify-center gap-2 bg-primary/5 text-primary py-3 rounded-2xl font-black uppercase text-[10px] hover:bg-primary hover:text-white transition-all border border-primary/10"
+                      >
+                        <Receipt size={14} /> Genera Fattura
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1384,6 +1492,224 @@ export function AdminHome() {
             </motion.div>
           )}
 
+          {activeTab === 'FINANCE' && (
+            <motion.div
+              key="finance"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-8 max-w-full mx-auto"
+            >
+              {/* Financial Summary */}
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black text-black uppercase tracking-tight">Riepilogo Finanziario</h2>
+                <button 
+                  onClick={() => { setSelectedUserForInvoice(null); setIsInvoiceModalOpen(true); }}
+                  className="bg-primary text-white px-6 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:scale-[1.05] transition-all flex items-center gap-2"
+                >
+                  <Receipt size={16} /> Nuova Fattura Libera
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-primary p-8 rounded-[2.5rem] shadow-xl shadow-primary/20 text-white">
+                   <div className="w-12 h-12 bg-white/20 text-white rounded-2xl flex items-center justify-center mb-6">
+                      <DollarSign size={24}/>
+                   </div>
+                   <h3 className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em] mb-2">Entrate Totali Piattaforma</h3>
+                   <div className="text-4xl font-black italic">
+                      €{((platformStats?.totalSubscriptionRevenue || 0) + (platformStats?.totalFees || 0)).toFixed(2)}
+                   </div>
+                   <p className="text-[10px] text-white/40 font-bold mt-4 uppercase">Sub + Commissioni SOS</p>
+                </div>
+
+                <div className="bg-white text-black p-8 rounded-[2.5rem] shadow-sm border border-grey/5">
+                   <div className="w-12 h-12 bg-accent/10 text-accent rounded-2xl flex items-center justify-center mb-6">
+                      <Sparkles size={24}/>
+                   </div>
+                   <h3 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-2">Ricavo Abbonamenti</h3>
+                   <div className="text-4xl font-black text-primary italic">
+                      €{(platformStats?.totalSubscriptionRevenue || 0).toFixed(2)}
+                   </div>
+                   <p className="text-[10px] text-grey font-bold mt-4 uppercase">Piani BASE, CLUB, PRO</p>
+                </div>
+
+                <div className="bg-white text-black p-8 rounded-[2.5rem] shadow-sm border border-grey/5">
+                   <div className="w-12 h-12 bg-warning/10 text-warning rounded-2xl flex items-center justify-center mb-6">
+                      <TrendingUp size={24}/>
+                   </div>
+                   <h3 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-2">Commissioni SOS</h3>
+                   <div className="text-4xl font-black text-primary italic">
+                      €{(platformStats?.totalFees || 0).toFixed(2)}
+                   </div>
+                   <p className="text-[10px] text-grey font-bold mt-4 uppercase">5%, 10%, 15% su interventi</p>
+                </div>
+
+                {/* MY SHARE / PROFIT CARD */}
+                <div className="bg-black text-white p-8 rounded-[2.5rem] shadow-2xl shadow-black/20 md:col-span-3">
+                   <div className="flex justify-between items-start">
+                     <div>
+                       <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] mb-4 flex items-center gap-2">
+                         <ShieldAlert size={12} className="text-primary"/> Guadagno Netto Piattaforma (Il Tuo Share)
+                       </h3>
+                       <div className="text-6xl font-black italic text-primary">
+                          €{((platformStats?.totalSubscriptionRevenue || 0) + (platformStats?.totalFees || 0)).toFixed(2)}
+                       </div>
+                       <p className="text-[10px] text-white/40 font-bold mt-6 uppercase tracking-widest leading-relaxed">
+                          Include commissioni piani (15% Base, 10% Club, 5% Pro) <br/>
+                          + Fee fissata del 5% per interventi ciclisti esperti
+                       </p>
+                     </div>
+                     <div className="text-right">
+                        <p className="text-[8px] font-black text-white/30 uppercase mb-2">Transazioni Totali</p>
+                        <p className="text-2xl font-black italic">#{financialTransactions.length}</p>
+                     </div>
+                   </div>
+                </div>
+              </div>
+
+              {/* Detailed Lists */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                {/* Subscriptions List */}
+                <div className="bg-white rounded-[2.5rem] p-8 border border-grey/5 shadow-sm overflow-hidden flex flex-col">
+                  <div className="flex justify-between items-center mb-8">
+                    <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] flex items-center gap-3">
+                      <CreditCard size={18}/> Storico Abbonamenti
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-[10px] font-black text-grey uppercase tracking-widest border-b border-grey/5">
+                          <th className="pb-4 text-left">Utente</th>
+                          <th className="pb-4 text-left">Piano</th>
+                          <th className="pb-4 text-left">Importo</th>
+                          <th className="pb-4 text-left">Data</th>
+                          <th className="pb-4 text-right">Azioni</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-grey/5">
+                        {subscriptions.map(sub => (
+                          <tr key={sub.id} className="text-xs">
+                            <td className="py-4">
+                              <p className="font-black text-black">{sub.userName || 'Utente'}</p>
+                              <p className="text-[9px] text-grey truncate w-24 font-bold">{sub.userId?.slice(0,8)}</p>
+                            </td>
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                sub.planId === 'PRO' ? 'bg-amber-100 text-amber-600' : 
+                                sub.planId === 'CLUB' ? 'bg-slate-100 text-slate-600' : 
+                                'bg-grey/10 text-grey'
+                              }`}>
+                                {sub.planId}
+                              </span>
+                            </td>
+                            <td className="py-4 font-black text-primary">€{sub.amount}</td>
+                            <td className="py-4 text-grey font-bold">
+                              {sub.createdAt?.toDate ? sub.createdAt.toDate().toLocaleDateString() : 'N/D'}
+                            </td>
+                            <td className="py-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button 
+                                  title="Invia Fattura"
+                                  onClick={() => {
+                                    setSelectedUserForInvoice({ id: sub.userId, name: sub.userName, email: sub.userEmail });
+                                    setIsInvoiceModalOpen(true);
+                                  }}
+                                  className="p-2 bg-primary/5 text-primary rounded-xl hover:bg-primary/10"
+                                >
+                                  <Receipt size={14}/>
+                                </button>
+                                {sub.status !== 'REFUNDED' && (
+                                  <button 
+                                    title="Rimborsa"
+                                    onClick={async () => {
+                                      if (!window.confirm("Sicuro di voler rimborsare questo abbonamento?")) return;
+                                      setIsRefunding(sub.id);
+                                      try {
+                                        if (sub.stripePaymentIntentId) {
+                                          const refundPayment = httpsCallable(functions, 'refundPayment');
+                                          await refundPayment({ 
+                                            paymentIntentId: sub.stripePaymentIntentId, 
+                                            reason: 'requested_by_customer' 
+                                          });
+                                        } else {
+                                          await updateDoc(doc(db, 'subscriptions', sub.id), { status: 'REFUNDED', updatedAt: serverTimestamp() });
+                                          await updateDoc(doc(db, 'platformStats', 'global'), { totalSubscriptionRevenue: increment(-sub.amount) });
+                                        }
+                                        toast.success("Abbonamento rimborsato.");
+                                      } catch (e) {
+                                        console.error("Refund error:", e);
+                                        toast.error("Errore nel rimborso.");
+                                      } finally {
+                                        setIsRefunding(null);
+                                      }
+                                    }}
+                                    className="p-2 bg-danger/5 text-danger rounded-xl hover:bg-danger/10"
+                                  >
+                                    <RotateCcw size={14} className={isRefunding === sub.id ? 'animate-spin' : ''}/>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Transactions/Commissions List */}
+                <div className="bg-white rounded-[2.5rem] p-8 border border-grey/5 shadow-sm overflow-hidden flex flex-col">
+                   <div className="flex justify-between items-center mb-8">
+                    <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] flex items-center gap-3">
+                      <TrendingUp size={18}/> Transazioni SOS & Fee
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-[10px] font-black text-grey uppercase tracking-widest border-b border-grey/5">
+                          <th className="pb-4 text-left">Tipo</th>
+                          <th className="pb-4 text-left">Meccanico</th>
+                          <th className="pb-4 text-left">Totale</th>
+                          <th className="pb-4 text-left">Fee Admin</th>
+                          <th className="pb-4 text-right">Data</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-grey/5">
+                        {financialTransactions.map(tx => (
+                          <tr key={tx.id} className="text-xs">
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                tx.type === 'SOS_PAYMENT' ? 'bg-danger/10 text-danger' : 
+                                tx.type === 'SUBSCRIPTION' ? 'bg-primary/10 text-primary' : 
+                                'bg-grey/10 text-grey'
+                              }`}>
+                                {tx.type?.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td className="py-4">
+                              <p className="font-bold text-black">{tx.userName || 'N/D'}</p>
+                              <p className="text-[8px] text-grey uppercase">{tx.description?.slice(0, 30)}...</p>
+                            </td>
+                            <td className="py-4 font-black">€{tx.amount?.toFixed(2)}</td>
+                            <td className="py-4 font-black text-accent">
+                               {tx.fee ? `€${tx.fee.toFixed(2)}` : '€0.00'}
+                            </td>
+                            <td className="py-4 text-right text-grey font-bold">
+                              {tx.createdAt?.toDate ? tx.createdAt.toDate().toLocaleDateString() : 'N/D'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {activeTab === 'PROFILE' && (
             <motion.div
               key="profile"
@@ -1407,6 +1733,12 @@ export function AdminHome() {
           />
         )}
       </AnimatePresence>
+
+      <ManualInvoiceModal 
+        isOpen={isInvoiceModalOpen}
+        onClose={() => setIsInvoiceModalOpen(false)}
+        user={selectedUserForInvoice}
+      />
     </div>
   );
 }

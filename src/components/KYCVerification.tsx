@@ -2,8 +2,9 @@ import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { FileText, ShieldAlert, CheckCircle, AlertTriangle, LogOut, ArrowRight, UploadCloud, X, FileCheck } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, storage } from '../lib/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
@@ -36,18 +37,16 @@ export function KYCVerification() {
   };
 
   const uploadFile = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Errore durante l\'upload');
-    }
-    const data = await res.json();
-    return data.url;
+    if (!user) throw new Error('User not authenticated');
+    
+    // Create a safe filename with timestamp to avoid collisions
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const storageRef = ref(storage, `kyc/${user.uid}/${fileName}`);
+    
+    const snapshot = await uploadBytes(storageRef, file);
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    return downloadURL;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

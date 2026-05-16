@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { signOut, sendEmailVerification, sendPasswordResetEmail } from 'firebase/auth';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, functions, handleFirestoreError, OperationType } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, onSnapshot, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
@@ -98,7 +99,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   // Profile edit state
   const [editName, setEditName] = useState(profile?.name || '');
   const [editPhone, setEditPhone] = useState(profile?.phone || '');
-  const [editEmail, setEditEmail] = useState(auth.currentUser?.email || '');
+  const [editEmail, setEditEmail] = useState(profile?.email || auth.currentUser?.email || '');
   const [editBikeModel, setEditBikeModel] = useState(profile?.bikeModel || '');
   const [editLocationName, setEditLocationName] = useState(profile?.locationName || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -154,16 +155,36 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setPlanUpgradeStep('PROCESSING');
     setIsUpgrading(selectedPlanForUpgrade.id);
     try {
-      const response = await fetch('/api/create-payment-intent', {
+      const idToken = await user.getIdToken();
+      console.log('Generated ID Token (exists):', !!idToken);
+      const response = await fetch('/api/createStripePayment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: selectedPlanForUpgrade.price, metadata: { userId: user?.uid, planId: selectedPlanForUpgrade.id } }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+          'X-Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          amount: selectedPlanForUpgrade.price,
+          currency: 'eur',
+          token: idToken
+        })
       });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      setClientSecret(data.clientSecret);
-      setPlanUpgradeStep('STRIPE');
-    } catch (err) {
+      
+      if (data.clientSecret) {
+        setClientSecret(data.clientSecret);
+        setPlanUpgradeStep('STRIPE');
+      } else {
+        throw new Error('Failed to create payment intent: No clientSecret received');
+      }
+    } catch (err: any) {
       console.error(err);
       toast.error("Errore durante l'inizializzazione del pagamento");
       setPlanUpgradeStep('PAYMENT');
@@ -176,10 +197,53 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     if (!user || !selectedPlanForUpgrade) return;
     setPlanUpgradeStep('PROCESSING');
     try {
-      await updateDoc(doc(db, 'users', user.uid), { 
-        plan: selectedPlanForUpgrade.id as UserPlan, 
-        updatedAt: serverTimestamp() 
+      const stripePaymentIntentId = clientSecret?.split('_secret')[0];
+      const txRef = doc(db, 'transactions', stripePaymentIntentId || `SUB_${Date.now()}`);
+      const subRef = doc(collection(db, 'subscriptions'));
+      
+      await runTransaction(db, async (transaction) => {
+        // Check if already processed
+        const txSnap = await transaction.get(txRef);
+        if (txSnap.exists()) return;
+        
+        // 1. Update User Plan
+        transaction.update(doc(db, 'users', user.uid), { 
+          plan: selectedPlanForUpgrade.id as UserPlan, 
+          updatedAt: serverTimestamp() 
+        });
+
+        // 2. Record Subscription
+        transaction.set(subRef, {
+          userId: user.uid,
+          userName: profile?.name || user.displayName || 'Meccanico',
+          planId: selectedPlanForUpgrade.id,
+          amount: selectedPlanForUpgrade.price,
+          currency: 'EUR',
+          status: 'PAID',
+          createdAt: serverTimestamp(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+          stripePaymentIntentId: stripePaymentIntentId || 'SIMULATED'
+        });
+
+        // 3. Record Transaction
+        transaction.set(txRef, {
+          fromId: user.uid,
+          toId: 'PLATFORM',
+          amount: selectedPlanForUpgrade.price,
+          currency: 'EUR',
+          type: 'SUBSCRIPTION',
+          createdAt: serverTimestamp(),
+          planId: selectedPlanForUpgrade.id,
+          status: 'COMPLETED'
+        });
+
+        // 4. Update Platform Stats
+        transaction.update(doc(db, 'platformStats', 'global'), {
+          totalSubscriptionRevenue: increment(selectedPlanForUpgrade.price),
+          updatedAt: serverTimestamp()
+        });
       });
+
       setPlanUpgradeStep('SUCCESS');
     } catch (err) {
       console.error(err);
@@ -299,18 +363,18 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const amounts = [10, 20, 50, 100];
 
   const handleTopUpSuccess = async () => {
-    if (!user || !selectedAmount) {
-      console.warn('Missing user or selectedAmount for top up');
-      setPaymentStep('SELECT_AMOUNT');
-      return;
-    }
+    if (!user || !selectedAmount) return;
     
-    setIsProcessing(true);
     setPaymentStep('PROCESSING');
-    
     try {
-      const txRef = doc(collection(db, 'transactions'));
+      const stripePaymentIntentId = clientSecret?.split('_secret')[0];
+      const txRef = doc(db, 'transactions', stripePaymentIntentId || `TOP_${Date.now()}`);
+      
       await runTransaction(db, async (transaction) => {
+          // Check if already processed by webhook
+          const txSnap = await transaction.get(txRef);
+          if (txSnap.exists()) return;
+
           const userRef = doc(db, 'users', user.uid);
           transaction.update(userRef, {
               balance: increment(selectedAmount),
@@ -352,39 +416,34 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
     setIsProcessing(true);
     try {
-      const response = await fetch('/api/create-payment-intent', {
+      const idToken = await user.getIdToken();
+      console.log('Generated ID Token (exists):', !!idToken);
+      const response = await fetch('/api/createStripePayment', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${idToken}`,
+          'X-Authorization': `Bearer ${idToken}`
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           amount: selectedAmount,
-          metadata: { userId: user?.uid }
-        }),
+          currency: 'eur',
+          token: idToken
+        })
       });
-      
+
       if (!response.ok) {
-        let errorData;
-        try {
-          errorData = await response.json();
-        } catch (e) {
-          errorData = { error: `Server error: ${response.status}` };
-        }
-        throw new Error(errorData.error || 'Failed to create payment intent');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
       }
+
+      const data = await response.json();
       
-      const text = await response.text();
-      if (!text) {
-        throw new Error('Empty response from server');
-      }
-      
-      const data = JSON.parse(text);
       if (data.clientSecret) {
         setClientSecret(data.clientSecret);
         setPaymentStep('STRIPE');
       } else {
-        throw new Error(data.error || 'Failed to create payment intent');
+        throw new Error('Failed to create payment intent: No clientSecret received');
       }
     } catch (err) {
       console.error('Stripe Flow Error:', err);
@@ -491,6 +550,17 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         updatedAt: serverTimestamp()
       });
       console.log('Platform stats reset');
+      
+      // 9. Clear Authentication Emails (Except Admins)
+      console.log('Clearing Authentication emails...');
+      try {
+        const clearAuth = httpsCallable(functions, 'clearAllUsersAuth');
+        const result = await clearAuth();
+        console.log('Authentication cleared:', result.data);
+      } catch (authErr) {
+        console.error('Error clearing auth emails:', authErr);
+        // We continue even if auth clearing fails, as Firestore is already reset
+      }
 
       toast.success('Reset per la produzione completato con successo!');
       setShowResetConfirm(false);
@@ -510,6 +580,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       await updateDoc(doc(db, 'users', user?.uid), {
         name: editName,
         phone: editPhone,
+        email: editEmail,
         bikeModel: editBikeModel,
         locationName: editLocationName,
         updatedAt: serverTimestamp()
@@ -1494,20 +1565,14 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         </AnimatePresence>
 
         <button onClick={async () => {
-             // Disable presence immediately before logging out
-             if (auth.currentUser) {
-               try {
-                 await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-                   isOnline: false,
-                   lastLat: null,
-                   lastLng: null,
-                   updatedAt: serverTimestamp()
-                 });
-               } catch (e) {
-                 console.warn("Could not set offline state", e);
-               }
+             try {
+               await signOut(auth);
+               toast.success(t('auth.signedOut') || 'Disconnesso con successo');
+               setTimeout(() => window.location.reload(), 300);
+             } catch (err) {
+               console.error("Logout error", err);
+               window.location.reload();
              }
-             signOut(auth);
            }}
            className="w-full flex items-center justify-center gap-2 p-5 bg-danger/5 text-danger rounded-[2rem] font-black uppercase tracking-widest text-[10px] hover:bg-danger/10 transition-colors"
         >

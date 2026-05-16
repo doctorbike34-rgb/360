@@ -1,7 +1,11 @@
 node_modules/
+dist/
+.firebase/
+functions/node_modules/
 build/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+node_modules

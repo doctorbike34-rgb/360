@@ -35,7 +35,10 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
   const [isUpvoting, setIsUpvoting] = React.useState(false);
 
   React.useEffect(() => {
-    if (!initialReport?.id) return;
+    if (!initialReport?.id) {
+      setReport(null);
+      return;
+    }
     
     // Set initial report
     setReport(initialReport);
@@ -50,7 +53,6 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
     return () => unsub();
   }, [initialReport?.id]);
 
-  if (!report) return null;
 
   const handleUpvote = async () => {
     if (!user) {

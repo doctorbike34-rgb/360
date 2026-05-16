@@ -9,7 +9,6 @@ export type SoundType =
 
 class SoundService {
   private audioCtx: AudioContext | null = null;
-  private audioCache: Record<string, HTMLAudioElement> = {};
 
   private initCtx() {
     if (!this.audioCtx) {

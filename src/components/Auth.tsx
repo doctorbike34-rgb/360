@@ -7,6 +7,8 @@ import {
   signInWithEmailAndPassword, 
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   sendEmailVerification,
   sendPasswordResetEmail,
   RecaptchaVerifier,
@@ -110,6 +112,7 @@ export function Auth() {
     setError('');
     try {
       const provider = new GoogleAuthProvider();
+      // Prova prima con popup (nessun reload), se bloccato usa redirect
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
@@ -121,7 +124,6 @@ export function Auth() {
       if (userDoc.exists()) {
         const profile = userDoc.data() as UserProfile;
         if (user.email?.toLowerCase() === 'doctorbike34@gmail.com') {
-          // Ensure admin status in DB and collection
           if (profile.role !== 'ADMIN') {
             await updateDoc(doc(db, 'users', user.uid), { role: 'ADMIN' });
           }
@@ -136,40 +138,84 @@ export function Auth() {
         }
         setUser(user);
       } else {
-        // Switch to signup view to pick role
         setUser(user);
         setIsLogin(false);
         setValue('name', user?.displayName || '');
         setValue('email', user?.email || '');
       }
-    } catch (err) {
-      if (err instanceof Error && 'code' in err) {
-        if (err.code === 'auth/popup-blocked') {
-          setError(t('auth.popupBlocked'));
-        } else if (err.code === 'auth/unauthorized-domain') {
-          setError(t('auth.unauthorizedDomain'));
-        } else {
-          setError(err.message);
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
+        // Fallback automatico a redirect se il popup è bloccato
+        try {
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+        } catch (redirectErr: any) {
+          setError(redirectErr.message || 'Errore durante il login con Google');
+          setLoading(false);
         }
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError(String(err));
+        return;
       }
-    } finally {
+      if (err?.code === 'auth/unauthorized-domain') {
+        setError(t('auth.unauthorizedDomain'));
+      } else {
+        setError(err?.message || 'Errore durante il login con Google');
+      }
       setLoading(false);
     }
   };
 
-  const setupRecaptcha = () => {
-    if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {
-          // reCAPTCHA solved
+  // Gestisce il ritorno dal redirect Google (fallback da popup bloccato)
+  React.useEffect(() => {
+    getRedirectResult(auth).then(async (result) => {
+      if (!result) return;
+      setLoading(true);
+      const user = result.user;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user?.uid));
+        if (userDoc.exists()) {
+          const profile = userDoc.data() as UserProfile;
+          if (user.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+            setRole('ADMIN');
+          } else {
+            setRole(profile.role);
+          }
+          setUser(user);
+        } else {
+          setUser(user);
+          setIsLogin(false);
+          setValue('name', user?.displayName || '');
+          setValue('email', user?.email || '');
         }
-      });
+      } catch (e: any) {
+        console.error('Redirect result Firestore error:', e);
+        // Se Firestore fallisce, onAuthStateChanged in App.tsx gestirà il profilo
+        setUser(user);
+      } finally {
+        setLoading(false);
+      }
+    }).catch((err: any) => {
+      if (err?.code !== 'auth/no-auth-event') {
+        console.warn('getRedirectResult error:', err?.code);
+      }
+    });
+  }, []);
+
+
+  const setupRecaptcha = () => {
+    // Sempre ricrea il verifier per evitare stati bloccati tra tentativi
+    if (window.recaptchaVerifier) {
+      try { window.recaptchaVerifier.clear(); } catch(e) {}
+      window.recaptchaVerifier = undefined as any;
     }
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {
+        // reCAPTCHA solved
+      },
+      'error-callback': () => {
+        setError('Errore reCAPTCHA. Ricarica la pagina e riprova.');
+        setLoading(false);
+      }
+    });
   };
 
   const handleSendCode = async () => {
@@ -185,9 +231,20 @@ export function Auth() {
       const result = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
       setConfirmationResult(result);
     } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/operation-not-allowed' || (err.message && err.message.includes('SMS unable to be sent until this region enabled'))) {
-        setError('Errore: Devi abilitare l\'invio di SMS per questa regione o nel mondo nella console Firebase (Authentication > Settings > SMS Region).');
+      console.error('Phone auth error:', err);
+      // Reset verifier dopo errore
+      if (window.recaptchaVerifier) {
+        try { window.recaptchaVerifier.clear(); } catch(e) {}
+        window.recaptchaVerifier = undefined as any;
+      }
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Il login con telefono non è abilitato. Vai su Firebase Console → Authentication → Sign-in Method e abilita "Telefono".');
+      } else if (err.code === 'auth/invalid-phone-number') {
+        setError('Numero di telefono non valido. Usa il formato internazionale (es. +39...).');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Troppe richieste. Attendi qualche minuto prima di riprovare.');
+      } else if (err.code === 'auth/captcha-check-failed' || err.message?.includes('reCAPTCHA')) {
+        setError('Verifica reCAPTCHA fallita. Ricarica la pagina e riprova.');
       } else {
         setError(err.message || "Errore durante l'invio del codice");
       }
@@ -238,6 +295,7 @@ export function Auth() {
             hasWelcomeGift: finalRole === 'CYCLIST',
             firstInterventionDiscount: finalRole === 'CYCLIST' ? 0.5 : 0,
             sosPrice: finalRole === 'MECHANIC' ? 15 : null,
+            kycStatus: finalRole === 'MECHANIC' ? 'UNSUBMITTED' : null,
             isOnline: true,
             points: 0,
             badges: [],

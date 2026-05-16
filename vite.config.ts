@@ -22,15 +22,26 @@ export default defineConfig(({mode}) => {
           navigateFallback: 'index.html',
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
           // Avoid caching API calls, Firebase internals or internal preview paths
-          navigateFallbackDenylist: [/^\/api/, /^\/google/, /^\/__\//],
+          navigateFallbackDenylist: [/^\/api/, /^\/google/, /^\/__\//, /cloudfunctions\.net/, /googleapis\.com/, /firebase\.io/],
           runtimeCaching: [
             {
-              urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+              urlPattern: ({ url }) => {
+                return url.hostname.includes('cloudfunctions.net') || 
+                       url.hostname.includes('googleapis.com') ||
+                       url.hostname.includes('firebase.io');
+              },
               handler: 'NetworkOnly',
             },
-             {
-              urlPattern: /^https:\/\/identitytoolkit\.googleapis\.com\/.*/i,
-              handler: 'NetworkOnly',
+            {
+              urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365
+                }
+              }
             }
           ]
         },
@@ -41,6 +52,16 @@ export default defineConfig(({mode}) => {
     ],
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom', 'zustand'],
+            'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage', 'firebase/functions'],
+            'ui-vendor': ['framer-motion', 'lucide-react', 'react-hot-toast'],
+            'map-vendor': ['leaflet', 'react-leaflet']
+          }
+        }
+      }
     },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -55,6 +76,9 @@ export default defineConfig(({mode}) => {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+      },
     },
   };
 });

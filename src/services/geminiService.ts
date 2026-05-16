@@ -53,7 +53,7 @@ Ricorda agli utenti che possono usare liberamente queste funzioni nell'app quand
 
   try {
     const response = await getAI().models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,
@@ -80,7 +80,7 @@ export async function analyzeBikeIssue(description: string) {
   
   try {
     const response = await getAI().models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         systemInstruction,

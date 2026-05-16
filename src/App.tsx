@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, setDoc, GeoPoint } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { analyticsTracker } from './lib/analytics';
 import { logger } from './lib/logger';
@@ -9,22 +9,28 @@ import { useThemeStore } from './store/useThemeStore';
 import { Loader2, Navigation2 } from 'lucide-react';
 import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
+import { geohashForLocation } from 'geofire-common';
 
 import { Auth } from './components/Auth';
-import { CyclistHome } from './components/CyclistHome';
-import { MechanicHome } from './components/MechanicHome';
-import { PeerMechanicHome } from './components/PeerMechanicHome';
-import { AdminHome } from './components/AdminHome';
 import { WelcomePopup } from './components/WelcomePopup';
 import { NotificationManager } from './components/NotificationManager';
 import { GlobalNotifications } from './components/GlobalNotifications';
-import { AIBikeDoctor } from './components/AIBikeDoctor';
 import { AIPrompt } from './components/AIPrompt';
 import { Onboarding } from './components/Onboarding';
 import { EmailVerificationGuard } from './components/EmailVerificationGuard';
 import { Toaster, toast } from 'react-hot-toast';
 
-console.time('AppBoot');
+const CyclistHome = lazy(() => import('./components/CyclistHome').then(module => ({ default: module.CyclistHome })));
+const MechanicHome = lazy(() => import('./components/MechanicHome').then(module => ({ default: module.MechanicHome })));
+const PeerMechanicHome = lazy(() => import('./components/PeerMechanicHome').then(module => ({ default: module.PeerMechanicHome })));
+const AdminHome = lazy(() => import('./components/AdminHome').then(module => ({ default: module.AdminHome })));
+const AIBikeDoctor = lazy(() => import('./components/AIBikeDoctor').then(module => ({ default: module.AIBikeDoctor })));
+
+
+if (typeof window !== 'undefined' && !(window as any).__app_boot_started) {
+  console.time('AppBoot');
+  (window as any).__app_boot_started = true;
+}
 
 export default function App() {
   const { 
@@ -34,6 +40,17 @@ export default function App() {
   } = useAuthStore();
   const { isDarkMode } = useThemeStore();
   const [showWelcome, setShowWelcome] = useState(false);
+  const hasShownDailyToastRef = useRef(false);
+
+  useEffect(() => {
+    // End boot timer only on first full mount
+    if (!loading && (window as any).__app_boot_started) {
+      try {
+        console.timeEnd('AppBoot');
+        delete (window as any).__app_boot_started;
+      } catch (e) {}
+    }
+  }, [loading]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -76,7 +93,7 @@ export default function App() {
           } else {
             // Auto fallback
             try {
-              const res = await fetch('/api/geoip');
+              const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
               if (res.ok) {
                 const data = await res.json();
                 if (data.latitude && data.longitude) {
@@ -90,7 +107,7 @@ export default function App() {
                         lastSeenAt: serverTimestamp(),
                         updatedAt: serverTimestamp(),
                         isOnline: profile?.isOnline ?? true
-                     }, { merge: true }).catch(() => {}); // Silent fail for background updates
+                     }, { merge: true }).catch(() => {}); 
                   }
                   return;
                 }
@@ -135,7 +152,7 @@ export default function App() {
             const profileData = snapshot.data() as UserProfile;
             
             if (fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
-              if (profileData.role !== 'ADMIN') {
+              if (profileData.role !== 'ADMIN' && !(window as any).firebaseTransactionInProgress) {
                 updateDoc(doc(db, 'users', fbUser.uid), { role: 'ADMIN' });
               }
               // Ensure the admin record exists for security rules helper to work
@@ -163,6 +180,34 @@ export default function App() {
             if (profileData.lastLat && profileData.lastLng) {
               setUserLocation({ lat: profileData.lastLat, lng: profileData.lastLng });
             }
+
+            // Gamification: Daily Reward Check
+            const now = new Date();
+            const lastLogin = (profileData as any).lastLoginDate?.toDate ? (profileData as any).lastLoginDate.toDate() : new Date(0);
+            
+            // CHECK LOCK: Use a shared localStorage lock with auto-expiry
+            const lockState = localStorage.getItem('fb_tx_lock');
+            const isLocked = lockState && (Date.now() - parseInt(lockState) < 10000); // 10s TTL
+
+            if (now.getDate() !== lastLogin.getDate() || now.getMonth() !== lastLogin.getMonth() || now.getFullYear() !== lastLogin.getFullYear()) {
+              // It's a new day! Give a daily reward.
+              try {
+                if (!isLocked) {
+                  updateDoc(doc(db, 'users', fbUser.uid), {
+                    lastLoginDate: serverTimestamp()
+                  }).catch(console.error);
+                }
+                
+                if (!hasShownDailyToastRef.current) {
+                  // Trigger toast for daily login!
+                  toast.success('Accesso Giornaliero! +0.5 DBC (In arrivo con la prossima Cloud Function!)', { icon: '🎁', duration: 4000 });
+                  hasShownDailyToastRef.current = true;
+                }
+              } catch (e) {
+                console.error("Daily reward failed", e);
+              }
+            }
+
             // Reset quota error if we successfully get data
             setQuotaError(false);
           } else {
@@ -231,15 +276,22 @@ export default function App() {
   useEffect(() => {
     if (!user || !role) return;
 
+    if (!user) return;
+
     // If user explicitly turned off online status, stop tracking and CLEAR location for total privacy
+    const lockState = localStorage.getItem('fb_tx_lock');
+    const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (Date.now() - parseInt(lockState) < 10000));
+
     if (profile?.isOnline === false) {
-      updateDoc(doc(db, 'users', user.uid), {
-        lastLat: null,
-        lastLng: null,
-        location: null,
-        isOnline: false,
-        updatedAt: serverTimestamp()
-      }).catch(() => {}); // Silent catch for background cleanup
+      if (!isLocked) {
+        updateDoc(doc(db, 'users', user.uid), {
+          lastLat: null,
+          lastLng: null,
+          location: null,
+          isOnline: false,
+          updatedAt: serverTimestamp()
+        }).catch(() => {}); // Silent catch for background cleanup
+      }
       return;
     }
 
@@ -253,14 +305,20 @@ export default function App() {
       if (useAuthStore.getState().quotaError) return;
 
       const now = Date.now();
-      // Update Firestore frequently for better real-time sync, but throttle to 5s min
-      if (now - appLastUpdateRef.current.time < 5000) return;
+      // Skip update if a critical transaction is in progress (Check window and shared localStorage)
+      const lockState = localStorage.getItem('fb_tx_lock');
+      const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (now - parseInt(lockState) < 10000));
+      
+      if (isLocked) return;
+      
+      // UPDATE: High-reactivity threshold for LIVE feel (2 seconds)
+      if (now - appLastUpdateRef.current.time < 2000) return;
 
-      // Distance check: only update Firestore if moved significantly (> ~5-10 meters) or it's been more than 5 minutes
+      // Distance check: only update Firestore if moved significantly (> 100 meters) or it's been more than 5 minutes
       const hasMovedSignificantly = () => {
         if (!appLastUpdateRef.current.lat || !appLastUpdateRef.current.lng) return true;
         const R = 6371e3; // metres
-        const lat1 = appLastUpdateRef.current.lat * Math.PI/180; // φ, λ in radians
+        const lat1 = appLastUpdateRef.current.lat * Math.PI/180;
         const lat2 = coords.latitude * Math.PI/180;
         const deltaLat = (coords.latitude-appLastUpdateRef.current.lat) * Math.PI/180;
         const deltaLng = (coords.longitude-appLastUpdateRef.current.lng) * Math.PI/180;
@@ -269,46 +327,36 @@ export default function App() {
                   Math.cos(lat1) * Math.cos(lat2) *
                   Math.sin(deltaLng/2) * Math.sin(deltaLng/2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        const d = R * c; // in metres
+        const d = R * c; 
         
-        return d > 5; // moved more than 5 meters
+        return d > 2; // LIVE: 2 meters threshold for high precision
       };
 
-      if (!hasMovedSignificantly() && (now - appLastUpdateRef.current.time < 300000)) {
-         return; // Skip write if hasn't moved and less than 5 minutes since last write
+      if (!hasMovedSignificantly() && (now - appLastUpdateRef.current.time < 10000)) {
+         return; 
       }
 
       try {
+        // Final guard check immediately before write
+        const finalLockState = localStorage.getItem('fb_tx_lock');
+        const isStillLocked = (window as any).firebaseTransactionInProgress || (Date.now() - parseInt(finalLockState || '0') < 10000);
+        
+        if (isStillLocked) {
+          console.log("Location update aborted: transaction in progress (final check)");
+          return;
+        }
+
         const updateData: any = {
           lastLat: coords.latitude,
           lastLng: coords.longitude,
-          location: {
-            lat: coords.latitude,
-            lng: coords.longitude
-          },
+          location: new GeoPoint(coords.latitude, coords.longitude),
           lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          isOnline: profile?.isOnline ?? true
+          isOnline: profile?.isOnline ?? true,
+          geohash: geohashForLocation([coords.latitude, coords.longitude])
         };
-
-        // Auto-populate locationName if missing and we have a fresh coordinate
-        if (!profile?.locationName || (now - appLastUpdateRef.current.time > 3600000)) { // Update name every hour at most
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.display_name) {
-                const parts = data.display_name.split(',');
-                const city = parts[0] || parts[1] || 'Sconosciuto';
-                updateData.locationName = city.trim();
-              }
-            }
-          } catch (e) {
-            console.warn('Auto geocoding failed', e);
-          }
-        }
-
-        await setDoc(doc(db, 'users', user?.uid), updateData, { merge: true });
+        
+        await updateDoc(doc(db, 'users', user.uid), updateData);
         appLastUpdateRef.current.time = now;
         appLastUpdateRef.current.lat = coords.latitude;
         appLastUpdateRef.current.lng = coords.longitude;
@@ -362,18 +410,18 @@ export default function App() {
     };
 
     if ("geolocation" in navigator) {
-      // Request permission explicitly by calling getCurrentPosition
+      // Get an IMMEDIATE fix (faster without high accuracy)
       navigator.geolocation.getCurrentPosition(
         (pos) => updateLocation(pos.coords),
         handleGeoError,
-        { timeout: 30000, maximumAge: 0, enableHighAccuracy: true }
+        { timeout: 5000, maximumAge: 60000, enableHighAccuracy: false }
       );
 
-      // Steady tracking
+      // Steady tracking - use high accuracy now that we have a fast initial fix
       watchId = navigator.geolocation.watchPosition(
         (pos) => updateLocation(pos.coords),
         handleGeoError,
-        { enableHighAccuracy: false, timeout: 30000, maximumAge: 10000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     }
 
@@ -390,7 +438,7 @@ export default function App() {
     );
   }
 
-  console.timeEnd('AppBoot');
+
 
   // Determine if we should show Auth for profile completion
   const isCompletingProfile = !!user && !role;
@@ -511,7 +559,7 @@ export default function App() {
                             let lat = 41.9028;
                             let lng = 12.4964;
                             try {
-                              const res = await fetch('/api/geoip');
+                              const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
                               if (res.ok) {
                                 const data = await res.json();
                                 if (data.latitude && data.longitude) {
@@ -577,9 +625,12 @@ export default function App() {
               )}
             </AnimatePresence>
 
-            {role === 'ADMIN' ? <AdminHome /> : role === 'PEER_MECHANIC' ? <PeerMechanicHome /> : role === 'CYCLIST' ? <CyclistHome /> : <MechanicHome />}
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>}>
+              {role === 'ADMIN' ? <AdminHome /> : role === 'PEER_MECHANIC' ? <PeerMechanicHome /> : role === 'CYCLIST' ? <CyclistHome /> : <MechanicHome />}
+              
+              <AIBikeDoctor isOpen={showAIDoctor} onClose={() => setShowAIDoctor(false)} />
+            </Suspense>
             
-            <AIBikeDoctor isOpen={showAIDoctor} onClose={() => setShowAIDoctor(false)} />
             <AIPrompt onOpenAssistant={() => setShowAIDoctor(true)} />
 
             <AnimatePresence>

@@ -30,6 +30,8 @@ export interface UserProfile {
   phone?: string;
   bikeModel?: string;
   hasCompletedOnboarding?: boolean;
+  lastLoginDate?: any;
+  mechanicStatus?: string;
   
   kycStatus?: KYCStatus;
   kycDocuments?: {

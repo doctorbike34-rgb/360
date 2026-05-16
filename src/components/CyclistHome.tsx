@@ -34,7 +34,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType, functions } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { 
   collection, 
   addDoc, 
@@ -51,8 +52,11 @@ import {
   arrayRemove,
   increment,
   getDocs,
-  runTransaction
+  runTransaction,
+  startAt,
+  endAt
 } from 'firebase/firestore';
+import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { Chat } from './Chat';
 import { SocialView } from './SocialView';
 import { ProfileView } from './ProfileView';
@@ -182,6 +186,8 @@ export function CyclistHome() {
   const { isDarkMode, toggleDarkMode } = useThemeStore();
   const { t, i18n } = useTranslation();
   
+  const [onlineMsg, setOnlineMsg] = useState<{ text: string; isOnline: boolean } | null>(null);
+
   const getFaultTypeTranslation = (faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
     const key = `cyclist.${faultType.toLowerCase().replace(/_([a-z])/g, (g) => g[1].toUpperCase())}`;
@@ -236,7 +242,7 @@ export function CyclistHome() {
   const [trackedMechanic, setTrackedMechanic] = useState<any>(null);
   const [eta, setEta] = useState<number | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
-  const [directChat, setDirectChat] = useState<{ id: string, name: string } | null>(null);
+  const [directChat, setDirectChat] = useState<{ id: string, name: string, isAdminSupport?: boolean } | null>(null);
   const [focusedPos, setFocusedPos] = useState<[number, number] | null>(null);
   const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
@@ -257,6 +263,25 @@ export function CyclistHome() {
 
   const [recentChats, setRecentChats] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [userSupportTicket, setUserSupportTicket] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'supportTickets'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'OPEN'),
+      limit(1)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        setUserSupportTicket({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      } else {
+        setUserSupportTicket(null);
+      }
+    });
+    return unsub;
+  }, [user]);
 
   const displayChats = React.useMemo(() => {
     const list = [...recentChats];
@@ -313,55 +338,95 @@ export function CyclistHome() {
   // const [nearbyCyclists, setNearbyCyclists] = useState<any[]>([]);
 
   const [rawMechanics, setRawMechanics] = useState<any[]>([]);
+  const [isBackground, setIsBackground] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    const handleVisibilityChange = () => {
+      setIsBackground(document.visibilityState === 'hidden');
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
-    // 1. Snapshot for Mechanics & Peer Mechanics
-    const qMechanic = query(
-      collection(db, 'users'),
-      where('role', 'in', ['MECHANIC', 'PEER_MECHANIC']),
-      where('isOnline', '==', true),
-      limit(20)
-    );
-    const unsubMechanics = onSnapshot(qMechanic, (snapshot) => {
-      setRawMechanics(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setQuotaError(false);
-    }, (error) => {
-      if (error.message.includes('Quota exceeded')) setQuotaError(true);
-      else console.warn('Error listening to mechanics:', error);
-    });
+  useEffect(() => {
+    if (!user || isBackground) return;
 
-    // 2. Snapshot for Cyclists
-    const qCyclist = query(
-      collection(db, 'users'),
-      where('role', '==', 'CYCLIST'),
-      where('isOnline', '==', true),
-      limit(20)
-    );
-    const unsubCyclists = onSnapshot(qCyclist, (snapshot) => {
-      const now = Date.now();
-      let activeCount = 0;
-      snapshot.docs.forEach(doc => {
-        if (doc.id === user?.uid) return;
-        const data = doc.data();
-        const lastSeen = data.lastSeenAt instanceof Date ? data.lastSeenAt.getTime() : (data.lastSeenAt?.seconds ? data.lastSeenAt.seconds * 1000 : 0);
-        if ((now - lastSeen) < (15 * 60 * 1000)) {
-          activeCount++;
-        }
+    // Geohashing Unified Query for Mechanics & Cyclists (Radius: 20km)
+    if (!userLocation) return;
+    
+    const radiusInM = 20000;
+    const bounds = geohashQueryBounds([userLocation.lat, userLocation.lng], radiusInM);
+    const unsubs: any[] = [];
+    
+    let localMechanics: Record<string, any> = {};
+    let localCyclistsCount = 0;
+
+    for (const b of bounds) {
+      const qUsers = query(
+        collection(db, 'users'),
+        where('isOnline', '==', true),
+        orderBy('geohash'),
+        startAt(b[0]),
+        endAt(b[1])
+      );
+
+      const unsub = onSnapshot(qUsers, (snapshot) => {
+        let activeCyclists = 0;
+        
+        snapshot.docs.forEach(docSnap => {
+          const u = { id: docSnap.id, ...docSnap.data() } as any;
+          if (u.id === user?.uid) return;
+          
+          if (!u.lastLat || !u.lastLng) {
+            delete localMechanics[u.id];
+            return;
+          }
+
+          // Distance check
+          const dist = distanceBetween([u.lastLat, u.lastLng], [userLocation.lat, userLocation.lng]) * 1000;
+          if (dist > radiusInM) {
+            delete localMechanics[u.id];
+            return;
+          }
+
+          const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : (u.lastSeenAt?.seconds ? u.lastSeenAt.seconds * 1000 : 0);
+          const now = Date.now();
+          const isRecent = (now - lastSeen) < (15 * 60 * 1000);
+          
+          if (!isRecent) {
+             delete localMechanics[u.id];
+             return;
+          }
+
+          if (u.role === 'CYCLIST') {
+            activeCyclists++;
+          } else if (['MECHANIC', 'PEER_MECHANIC'].includes(u.role)) {
+            localMechanics[u.id] = u;
+          }
+        });
+        
+        // Handle removals
+        snapshot.docChanges().forEach(change => {
+           if (change.type === 'removed') {
+              delete localMechanics[change.doc.id];
+           }
+        });
+
+        setRawMechanics(Object.values(localMechanics));
+        localCyclistsCount = activeCyclists;
+        setNearbyCyclistsCount(localCyclistsCount);
+        setQuotaError(false);
+      }, (error) => {
+        if (error.message.includes('Quota exceeded')) setQuotaError(true);
+        else console.warn('Error listening to users via geohash:', error);
       });
-      setNearbyCyclistsCount(activeCount);
-    }, (error) => {
-      if (!error.message.includes('Quota exceeded')) {
-        console.warn('Error listening to cyclists:', error);
-      }
-    });
+      unsubs.push(unsub);
+    }
 
     return () => {
-      unsubMechanics();
-      unsubCyclists();
+      unsubs.forEach(u => u());
     };
-  }, [user, setQuotaError]); // CRITICAL: Removed userLocation to prevent infinite read loops
+  }, [user, setQuotaError, isBackground]); // CRITICAL: Removed userLocation to prevent quota burn on small movements
 
   // Calculate nearest mechanic without hitting database
   useEffect(() => {
@@ -455,8 +520,9 @@ export function CyclistHome() {
       
       setDirectChat({ id: chatId, name: otherName });
       setShowChat(true);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error starting direct chat:', e);
+      toast.error('Errore durante l\'apertura della chat: ' + (e.message || 'Riprova più tardi'));
     }
   };
 
@@ -471,20 +537,23 @@ export function CyclistHome() {
     
     setIsFinishing(true);
     try {
-      console.log('Updating document...');
-      // Mark as COMPLETED in Firestore
-      await updateDoc(doc(db, 'sosRequests', activeSOS.id), {
-        status: 'COMPLETED',
-        updatedAt: serverTimestamp()
-      });
-      console.log('Update successful, showing review modal...');
+      console.log('Calling completeSOS Cloud Function...');
+      const completeSOS = httpsCallable(functions, 'completeSOS');
+      await completeSOS({ sosId: activeSOS.id });
       
+      console.log('Cloud Function success, showing review modal...');
+      toast.success('Riparazione confermata! Grazie per aver usato DoctorBike.');
       setCompletedJobToReview(activeSOS);
       setShowReviewModal(true);
       setShowCompletionOverlay(false);
     } catch (error: any) {
       console.error('Error finalizing job:', error);
-      toast.error('Errore durante la conferma: ' + (error.message || String(error)));
+      // Extra check for known status error
+      if (error.message?.includes("L'SOS non è in uno stato valido")) {
+         toast.error("Attendi che il meccanico sia arrivato o abbia iniziato l'intervento.");
+      } else {
+         toast.error('Errore durante la conferma: ' + (error.message || String(error)));
+      }
     } finally {
       setIsFinishing(false);
     }
@@ -597,6 +666,7 @@ export function CyclistHome() {
   }, [activeSOS?.mechanicId, activeSOS?.status, activeSOS?.lat, activeSOS?.lng, setDistance, setEta, setTrackedMechanic]);
 
   const handleSOSRequest = async (faultType: string) => {
+    if (isCreatingSOS) return;
     if (!user) {
       toast.error("Devi effettuare l'accesso per richiedere un SOS.");
       return;
@@ -607,6 +677,12 @@ export function CyclistHome() {
     }
     
     setIsCreatingSOS(true);
+    (window as any).firebaseTransactionInProgress = true;
+    localStorage.setItem('fb_tx_lock', Date.now().toString());
+    
+    // Give a small window for any pending background location updates to finish
+    // before we start the optimistic transaction snapshot
+    await new Promise(resolve => setTimeout(resolve, 300));
     
     const basePrice = nearestMechanic?.sosPrice || 15;
     let price = basePrice;
@@ -640,23 +716,34 @@ export function CyclistHome() {
 
       const sosRef = doc(collection(db, 'sosRequests'));
       const userRef = doc(db, 'users', user.uid);
+      const txRef = doc(collection(db, 'transactions'));
 
       await runTransaction(db, async (transaction) => {
         const userSnap = await transaction.get(userRef);
         if (!userSnap.exists()) throw new Error('User not found');
         
-        const currentBalance = userSnap.data().balance || 0;
-        if (currentBalance < price) throw new Error('Insufficient balance');
+        const userData = userSnap.data();
+        
+        // IDEMPOTENCY CHECK: If this transaction ID was already processed, skip
+        if (userData.lastTxId === txRef.id) {
+          console.log("Transaction already processed, skipping balance decrement.");
+          return;
+        }
 
-        const txRef = doc(collection(db, 'transactions'));
+        const currentBalance = userData.balance || 0;
         
         // 1. Deduct balance from cyclist
         const updateData: any = {
-          balance: increment(-price),
           updatedAt: serverTimestamp(),
           lastTxId: txRef.id
         };
         
+        // Only decrement if we haven't already (double-safety with lastTxId check above)
+        if (userData.lastTxId !== txRef.id) {
+          if (currentBalance < price) throw new Error('Insufficient balance');
+          updateData.balance = increment(-price);
+        }
+
         if (appliedDiscount) {
             updateData.firstInterventionDiscount = 0;
         }
@@ -669,7 +756,8 @@ export function CyclistHome() {
             amount: price,
             currency: 'DoctorBike Coin',
             createdAt: serverTimestamp(),
-            type: 'SOS_PAYMENT'
+            type: 'SOS_PAYMENT',
+            sosId: sosRef.id // Link to SOS request
         });
 
         // 2. Create the SOS request
@@ -684,9 +772,9 @@ export function CyclistHome() {
           lat,
           lng,
           estimatedPrice: price,
-          originalPrice: basePrice, // Track the original price if discounted
+          originalPrice: basePrice, 
           hasDiscount: appliedDiscount,
-          paymentStatus: 'ESCROW',
+          paymentStatus: 'ESCROW', // Fix: match the log's expectation of ESCROW
           createdAt: serverTimestamp(),
         });
       });
@@ -704,6 +792,8 @@ export function CyclistHome() {
       }
     } finally {
       setIsCreatingSOS(false);
+      (window as any).firebaseTransactionInProgress = false;
+      localStorage.removeItem('fb_tx_lock');
     }
   };
 
@@ -782,6 +872,8 @@ export function CyclistHome() {
   const cancelSOS = async () => {
     if (!activeSOS || !user) return;
     setIsCancelling(true);
+    (window as any).firebaseTransactionInProgress = true;
+    localStorage.setItem('fb_tx_lock', Date.now().toString());
     try {
       const sosRef = doc(db, 'sosRequests', activeSOS.id);
       const userRef = doc(db, 'users', user.uid);
@@ -830,6 +922,8 @@ export function CyclistHome() {
       }
     } finally {
       setIsCancelling(false);
+      (window as any).firebaseTransactionInProgress = false;
+      localStorage.removeItem('fb_tx_lock');
     }
   };
 
@@ -896,8 +990,16 @@ export function CyclistHome() {
     if (!user || !profile) return;
     try {
       const newStatus = !profile.isOnline;
+      
+      // OPTIMISTIC UPDATE for LIVE feel
+      useAuthStore.getState().setProfile({ ...profile, isOnline: newStatus });
+      
+      setOnlineMsg({text: newStatus ? 'ONLINE' : 'OFFLINE', isOnline: newStatus});
+      setTimeout(() => setOnlineMsg(null), 3000);
+
       const updateData: any = {
-        isOnline: newStatus
+        isOnline: newStatus,
+        updatedAt: serverTimestamp()
       };
       if (!newStatus) {
         updateData.lastLat = null;
@@ -907,6 +1009,8 @@ export function CyclistHome() {
       await updateDoc(doc(db, 'users', user?.uid), updateData);
     } catch (err) {
       console.error(err);
+      // Revert if failed
+      useAuthStore.getState().setProfile({ ...profile, isOnline: profile.isOnline });
     }
   };
 
@@ -953,7 +1057,19 @@ export function CyclistHome() {
               </div>
 
               <div className="flex flex-col items-start gap-2 pointer-events-auto">
-                 <div className="bg-white/90  backdrop-blur-md rounded-2xl p-2 shadow-lg transition-colors flex flex-col items-center gap-3 w-fit border border-grey/10 ">
+                 <div className="relative bg-white/90  backdrop-blur-md rounded-2xl p-2 shadow-lg transition-colors flex flex-col items-center gap-3 w-fit border border-grey/10 ">
+                    <AnimatePresence>
+                      {onlineMsg && (
+                        <motion.div 
+                          initial={{ opacity: 0, x: 20, scale: 0.8 }} 
+                          animate={{ opacity: 1, x: 0, scale: 1 }} 
+                          exit={{ opacity: 0, x: 10, scale: 0.8 }} 
+                          className={`absolute left-full ml-3 whitespace-nowrap text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full shadow-lg border border-white/20 z-10 ${onlineMsg.isOnline ? 'bg-accent text-white shadow-accent/30' : 'bg-grey text-white shadow-grey/30'}`}
+                        >
+                          {onlineMsg.text}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" title="Ghost Mode">
                       {!profile?.isOnline ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
@@ -1011,94 +1127,34 @@ export function CyclistHome() {
 
       {/* Main View */}
       <div className="flex-1 relative overflow-hidden">
-        <AnimatePresence mode="wait">
-        {showChat && directChat ? (
-          <motion.div 
-            key="chat-sos-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-30 flex flex-col bg-white pb-[110px]"
-          >
-            <ChatHeader 
-              chatId={directChat.id} 
-              defaultName={directChat.name} 
-              onBack={() => { 
-                setShowChat(false); 
-                setDirectChat(null); 
-              }} 
-              onViewProfile={setViewProfileId}
-            />
-            
-            <Chat chatId={directChat.id} otherPartyName={directChat.name} />
-          </motion.div>
-        ) : activeTab === 'COMMUNITY' ? (
-            <motion.div 
-              key="community" 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="absolute inset-0 overflow-y-auto"
-            >
-            <SocialView 
-              onStartChat={startDirectChat} 
-              onFocusEvent={handleFocusOnEvent} 
-              onViewEventDetails={(event) => setSelectedEventDetails(event)}
-            />
-            </motion.div>
-          ) : activeTab === 'PROFILE' ? (
-            <motion.div 
-              key="profile" 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm pb-48 transition-colors"
-            >
-              <ProfileView isAvailable={profile?.isOnline} onToggleAvailability={toggleOnline} />
-            </motion.div>
-          ) : activeTab === 'CHAT' ? (
-            <motion.div 
-              key="chat-tab" 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="absolute inset-0 z-20 flex flex-col bg-white pb-[110px]"
-            >
-              {directChat ? (
+        {/* Main Content Area - Render all tabs but show only active one for instant switching */}
+        <div className="flex-1 relative overflow-hidden">
+          {/* SOS Overlay Chat / Direct Chat View */}
+          <AnimatePresence>
+            {showChat && directChat && (
+              <motion.div 
+                key="chat-sos-overlay"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className="absolute inset-0 z-30 flex flex-col bg-white pb-[110px]"
+              >
                 <ChatHeader 
                   chatId={directChat.id} 
                   defaultName={directChat.name} 
-                  onBack={() => {
-                    setDirectChat(null);
-                    setShowChat(false);
+                  onBack={() => { 
+                    setShowChat(false); 
+                    setDirectChat(null); 
                   }} 
                   onViewProfile={setViewProfileId}
                 />
-              ) : (
-                <div className="bg-primary p-4 flex items-center gap-4 text-white">
-                  <h3 className="font-bold text-sm">{t('nav.chat')}</h3>
-                </div>
-              )}
-              {directChat ? (
-                <Chat chatId={directChat.id} otherPartyName={directChat.name} />
-              ) : (
-                <ChatListView 
-                  chats={displayChats} 
-                  onSelectChat={(chat: any) => {
-                    setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
-                  }}
-                  currentUserId={user?.uid || ''}
-                />
-              )}
-            </motion.div>
-          ) : (
-            <motion.div 
-              key="map" 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="absolute inset-0"
-            >
+                <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Map Tab */}
+          <div className={`absolute inset-0 transition-opacity duration-300 ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
             <Map 
                 mechanicToTrackId={activeSOS?.mechanicId} 
                 onStartChat={startDirectChat}
@@ -1108,9 +1164,52 @@ export function CyclistHome() {
                 }}
                 center={focusedPos || undefined}
               />
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+
+          {/* Social / Community Tab */}
+          <div className={`absolute inset-0 overflow-y-auto transition-opacity duration-300 ${activeTab === 'COMMUNITY' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+            <SocialView 
+              onStartChat={startDirectChat} 
+              onFocusEvent={handleFocusOnEvent} 
+              onViewEventDetails={(event) => setSelectedEventDetails(event)}
+            />
+          </div>
+
+          {/* Profile Tab */}
+          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm pb-48 transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+            <ProfileView isAvailable={profile?.isOnline} onToggleAvailability={toggleOnline} />
+          </div>
+
+          {/* Chat Tab List */}
+          <div className={`absolute inset-0 z-20 flex flex-col bg-white pb-[110px] transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+             {directChat && !showChat ? (
+                <>
+                  <ChatHeader 
+                    chatId={directChat.id} 
+                    defaultName={directChat.name} 
+                    onBack={() => { 
+                      setDirectChat(null); 
+                    }} 
+                    onViewProfile={setViewProfileId}
+                  />
+                  <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                </>
+              ) : (
+                <>
+                  <div className="bg-primary p-4 flex items-center gap-4 text-white">
+                    <h3 className="font-bold text-sm">{t('nav.chat')}</h3>
+                  </div>
+                  <ChatListView 
+                    chats={displayChats} 
+                    onSelectChat={(chat: any) => {
+                      setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
+                    }}
+                    currentUserId={user?.uid || ''}
+                  />
+                </>
+              )}
+          </div>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -1223,7 +1322,7 @@ export function CyclistHome() {
             }}
             exit={{ y: 40, opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className={`fixed ${isSOSMinimized ? 'bottom-28 right-4 w-12 h-12' : 'bottom-28 left-4 right-4'} origin-bottom-right z-20 flex flex-col gap-3 pointer-events-auto transition-all duration-500`}
+            className={`fixed ${isSOSMinimized ? 'bottom-64 right-4 w-12 h-12' : 'bottom-28 left-4 right-4'} origin-bottom-right z-20 flex flex-col gap-3 pointer-events-auto transition-all duration-500`}
           >
             {/* Status Card */}
             <div 
@@ -1408,6 +1507,35 @@ export function CyclistHome() {
                         minimal={true}
                       />
                     </div>
+                  </div>
+                )}
+
+                {/* Admin Help Integration */}
+                {userSupportTicket && (
+                  <div className="bg-primary/5 border border-primary/20 p-5 rounded-3xl flex items-center justify-between mt-2 mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
+                        <Shield size={24} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-primary uppercase tracking-widest leading-none">Supporto Admin</p>
+                        <p className="text-[9px] font-bold text-grey uppercase tracking-tighter mt-1.5">L'admin ha avviato una chat di assistenza</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setDirectChat({ 
+                          id: userSupportTicket.id, 
+                          name: 'Doctorbike Admin',
+                          isAdminSupport: true 
+                        } as any);
+                        setShowChat(true);
+                        setShowSOSDetails(false);
+                      }}
+                      className="bg-primary text-white px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all"
+                    >
+                      Apri Chat
+                    </button>
                   </div>
                 )}
 

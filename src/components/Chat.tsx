@@ -188,90 +188,51 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
 
     setIsSending(true);
     
-    // Optimistically clear the input UI
+    // Optimistically clear the input UI and add to local state
     const msgContent = newMessage;
     setNewMessage('');
     setShowEmojiPicker(false);
+
+    const optimisticMsg: Message = {
+      id: 'opt_' + Date.now(),
+      senderId: user.uid,
+      content: msgContent,
+      type: 'TEXT',
+      createdAt: { seconds: Math.floor(Date.now()/1000), nanoseconds: 0 } as any, // Mock timestamp
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
     
     try {
-      // 1. Ensure the parent chat document exists and user is participant BEFORE sending message
-      // This satisfies the security rule that requires being in participants of the parent.
+      // 1. Parallelize parent update and message creation
       const docRef = doc(db, collectionPath, chatId);
-      const docSnap = await getDoc(docRef);
+      const msgRef = collection(db, collectionPath, chatId, 'messages');
       
-      const updates: Record<string, unknown> = {
+      const parentUpdates: Record<string, any> = {
         lastMessage: msgContent,
         updatedAt: serverTimestamp(),
-        lastMessageAt: serverTimestamp()
+        lastMessageAt: serverTimestamp(),
+        [`unreadCount.${user.uid}`]: 0 // Reset self unread
       };
 
-      if (!docSnap.exists()) {
-        if (chatId.startsWith('direct_') && !isAdminSupport) {
-          const parts = chatId.replace('direct_', '').split('_');
-          updates.participants = parts;
-          updates.participantCount = 2;
-          updates.type = 'DIRECT';
-          updates.createdAt = serverTimestamp();
-          
-          const otherUserId = parts.find(id => id !== user?.uid);
-          if (otherUserId) {
-            updates.unreadCount = { [otherUserId]: 1 };
-          }
-        } else if (!isAdminSupport) {
-          // It's a group/event chat that doesn't exist yet
-          updates.participants = [user.uid];
-          updates.type = 'GROUP';
-          updates.createdAt = serverTimestamp();
-        }
-        await setDoc(docRef, updates, { merge: true });
-      } else {
-        // Doc exists, ensure we are in participants if not already
-        const data = docSnap.data();
-        if (!isAdminSupport) {
-          const participants = data.participants || [];
-          if (!participants.includes(user.uid)) {
-            updates.participants = arrayUnion(user.uid);
-          }
-          
-          participants.forEach((pId: string) => {
-            if (pId !== user?.uid) {
-              updates[`unreadCount.${pId}`] = increment(1);
-            }
-          });
-          // Also handle participants that might be added just now
-          if (updates.participants && user.uid) {
-             // current user won't get unread anyway due to logic above
-          }
-        }
-        await updateDoc(docRef, updates);
-      }
-    } catch (chatUpdateErr) {
-      console.error("Chat document update error:", chatUpdateErr);
-      handleFirestoreError(chatUpdateErr, OperationType.WRITE, `${collectionPath}/${chatId}`);
-      setIsSending(false);
-      setNewMessage(msgContent);
-      return;
-    }
-
-    try {
-      // 2. Now send the message doc
-      const msgData = {
-        senderId: user?.uid,
-        senderName: user?.displayName || 'Utente',
+      // Use setDoc with merge: true to avoid getDoc check
+      const p1 = setDoc(docRef, parentUpdates, { merge: true });
+      const p2 = addDoc(msgRef, {
+        senderId: user.uid,
+        senderName: user.displayName || 'Utente',
         content: msgContent,
         type: 'TEXT',
         createdAt: serverTimestamp(),
-      };
+      });
 
-      await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+      await Promise.all([p1, p2]);
       setIsSending(false);
-      
     } catch (err) {
       console.error('SendMessage error:', err);
-      handleFirestoreError(err, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
-      setIsSending(false);
-      // Restore message to input if it failed? (Optional)
+      // Remove optimistic message on error and restore text
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
       setNewMessage(msgContent);
+      handleFirestoreError(err, OperationType.WRITE, `${collectionPath}/${chatId}`);
+      setIsSending(false);
     }
   };
 

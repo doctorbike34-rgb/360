@@ -19,7 +19,8 @@ import {
   Shield
 } from 'lucide-react';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, functions } from '../lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from '../store/useAuthStore';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
@@ -55,12 +56,23 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   const [peerRate, setPeerRate] = useState(15);
   const [peerRadius, setPeerRadius] = useState(10);
   
+  const [email, setEmail] = useState(profile?.email || '');
+
   const [consents, setConsents] = useState({
     privacyPolicy: false,
     termsOfService: false,
     dataProcessing: false,
     marketing: false
   });
+
+  const contactStep = {
+    id: 'contact',
+    title: 'Informazioni di Contatto',
+    desc: 'Inserisci la tua email per ricevere aggiornamenti sullo stato del tuo account e SOS.',
+    icon: <Bell className="text-primary" size={48} />,
+    gradient: 'from-primary/20 to-primary/5',
+    image: 'https://images.unsplash.com/photo-1512314889357-e157c22f938d?auto=format&fit=crop&q=80&w=1000'
+  };
 
   const gdprStep = {
     id: 'gdpr',
@@ -166,7 +178,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
 
   let activeSteps: any[] = [];
   if (profile?.role === 'MECHANIC') {
-      activeSteps = [gdprStep, ...mechanicBaseSteps, planStep, finalStep];
+      activeSteps = [gdprStep, contactStep, ...mechanicBaseSteps, planStep, finalStep];
   } else if (profile?.role === 'PEER_MECHANIC') {
       activeSteps = [gdprStep, ...peerMechanicBaseSteps, peerSkillsStep, peerTermsStep, finalStep];
   } else {
@@ -200,6 +212,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   const [clientSecret, setClientSecret] = useState<string | null>(null);
 
   const [confirmingPlan, setConfirmingPlan] = useState<string | null>(null);
+  const [lastPaymentIntentId, setLastPaymentIntentId] = useState<string | null>(null);
 
   const initStripeUpgrade = async (planId: string) => {
     if (!user) return false;
@@ -207,20 +220,49 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
     if (!plan) return false;
     setIsFinishing(true);
     try {
-      const response = await fetch('/api/create-payment-intent', {
+      console.log('Initializing Stripe payment for plan:', planId, 'Amount:', plan.priceValue);
+      
+      const idToken = await user.getIdToken();
+      console.log('Generated ID Token (exists):', !!idToken);
+      const response = await fetch('/api/createStripePayment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: plan.priceValue, metadata: { userId: user.uid, planId: plan.id } }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+          'X-Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          amount: plan.priceValue,
+          currency: 'eur',
+          token: idToken
+        })
       });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      setClientSecret(data.clientSecret);
-      setConfirmingPlan(null);
-      setIsFinishing(false);
-      return false; 
+      console.log('Payment intent result:', data);
+      
+      if (data.clientSecret) {
+        setClientSecret(data.clientSecret);
+        setLastPaymentIntentId(data.paymentIntentId || null);
+        setConfirmingPlan(null);
+        setIsFinishing(false);
+        return false; 
+      } else {
+        throw new Error('Failed to create payment intent: No clientSecret received');
+      }
     } catch (err: any) {
-      console.error('Error creating payment intent:', err);
-      toast.error('Errore inizializzazione pagamento: ' + err.message);
+      console.error('Error creating payment intent (DETAILED):', err);
+      // Detailed logging for mobile debugging
+      if (err instanceof Error) {
+        console.error('Error Message:', err.message);
+        console.error('Error Stack:', err.stack);
+      }
+      toast.error('Errore inizializzazione pagamento: ' + (err.message || 'Errore sconosciuto'));
       setIsFinishing(false);
       return false;
     }
@@ -228,6 +270,12 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
 
   const handleNext = async () => {
     if (step < activeSteps.length - 1) {
+      if (activeSteps[step].id === 'contact') {
+        if (!email || !email.includes('@')) {
+          toast.error('Inserisci un indirizzo email valido.');
+          return;
+        }
+      }
       if (activeSteps[step].id === 'gdpr') {
         if (!consents.privacyPolicy || !consents.termsOfService || !consents.dataProcessing) {
           toast.error('Per favore accetta i termini obbligatori per continuare.');
@@ -266,6 +314,12 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
           };
           if (profile?.role === 'MECHANIC' && selectedPlan) {
             updateData.plan = selectedPlan;
+            if (lastPaymentIntentId) {
+              updateData.subscriptionPaymentIntentId = lastPaymentIntentId;
+            }
+          }
+          if (email) {
+            updateData.email = email;
           }
           if (profile?.role === 'PEER_MECHANIC') {
             updateData.peerMechanicSkills = peerSkills;
@@ -417,6 +471,26 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
                   checked={consents.marketing} 
                   onChange={(v) => setConsents({...consents, marketing: v})} 
                 />
+             </div>
+          )}
+
+          {/* Contact Step UI */}
+          {activeSteps[step].id === 'contact' && (
+             <div className="space-y-4 mb-6 text-left shrink-0 bg-white/50 p-6 rounded-3xl backdrop-blur-md border border-white/20 shadow-xl">
+                <div className="flex items-center gap-2 mb-2">
+                   <Bell size={14} className="text-primary" />
+                   <p className="text-black/80 font-black text-[10px] uppercase tracking-wider">Email per comunicazioni</p>
+                </div>
+                <input 
+                  type="email"
+                  placeholder="la-tua@email.com"
+                  className="w-full bg-white p-4 rounded-2xl text-black text-sm outline-none ring-1 ring-black/10 focus:ring-2 focus:ring-primary border-none transition-all font-bold"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <p className="text-black/40 text-[9px] font-bold leading-relaxed px-1">
+                  Usiamo questa email per confermare l'approvazione del tuo account e per inviarti le notifiche SOS e le ricevute.
+                </p>
              </div>
           )}
 

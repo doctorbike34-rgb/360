@@ -9,6 +9,7 @@ import {
   getDocFromServer 
 } from 'firebase/firestore';
 import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
+import { getFunctions } from 'firebase/functions';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { useAuthStore } from '../store/useAuthStore';
 
@@ -17,11 +18,26 @@ if (!firebaseConfig || !firebaseConfig.apiKey) {
 }
 
 export const app = initializeApp(firebaseConfig);
+
+// App Check — reCAPTCHA Enterprise
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+
+if (typeof window !== 'undefined') {
+  if (import.meta.env?.DEV) (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider('6LfLZ-ssAAAAABx6hxt1JaD8d7iN5y4QMMN2LYWP'),
+    isTokenAutoRefreshEnabled: true
+  });
+}
+
+
 export const storage = getStorage(app);
 
-// Modern Firestore Cache Configuration
+// Modern Firestore Cache Configuration with Multi-Tab support
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({}) // Standard single-tab persistence is more robust for startup speed
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 }, firebaseConfig.firestoreDatabaseId);
 
 // Connection test as required by instructions
@@ -37,6 +53,7 @@ async function testConnection() {
 // testConnection(); // Commented out to avoid potential startup issues causing white screen
 
 export const auth = getAuth(app);
+export const functions = getFunctions(app, 'europe-west1');
 
 export enum OperationType {
   CREATE = 'create',

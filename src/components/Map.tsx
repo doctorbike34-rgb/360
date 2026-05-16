@@ -3,7 +3,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt } from 'firebase/firestore';
+import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
@@ -162,33 +163,58 @@ const DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
-function LocationMarker({ position, forceCenter, forceFlyPosition }: { 
+function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: { 
   position: [number, number] | null, 
   forceCenter?: boolean,
-  forceFlyPosition?: [number, number] | null
+  forceFlyPosition?: [number, number] | null,
+  avatarUrl?: string | null
 }) {
   const map = useMap();
+  const lastFlyPosRef = useRef<string | null>(null);
   const initialCenterSet = useRef(false);
 
   const isValidPosition = position && position.length === 2 && 
                           Number.isFinite(position[0]) && 
                           Number.isFinite(position[1]);
 
-  useEffect(() => {
-    const flyToPos = forceFlyPosition || (isValidPosition ? position : null);
-    
-    if (flyToPos && flyToPos.length === 2 && Number.isFinite(flyToPos[0]) && Number.isFinite(flyToPos[1])) {
-       if (forceFlyPosition) {
-         map.flyTo(flyToPos, 16, { duration: 1.5 });
-       } else if (!initialCenterSet.current || forceCenter) {
-         map.flyTo(flyToPos, 15, { duration: 1.5 });
-         initialCenterSet.current = true;
-       }
-    }
-  }, [position, map, forceCenter, forceFlyPosition, isValidPosition]);
+    useEffect(() => {
+      // FIX: Invalidate size to handle persistent tab mounting (where map might start with 0 size)
+      map.invalidateSize();
+      
+      const flyToPos = forceFlyPosition || (isValidPosition ? position : null);
+      
+      if (flyToPos && flyToPos.length === 2 && Number.isFinite(flyToPos[0]) && Number.isFinite(flyToPos[1])) {
+         // Only fly if forceCenter is triggered or if forceFlyPosition changed
+         if (forceFlyPosition) {
+           const posKey = `${forceFlyPosition[0]},${forceFlyPosition[1]}`;
+           if (lastFlyPosRef.current !== posKey) {
+             map.flyTo(flyToPos, 16, { duration: 1.5 });
+             lastFlyPosRef.current = posKey;
+           }
+         } else if (forceCenter || !initialCenterSet.current) {
+           map.flyTo(flyToPos, 15, { duration: 1.5 });
+           initialCenterSet.current = true;
+         }
+      } else if (!forceFlyPosition) {
+         lastFlyPosRef.current = null;
+      }
+    }, [map, forceCenter, forceFlyPosition, isValidPosition, position]);
+
+  const customIcon = avatarUrl ? getCachedDivIcon({
+    className: 'self-marker',
+    html: `<div class="relative flex items-center justify-center">
+             <div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
+             <div class="relative w-10 h-10 rounded-full border-4 border-white shadow-xl overflow-hidden ring-4 ring-primary/30">
+               <img src="${avatarUrl}" class="w-full h-full object-cover" />
+             </div>
+             <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
+           </div>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20]
+  }) : undefined;
 
   return !isValidPosition ? null : (
-    <Marker position={position as [number, number]}>
+    <Marker position={position as [number, number]} icon={customIcon}>
       <Popup>Tu sei qui</Popup>
     </Marker>
   );
@@ -213,7 +239,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   isAdmin?: boolean,
   adminUsers?: any[]
 }) {
-  const { user: currentUser, role: currentUserRole, setQuotaError, userLocation: storeLocation } = useAuthStore();
+  const { user: currentUser, profile, role: currentUserRole, setQuotaError, userLocation: storeLocation } = useAuthStore();
   const [visibleUsers, setVisibleUsers] = useState<any[]>([]);
   const [visibleEvents, setVisibleEvents] = useState<any[]>([]);
   const [visibleReports, setVisibleReports] = useState<any[]>([]);
@@ -230,6 +256,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   const { isDarkMode } = useThemeStore();
   const { t } = useTranslation();
   const mapRef = useRef<L.Map | null>(null);
+  const localUsersRef = useRef<Record<string, any>>({});
+  const activeUnsubsRef = useRef<any[]>([]);
 
   const getFaultTypeTranslation = useCallback((faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
@@ -250,7 +278,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     if (storeLocation) {
         const newPos: [number, number] = [storeLocation.lat, storeLocation.lng];
         setUserPos(newPos);
-        if (centerMap && !center) setForceCenterToggle(prev => !prev);
+        if (centerMap) setForceCenterToggle(prev => !prev);
         return;
     }
 
@@ -265,7 +293,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           setUserPos(newPos);
           setIsRefreshing(false);
           // If we have a center prop (focusing on an event), don't auto-center on user position
-          if (centerMap && !center) setForceCenterToggle(prev => !prev);
+          if (centerMap) setForceCenterToggle(prev => !prev);
         },
         (error) => {
           clearTimeout(safetyTimeout);
@@ -295,92 +323,189 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     }
   }, [minimal, updateRealPosition]);
 
-  useEffect(() => {
-    if (isAdmin && currentUser) {
-      const activeUsers = adminUsers.filter(u => u.lastLat && u.lastLng && u.id !== currentUser.uid);
-      setVisibleUsers(activeUsers);
-    }
-  }, [isAdmin, adminUsers, currentUser]);
+  // Removed redundant Admin user-sync useEffect as it is handled in the main listener useEffect below
 
+  const syncUsers = useCallback(() => {
+    const usersArray = Object.values(localUsersRef.current).sort((a: any, b: any) => {
+      const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
+      const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
+      return valB - valA;
+    });
+    setVisibleUsers([...usersArray]);
+  }, []);
+
+  // 1. GLOBAL LISTENERS
   useEffect(() => {
     if (!currentUser) return;
 
-    let unsubUsers = () => {};
-    if (isAdmin) {
-      setVisibleUsers(adminUsers.filter(u => u.lastLat && u.lastLng && u.id !== currentUser?.uid));
-    } else {
-      // 1. Users real-time
+    // 1a. GLOBAL MECHANICS LISTENER
+    const qGlobalMech = query(
+      collection(db, 'users'),
+      where('role', 'in', ['MECHANIC', 'PEER_MECHANIC']),
+      where('isOnline', '==', true),
+      limit(100)
+    );
+    const unsubGlobalMech = onSnapshot(qGlobalMech, (snap) => {
+      snap.docs.forEach(docSnap => {
+        const u = { id: docSnap.id, ...docSnap.data() } as any;
+        if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
+           delete localUsersRef.current[u.id];
+           return;
+        }
+        localUsersRef.current[u.id] = u;
+      });
+      syncUsers();
+    }, (error) => {
+      console.warn("Global mechanics listener failed", error);
+    });
+
+    // 1b. GLOBAL CYCLISTS LISTENER
+    const qGlobalCyclists = query(
+      collection(db, 'users'),
+      where('role', '==', 'CYCLIST'),
+      where('isOnline', '==', true),
+      limit(100)
+    );
+    const unsubGlobalCyclists = onSnapshot(qGlobalCyclists, (snap) => {
+      snap.docs.forEach(docSnap => {
+        const u = { id: docSnap.id, ...docSnap.data() } as any;
+        if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
+           delete localUsersRef.current[u.id];
+           return;
+        }
+        localUsersRef.current[u.id] = u;
+      });
+      syncUsers();
+    }, (error) => {
+      console.warn("Global cyclists listener failed", error);
+    });
+
+    return () => {
+      unsubGlobalMech();
+      unsubGlobalCyclists();
+    };
+  }, [currentUser, isAdmin, syncUsers]);
+
+  // 2. GEOHASH LISTENERS
+  const lastListenerPos = useRef<[number, number] | null>(null);
+
+  useEffect(() => {
+    if (!currentUser || !userPos) return;
+
+    // Only re-subscribe if we moved more than 2km from the last listener center
+    if (lastListenerPos.current) {
+      const dist = distanceBetween(userPos, lastListenerPos.current);
+      if (dist < 2) return; 
+    }
+    
+    lastListenerPos.current = userPos;
+    const radiusInM = 30000; // Increased to 30km
+    const bounds = geohashQueryBounds([userPos[0], userPos[1]], radiusInM);
+    const unsubs: any[] = [];
+
+    for (const b of bounds) {
       const qUsers = query(
         collection(db, 'users'), 
-        where('role', 'in', ['MECHANIC', 'CYCLIST', 'PEER_MECHANIC']),
-        where('isOnline', '==', true),
-        limit(30)
+        orderBy('geohash'),
+        startAt(b[0]),
+        endAt(b[1]),
+        limit(200) // Increase limit per shard
       );
-      unsubUsers = onSnapshot(qUsers, (snapshot) => {
-        const users = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter((u: any) => {
-             if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid) return false;
-             
-             // Strict cleanup: if haven't pinged in 15 minutes, hide from map
-             const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : (u.lastSeenAt?.seconds ? u.lastSeenAt.seconds * 1000 : 0);
-             const now = Date.now();
-             const isRecent = (now - lastSeen) < (15 * 60 * 1000);
-             
-             return isRecent;
-          })
-          .sort((a: any, b: any) => {
-            const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
-            const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
-            return valB - valA;
-          });
-        setVisibleUsers(users);
-        setQuotaError(false);
-      }, (error) => {
-        if (error.message.includes('Quota exceeded')) setQuotaError(true);
-        else console.error("Error listening to users", error);
+
+      const unsub = onSnapshot(qUsers, (snapshot) => {
+        snapshot.docs.forEach(docSnap => {
+          const u = { id: docSnap.id, ...docSnap.data() } as any;
+          if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
+             delete localUsersRef.current[u.id];
+             return;
+          }
+          if (!['MECHANIC', 'CYCLIST', 'PEER_MECHANIC'].includes(u.role)) {
+             delete localUsersRef.current[u.id];
+             return;
+          }
+          // Local filter slightly larger than query to avoid edge flickering
+          const distanceInKm = distanceBetween([u.lastLat, u.lastLng], [userPos[0], userPos[1]]);
+          if (distanceInKm > 40) {
+             delete localUsersRef.current[u.id];
+             return;
+          }
+          localUsersRef.current[u.id] = u;
+        });
+        syncUsers();
+      }, (error: any) => {
+        if (error.message.includes('Quota exceeded')) setQuotaError?.(true);
       });
+      unsubs.push(unsub);
     }
 
-    // 2. Events real-time
-    const qEvents = query(collection(db, 'events'), limit(30));
+    return () => unsubs.forEach(u => u());
+  }, [currentUser, isAdmin, userPos, syncUsers]);
+
+  // 3. ADMIN USER SYNC
+  useEffect(() => {
+    if (isAdmin && currentUser) {
+      setVisibleUsers(adminUsers.filter(u => u.lastLat && u.lastLng && u.id !== currentUser?.uid));
+    }
+  }, [isAdmin, adminUsers, currentUser]);
+
+  // 2-4. Real-time listeners for Events, SOS, and Reports
+  useEffect(() => {
+    // Events
+    const qEvents = query(
+      collection(db, 'events'), 
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
     const unsubEvents = onSnapshot(qEvents, (snapshot) => {
       const events = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((event: any) => event.lastLat && event.lastLng)
-        .sort((a: any, b: any) => {
-          const valA = a.createdAt instanceof Date ? a.createdAt.getTime() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
-          const valB = b.createdAt instanceof Date ? b.createdAt.getTime() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
-          return valB - valA;
-        });
+        .filter((event: any) => event.lastLat && event.lastLng);
       setVisibleEvents(events);
     });
 
-    // 3. SOS real-time
+    // 3. SOS real-time - ATTACH REGARDLESS OF userPos
     const qSOS = query(
       collection(db, 'sosRequests'),
-      where('status', 'in', ['PENDING', 'ACCEPTED', 'IN_PROGRESS'])
+      where('status', 'in', ['PENDING', 'ACCEPTED', 'IN_PROGRESS']),
+      limit(50)
     );
     const unsubSOS = onSnapshot(qSOS, (snapshot) => {
       const sosMap: Record<string, any> = {};
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        sosMap[data.cyclistId] = { id: doc.id, ...data };
+      const sortedDocs = snapshot.docs.sort((a, b) => {
+        const dateA = a.data().createdAt?.seconds || 0;
+        const dateB = b.data().createdAt?.seconds || 0;
+        return dateB - dateA;
+      });
+      
+      sortedDocs.forEach(docSnap => {
+        const data = docSnap.data();
+        sosMap[data.cyclistId] = { id: docSnap.id, ...data };
       });
       setActiveSOSs(sosMap);
+    }, (err) => {
+      console.warn("SOS listener error:", err);
     });
 
-    // 4. Road Reports real-time
-    const qReports = query(
+    // 4. Road Reports real-time - ATTACH REGARDLESS OF userPos
+    const q = query(
       collection(db, 'roadReports'),
-      where('status', 'in', ['open', 'confirmed', 'in_review'])
+      where('status', 'in', ['open', 'confirmed', 'in_review']),
+      limit(300)
     );
-    const unsubReports = onSnapshot(qReports, (snapshot) => {
-      const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const unsubReports = onSnapshot(q, (snapshot) => {
+      const reports = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => {
+          const dateA = a.createdAt?.seconds || 0;
+          const dateB = b.createdAt?.seconds || 0;
+          return dateB - dateA;
+        });
       setVisibleReports(reports);
+    }, (err) => {
+       console.warn("Reports listener error:", err);
     });
 
-    // 5. Mechanic tracking
+    // Mechanic tracking
     let unsubTrack: any = () => {};
     if (mechanicToTrackId) {
       unsubTrack = onSnapshot(doc(db, 'users', mechanicToTrackId), (snapshot) => {
@@ -391,13 +516,13 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     }
 
     return () => {
-      unsubUsers();
       unsubEvents();
       unsubSOS();
       unsubReports();
       unsubTrack();
     };
-  }, [mechanicToTrackId, currentUser, setQuotaError]);
+  }, [mechanicToTrackId]);
+
 
   const openExternalMap = (provider: 'google' | 'waze') => {
     if (!userPos) return;
@@ -463,8 +588,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
              whileHover={{ scale: 1.05 }}
              whileTap={{ scale: 0.95 }}
              onClick={() => {
+               setFlyPos(null);
                updateRealPosition(true);
-               setForceCenterToggle(!forceCenterToggle);
              }} 
              className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
              title={t('map.locate')}
@@ -495,9 +620,15 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
             url: getMapUrl()
           } as any)}
         />
-        <LocationMarker position={userPos} forceCenter={forceCenterToggle} forceFlyPosition={flyPos} />
-        
-        {/* Route Track */}
+        {/* User's own location marker - respect isOnline status for "live" feel */}
+        {userPos && profile?.isOnline !== false && (
+          <LocationMarker 
+            position={userPos} 
+            forceCenter={forceCenterToggle}
+            forceFlyPosition={flyPos}
+            avatarUrl={profile?.photoURL || currentUser?.photoURL}
+          />
+        )}{/* Route Track */}
         {trackedMechanic?.lastLat && trackedMechanic?.lastLng && userPos && (
           <Polyline 
             positions={[
@@ -598,12 +729,17 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           if (report.severity === 'medium') color = '#F97316';
           if (report.severity === 'high') color = '#EF4444';
 
-          return report.location?.lat && report.location?.lng && (
+          const lat = report.location?.lat ?? report.location?.latitude;
+          const lng = report.location?.lng ?? report.location?.longitude;
+
+          if (!lat || !lng) return null;
+
+          return (
             <Marker 
               key={report.id}
               eventHandlers={{ click: () => setSelectedObj(report) }}
               {...({
-                position: [report.location.lat, report.location.lng],
+                position: [lat, lng],
                 icon: getCachedDivIcon({
                   className: `report-marker ${isSelected ? 'z-[1000]' : ''}`,
                   html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${color}">
@@ -640,6 +776,11 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         {/* Group Events */}
         {visibleEvents.map((event: any) => {
           const isSelected = selectedObj?.id === event.id;
+          const lat = event.lastLat ?? event.lat ?? event.location?.latitude;
+          const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
+
+          if (!lat || !lng) return null;
+
           return (
           <Marker 
             key={event.id}
@@ -647,7 +788,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
                 click: () => setSelectedObj(event)
             }}
             {...({
-              position: [event.lastLat, event.lastLng],
+              position: [lat, lng],
               icon: getCachedDivIcon({
                 className: `event-marker ${isSelected ? 'z-[1000]' : ''}`,
                 html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-xl relative flex items-center justify-center bg-accent text-white p-1 rounded-2xl shadow-accent-lg border-2 border-white ring-4 ring-accent/20 ${isSelected ? 'animate-bounce ring-accent ring-offset-2 border-4' : 'animate-pulse'}">

@@ -3,6 +3,7 @@ import { collection, query, where, onSnapshot, limit, orderBy, getDocs } from 'f
 import { db, auth } from '../lib/firebase';
 import { useAuthStore } from '../store/useAuthStore';
 import { requestNotificationPermission, onForegroundMessage, showLocalNotification } from '../lib/notifications';
+import { soundService } from '../lib/sounds';
 import { Bell, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -12,21 +13,17 @@ export const NotificationManager: React.FC = () => {
   const lastSOSRef = useRef<Record<string, string>>({});
   const lastUnreadRef = useRef<Record<string, number>>({});
   const processedMechanicSOS = useRef<Set<string>>(new Set());
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const sosAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    // Create a notification sound
-    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-    // More urgent SOS sound for mechanics
-    sosAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
-  }, []);
+  const hasRequestedPermission = useRef<string | null>(null);
 
   const playNotificationSound = (isSOS = false) => {
-    const audio = isSOS && sosAudioRef.current ? sosAudioRef.current : audioRef.current;
-    if (audio) {
-      audio.currentTime = 0; // Reset to start if already playing
-      audio.play().catch(e => console.log('Audio play blocked:', e));
+    try {
+      if (isSOS) {
+        soundService.play('SOS_ALERT');
+      } else {
+        soundService.play('MESSAGE');
+      }
+    } catch (e) {
+      console.warn('Sound play failed', e);
     }
   };
 
@@ -35,15 +32,19 @@ export const NotificationManager: React.FC = () => {
     showLocalNotification(title, options);
   };
 
-  useEffect(() => {
-    if (!user) return;
+    useEffect(() => {
+    if (!user) {
+      hasRequestedPermission.current = null;
+      return;
+    }
 
     // Check if permission already granted or we need to ask
     // using setTimeout to avoid setting state synchronously during render in an effect
     if ('Notification' in window) {
       if (Notification.permission === 'default') {
         setTimeout(() => setShowPermissionPrompt(true), 0);
-      } else if (Notification.permission === 'granted') {
+      } else if (Notification.permission === 'granted' && hasRequestedPermission.current !== user.uid) {
+        hasRequestedPermission.current = user.uid;
         requestNotificationPermission();
       }
     }
@@ -208,10 +209,10 @@ export const NotificationManager: React.FC = () => {
     }
 
     return () => {
-      unsubscribeFCM();
-      cleanupSOS();
-      cleanupNearby();
-      cleanupChats();
+      if (unsubscribeFCM) unsubscribeFCM();
+      if (cleanupSOS) cleanupSOS();
+      if (cleanupNearby) cleanupNearby();
+      if (cleanupChats) cleanupChats();
     };
   }, [user, role, profile]);
 

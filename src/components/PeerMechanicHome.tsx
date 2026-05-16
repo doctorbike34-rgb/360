@@ -248,6 +248,12 @@ export function PeerMechanicHome() {
     if (!user) return;
     try {
       const newStatus = !isAvailable;
+      
+      // OPTIMISTIC STORE UPDATE for LIVE feel across app (e.g. Map)
+      if (profile) {
+        useAuthStore.getState().setProfile({ ...profile, peerMechanicEnabled: newStatus, isOnline: newStatus });
+      }
+
       const updateData: any = {
         peerMechanicEnabled: newStatus,
         isOnline: newStatus,
@@ -259,9 +265,12 @@ export function PeerMechanicHome() {
         updateData.location = null;
       }
       await updateDoc(doc(db, 'users', user.uid), updateData);
-      // profile state in useAuthStore will update via snapshot, which triggers re-render
     } catch (e) {
       console.error(e);
+      // Revert
+      if (profile) {
+        useAuthStore.getState().setProfile({ ...profile, peerMechanicEnabled: isAvailable, isOnline: isAvailable });
+      }
       handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`);
     }
   }

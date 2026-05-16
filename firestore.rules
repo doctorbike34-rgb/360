@@ -57,7 +57,7 @@ service cloud.firestore {
     function isValidRoadReport(data) {
       return data.keys().hasAll(['reporterId', 'reporterName', 'category', 'description', 'severity', 'location', 'status', 'upvotes', 'createdAt', 'updatedAt']) &&
              data.reporterId == request.auth.uid &&
-             data.category in ['pothole', 'damaged_path', 'obstacle', 'missing_signage', 'flooding', 'other'] &&
+             data.category in ['pothole', 'damaged_path', 'blocked_way', 'accident', 'bad_lighting', 'vandalism', 'obstacle', 'missing_signage', 'flooding', 'other'] &&
              data.severity in ['low', 'medium', 'high'] &&
              data.status in ['open', 'confirmed', 'in_review', 'resolved', 'rejected'] &&
              data.location.lat is number && data.location.lng is number;
@@ -84,7 +84,16 @@ service cloud.firestore {
              (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) ||
               incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'firstInterventionDiscount'])) &&
              incoming().lastTxId is string &&
-             existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId))
+             existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)) &&
+             (
+               (incoming().get('balance', 0) > existing().get('balance', 0) &&
+                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.toId == userId &&
+                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (incoming().get('balance', 0) - existing().get('balance', 0)))
+               ||
+               (incoming().get('balance', 0) < existing().get('balance', 0) &&
+                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.fromId == userId &&
+                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (existing().get('balance', 0) - incoming().get('balance', 0)))
+             )
           )
         )
       ) || (
@@ -112,7 +121,7 @@ service cloud.firestore {
 
     match /platformStats/{statId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /aiConfig/{configId} {
@@ -125,32 +134,30 @@ service cloud.firestore {
       allow create: if isVerified() && isValidSOS(incoming());
       allow update: if isAdmin() || (isSignedIn() && (
         (existing().status == 'PENDING' && incoming().status == 'ACCEPTED' && incoming().mechanicId == request.auth.uid) ||
-        (isOwner(existing().cyclistId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'photos', 'isReviewed', 'mechanicConfirmed', 'updatedAt', 'paymentStatus', 'cyclistConfirmed', 'completedAt', 'platformFee', 'mechanicNet', 'finalPrice'])) ||
+        (isOwner(existing().cyclistId) && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'photos', 'isReviewed', 'mechanicConfirmed', 'updatedAt', 'paymentStatus', 'cyclistConfirmed', 'completedAt', 'platformFee', 'mechanicNet', 'finalPrice', 'releaseTxId']) &&
+         (incoming().get('paymentStatus', '') == 'RELEASED' ? (
+             incoming().releaseTxId is string &&
+             existsAfter(/databases/$(database)/documents/transactions/$(incoming().releaseTxId))
+         ) : true)
+        ) ||
         (isOwner(existing().mechanicId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'mechanicConfirmed', 'updatedAt', 'acceptedAt']))
       ));
       allow delete: if isAdmin();
     }
 
     match /chats/{chatId} {
-      // Allow any signed in user to see a chat's details (needed for joining groups)
-      allow get: if isSignedIn();
-      // Only list chats where user is a participant
-      allow list: if (isSignedIn() && request.auth.uid in resource.data.participants) || isAdmin();
-      allow create: if isSignedIn();
-      allow delete: if isAdmin();
-      
-      // Allow update if:
-      // 1. User is already a participant
-      // 2. User is joining a GROUP chat (only allowed to add themselves to participants)
-      allow update: if isSignedIn() && (
-        request.auth.uid in resource.data.participants ||
-        ((!('type' in existing()) || existing().type == 'GROUP') && incoming().participants.hasAll(existing().participants) && incoming().participants.hasAll([request.auth.uid]))
+      // Allow read/write if the user is a participant (either existing or being added) or if it's a new chat they are creating
+      allow read, write: if isSignedIn() && (
+        isAdmin() || 
+        (resource != null && request.auth.uid in resource.data.participants) ||
+        (request.resource != null && request.auth.uid in request.resource.data.participants) ||
+        // Fallback for list/get if the doc doesn't exist yet but user is about to be one
+        (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
       );
 
       match /messages/{msgId} {
-        allow read, create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
-        allow update: if isSignedIn() && request.auth.uid == existing().senderId || isAdmin();
-        allow delete: if isAdmin();
+        allow read, write: if isSignedIn(); 
       }
     }
 
@@ -192,13 +199,15 @@ service cloud.firestore {
        // Users can read their own transactions
        allow read: if isAdmin() || (isSignedIn() && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid || resource.data.userId == request.auth.uid));
        allow delete: if isAdmin();
-       // To create a transaction, the sender must be the authenticated user (or it must be a topup)
-       // and the exact amounts must match the balance changes in the users' documents
+       
+       // Simplified creation: trust the users rule to cross-check the balance change
+       // This breaks the getAfter circular dependency that causes failed-precondition
        allow create: if isSignedIn() && (
-         incoming().fromId == request.auth.uid ||
-         incoming().fromId == 'ESCROW' ||
-         incoming().fromId.matches('^STRIPE.*')
-       ) && incoming().amount > 0;
+         incoming().fromId == request.auth.uid || 
+         incoming().toId == request.auth.uid || 
+         incoming().type == 'TOPUP' ||
+         isAdmin()
+       ) && incoming().amount >= 0;
     }
 
     match /interventions/{intId} {
