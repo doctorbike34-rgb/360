@@ -1160,7 +1160,7 @@ export function AdminHome() {
                         </button>
                       </div>
                       <div className="flex-1 flex flex-col overflow-hidden">
-                        <Chat chatId={selectedTicket.id} otherPartyName={selectedTicket.userName} isAdminSupport />
+                        <Chat chatId={selectedTicket.id} otherPartyName={selectedTicket.userName} isAdminSupport targetUserId={selectedTicket.userId} />
                       </div>
                     </>
                   )}

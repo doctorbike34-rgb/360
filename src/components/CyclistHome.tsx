@@ -249,6 +249,8 @@ export function CyclistHome() {
   const [focusedPos, setFocusedPos] = useState<[number, number] | null>(null);
   const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [showMechanicsOnMap, setShowMechanicsOnMap] = useState(true);
+  const [showCyclistsOnMap, setShowCyclistsOnMap] = useState(true);
 
   const handleFocusOnEvent = (lat: number, lng: number) => {
     setFocusedPos([lat, lng]);
@@ -305,12 +307,28 @@ export function CyclistHome() {
            });
        }
     }
+    // Add support ticket to chat list
+    if (userSupportTicket) {
+      if (!list.find(c => c.id === userSupportTicket.id)) {
+        list.push({
+          id: userSupportTicket.id,
+          type: 'SUPPORT',
+          otherPartyName: 'Doctorbike Admin',
+          title: 'Assistenza Admin',
+          lastMessage: userSupportTicket.lastMessage || 'Richiesta di assistenza',
+          // eslint-disable-next-line react-hooks/purity
+          lastMessageAt: userSupportTicket.updatedAt || userSupportTicket.createdAt || { seconds: Date.now()/1000 },
+          unreadCount: userSupportTicket.unreadCount || {},
+          isAdminSupport: true
+        });
+      }
+    }
     return list.sort((a,b) => {
         const timeA = a.lastMessageAt?.seconds || a.createdAt?.seconds || 0;
         const timeB = b.lastMessageAt?.seconds || b.createdAt?.seconds || 0;
         return timeB - timeA;
     });
-  }, [recentChats, activeSOS, user?.uid]);
+  }, [recentChats, activeSOS, userSupportTicket, user?.uid]);
 
   useEffect(() => {
     if (!user) return;
@@ -323,11 +341,18 @@ export function CyclistHome() {
       const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRecentChats(chats);
       
-      const totalUnread = chats.reduce((acc, chat: any) => {
+      let totalUnread = chats.reduce((acc, chat: any) => {
         const nestedUnread = chat.unreadCount?.[user?.uid] || 0;
         const flatUnread = chat[`unreadCount.${user?.uid}`] || 0;
         return acc + nestedUnread + flatUnread;
       }, 0);
+
+      // Add support ticket unread count
+      if (userSupportTicket) {
+        const supportUnread = userSupportTicket.unreadCount?.[user?.uid] || 0;
+        totalUnread += supportUnread;
+      }
+
       setUnreadCount(totalUnread);
     }, (error) => {
       if (error.message?.includes('Quota exceeded') || error.message?.includes('quota limits')) {
@@ -995,9 +1020,6 @@ export function CyclistHome() {
     try {
       const newStatus = !profile.isOnline;
       
-      // OPTIMISTIC UPDATE for LIVE feel
-      useAuthStore.getState().setProfile({ ...profile, isOnline: newStatus });
-      
       setOnlineMsg({text: newStatus ? 'ONLINE' : 'OFFLINE', isOnline: newStatus});
       setTimeout(() => setOnlineMsg(null), 3000);
 
@@ -1013,8 +1035,7 @@ export function CyclistHome() {
       await updateDoc(doc(db, 'users', user?.uid), updateData);
     } catch (err) {
       console.error(err);
-      // Revert if failed
-      useAuthStore.getState().setProfile({ ...profile, isOnline: profile.isOnline });
+      toast.error('Errore durante il cambio di stato.');
     }
   };
 
@@ -1103,23 +1124,42 @@ export function CyclistHome() {
             <div className="flex flex-col items-end gap-3 pointer-events-auto">
                <Logo size="sm" className="pointer-events-auto bg-white/80  backdrop-blur-md px-3 py-2 rounded-2xl shadow-lg shadow-primary/5" />
                
-               <div className="bg-white/90  backdrop-blur-md rounded-2xl p-2 shadow-lg transition-colors flex flex-col items-center gap-3 w-fit border border-grey/10 ">                 
-                 <button 
-                   onClick={() => setShowAIDoctor(true)}
-                   className="bg-accent text-white rounded-xl p-2.5 shadow-lg relative group transition-transform active:scale-90"
-                 >
-                    <Sparkles size={18} />
-                 </button>
-                 
-                 <div className="w-8 h-px bg-grey/20 " />
+                <div className="bg-white/90  backdrop-blur-md rounded-2xl p-2 shadow-lg transition-colors flex flex-col items-center gap-3 w-fit border border-grey/10 ">                 
+                  <button 
+                    onClick={() => setShowAIDoctor(true)}
+                    className="bg-accent text-white rounded-xl p-2.5 shadow-lg relative group transition-transform active:scale-90"
+                    title="AI Assistant"
+                  >
+                     <Sparkles size={18} />
+                  </button>
+                  
+                  <div className="w-8 h-px bg-grey/20 " />
 
-                 <button 
-                   onClick={() => i18n.changeLanguage(i18n.language === 'it' ? 'en' : 'it')}
-                   className="p-1 px-2 text-primary font-bold text-[10px] bg-grey/5 rounded-lg"
-                 >
-                    {i18n.language === 'it' ? 'EN' : 'IT'}
-                 </button>
-               </div>
+                  <button 
+                    onClick={() => setShowMechanicsOnMap(p => !p)}
+                    className={`rounded-xl p-2.5 shadow-lg transition-all active:scale-90 ${showMechanicsOnMap ? 'bg-warning/20 text-warning' : 'bg-grey/10 text-grey'}`}
+                    title="Meccanici"
+                  >
+                     <Wrench size={18} />
+                  </button>
+
+                  <button 
+                    onClick={() => setShowCyclistsOnMap(p => !p)}
+                    className={`rounded-xl p-2.5 shadow-lg transition-all active:scale-90 ${showCyclistsOnMap ? 'bg-primary/20 text-primary' : 'bg-grey/10 text-grey'}`}
+                    title="Ciclisti"
+                  >
+                     <Users size={18} />
+                  </button>
+                  
+                  <div className="w-8 h-px bg-grey/20 " />
+
+                  <button 
+                    onClick={() => i18n.changeLanguage(i18n.language === 'it' ? 'en' : 'it')}
+                    className="p-1 px-2 text-primary font-bold text-[10px] bg-grey/5 rounded-lg"
+                  >
+                     {i18n.language === 'it' ? 'EN' : 'IT'}
+                  </button>
+                </div>
 
                <button className="bg-white text-black rounded-full p-2.5 shadow-lg text-primary  border border-grey/10">
                   <Bell size={18} />
@@ -1159,7 +1199,7 @@ export function CyclistHome() {
 
           {/* Map Tab */}
           <div className={`absolute inset-0 transition-opacity duration-300 ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-            <Map 
+             <Map 
                 mechanicToTrackId={activeSOS?.mechanicId} 
                 onStartChat={startDirectChat}
                 onViewEventDetails={(event) => setSelectedEventDetails(event)}
@@ -1167,6 +1207,8 @@ export function CyclistHome() {
                   setSelectedReport(report);
                 }}
                 center={focusedPos || undefined}
+                showMechanics={showMechanicsOnMap}
+                showCyclists={showCyclistsOnMap}
               />
           </div>
 
@@ -1206,7 +1248,11 @@ export function CyclistHome() {
                   <ChatListView 
                     chats={displayChats} 
                     onSelectChat={(chat: any) => {
-                      setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
+                      setDirectChat({ 
+                        id: chat.id, 
+                        name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat',
+                        isAdminSupport: chat.isAdminSupport || chat.type === 'SUPPORT'
+                      });
                     }}
                     currentUserId={user?.uid || ''}
                   />

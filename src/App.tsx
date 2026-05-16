@@ -354,7 +354,6 @@ export default function App() {
           location: new GeoPoint(coords.latitude, coords.longitude),
           lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          isOnline: profile?.isOnline ?? true,
           geohash: geohashForLocation([coords.latitude, coords.longitude])
         };
         

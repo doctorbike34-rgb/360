@@ -250,7 +250,7 @@ function MapClickEvents({ onClick }: { onClick: () => void }) {
   return null;
 }
 
-export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails, onViewReportDetails, minimal = false, isAdmin = false, adminUsers = [] }: { 
+export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails, onViewReportDetails, minimal = false, isAdmin = false, adminUsers = [], showMechanics = true, showCyclists = true }: { 
   center?: [number, number], 
   mechanicToTrackId?: string,
   onStartChat?: (userId: string, userName: string) => void,
@@ -258,7 +258,9 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   onViewReportDetails?: (report: any) => void,
   minimal?: boolean,
   isAdmin?: boolean,
-  adminUsers?: any[]
+  adminUsers?: any[],
+  showMechanics?: boolean,
+  showCyclists?: boolean,
 }) {
   const { user: currentUser, profile, role: currentUserRole, setQuotaError, userLocation: storeLocation } = useAuthStore();
   const [visibleUsers, setVisibleUsers] = useState<any[]>([]);
@@ -667,7 +669,14 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         )}
 
         {/* Regular Users (Mechanics, Peer Mechanics & Cyclists) */}
-        {visibleUsers.filter(u => u.id !== mechanicToTrackId).map((u: any) => {
+        {visibleUsers.filter(u => {
+          if (u.id === mechanicToTrackId) return false;
+          const isMechanic = u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC';
+          const isCyclist = u.role === 'CYCLIST';
+          if (isMechanic && !showMechanics) return false;
+          if (isCyclist && !showCyclists) return false;
+          return true;
+        }).map((u: any) => {
           const hasSOS = activeSOSs[u.id];
           const isTraveling = u.mechanicStatus === 'TRAVELING';
           const isAvailable = (u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC') && u.mechanicStatus === 'FREE' && u.isOnline;

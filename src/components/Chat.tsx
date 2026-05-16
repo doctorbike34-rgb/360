@@ -34,7 +34,7 @@ interface Message {
   type: 'TEXT' | 'IMAGE';
 }
 
-export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatId: string, otherPartyName: string, isAdminSupport?: boolean }) {
+export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUserId }: { chatId: string, otherPartyName: string, isAdminSupport?: boolean, targetUserId?: string }) {
   const { user } = useAuthStore();
   const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -213,6 +213,13 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName }: { chatI
         lastMessageAt: serverTimestamp(),
         [`unreadCount.${user.uid}`]: 0 // Reset self unread
       };
+
+      // Increment unread count for the other party
+      if (isAdminSupport && targetUserId) {
+        parentUpdates[`unreadCount.${targetUserId}`] = increment(1);
+      } else if (!isAdminSupport) {
+        // For regular chats, we'd need participants array - handled elsewhere
+      }
 
       // Use setDoc with merge: true to avoid getDoc check
       const p1 = setDoc(docRef, parentUpdates, { merge: true });
