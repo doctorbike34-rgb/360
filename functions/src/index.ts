@@ -577,19 +577,26 @@ export const clearAllUsersAuth = functions.region('europe-west1').https.onCall(a
 
   try {
     const listUsersResult = await admin.auth().listUsers(1000);
-    const usersToDelete = [];
+    const usersToDelete: string[] = [];
     
-    for (const userRecord of listUsersResult.users) {
-      // Don't delete the current admin who is performing the reset
-      if (userRecord.uid === context.auth.uid) continue;
+    // Filter out the current admin who is performing the reset
+    const usersToCheck = listUsersResult.users.filter(u => u.uid !== context.auth?.uid);
+
+    // Fetch user documents in chunks of 100 to avoid N+1 queries
+    for (let i = 0; i < usersToCheck.length; i += 100) {
+      const chunk = usersToCheck.slice(i, i + 100);
+      const docRefs = chunk.map(u => db.collection('users').doc(u.uid));
       
-      // Check if this user is an admin in Firestore
-      const userDoc = await db.collection('users').doc(userRecord.uid).get();
-      if (userDoc.exists && userDoc.data()?.role === 'ADMIN') {
-        continue; // Skip other admins too
+      if (docRefs.length > 0) {
+        const userDocs = await db.getAll(...docRefs);
+
+        for (const userDoc of userDocs) {
+          // If the user does not exist in Firestore or is not an ADMIN, add to delete list
+          if (!userDoc.exists || userDoc.data()?.role !== 'ADMIN') {
+            usersToDelete.push(userDoc.id);
+          }
+        }
       }
-      
-      usersToDelete.push(userRecord.uid);
     }
 
     if (usersToDelete.length > 0) {
