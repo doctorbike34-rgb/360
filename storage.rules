@@ -27,9 +27,9 @@ service firebase.storage {
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
     
-    // Road Report Photos: Publicly readable, owner writable
+    // Road Report Photos: Authenticated readable, owner writable
     match /roadReports/{reportId}/{allPaths=**} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
 
