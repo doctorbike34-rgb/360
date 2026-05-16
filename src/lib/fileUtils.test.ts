@@ -1,8 +1,9 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fileToBase64 } from './fileUtils';
 
 describe('fileToBase64', () => {
-  const originalFileReader = global.window ? global.window.FileReader : global.FileReader;
+  const originalFileReader = global.window ? global.window.FileReader : (global as any).FileReader;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -12,7 +13,7 @@ describe('fileToBase64', () => {
     if (global.window) {
       global.window.FileReader = originalFileReader as any;
     } else {
-      global.FileReader = originalFileReader as any;
+      (global as any).FileReader = originalFileReader as any;
     }
   });
 
@@ -40,7 +41,7 @@ describe('fileToBase64', () => {
     if (global.window) {
       global.window.FileReader = mockFileReader as any;
     } else {
-      global.FileReader = mockFileReader as any;
+      (global as any).FileReader = mockFileReader as any;
     }
 
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
@@ -53,7 +54,7 @@ describe('fileToBase64', () => {
       delete global.window.FileReader;
     }
     // @ts-ignore
-    delete global.FileReader;
+    delete (global as any).FileReader;
 
     const file = new File(['hello fallback'], 'hello.txt', { type: 'text/plain' });
     const result = await fileToBase64(file);
@@ -66,7 +67,7 @@ describe('fileToBase64', () => {
       delete global.window.FileReader;
     }
     // @ts-ignore
-    delete global.FileReader;
+    delete (global as any).FileReader;
 
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
     file.arrayBuffer = vi.fn().mockRejectedValue(new Error('arrayBuffer failed'));
@@ -82,7 +83,7 @@ describe('fileToBase64', () => {
     if (global.window) {
       global.window.FileReader = mockFileReader as any;
     } else {
-      global.FileReader = mockFileReader as any;
+      (global as any).FileReader = mockFileReader as any;
     }
 
     // Suppress console.warn for this test specifically
