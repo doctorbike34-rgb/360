@@ -570,18 +570,23 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
              </motion.button>
            </div>
  
-           <motion.button
-             whileHover={{ scale: 1.05 }}
-             whileTap={{ scale: 0.95 }}
-             onClick={() => {
-               setFlyPos(null);
-               updateRealPosition(true);
-             }} 
-             className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
-             title={t('map.locate')}
-           >
-             <Crosshair className={isRefreshing ? "animate-spin" : ""} size={20} />
-           </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setFlyPos(null);
+                if (storeLocation) {
+                  setUserPos([storeLocation.lat, storeLocation.lng]);
+                  setForceCenterToggle(prev => !prev);
+                } else {
+                  updateRealPosition(true);
+                }
+              }} 
+              className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
+              title={t('map.locate')}
+            >
+              <Crosshair className={isRefreshing ? "animate-spin" : ""} size={20} />
+            </motion.button>
         </div>
       )}
 
@@ -607,12 +612,12 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           } as any)}
         />
         {/* User's own location marker - respect isOnline status for "live" feel */}
-        {userPos && profile?.isOnline !== false && (
+        {userPos && (profile?.isOnline !== false || isAdmin) && (
           <LocationMarker 
             position={userPos} 
             forceCenter={forceCenterToggle}
             forceFlyPosition={flyPos}
-            avatarUrl={profile?.photoURL || currentUser?.photoURL}
+            avatarUrl={isAdmin ? null : (profile?.photoURL || currentUser?.photoURL)}
           />
         )}{/* Route Track */}
         {trackedMechanic?.lastLat && trackedMechanic?.lastLng && userPos && (
