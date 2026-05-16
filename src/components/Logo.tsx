@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
 
 interface LogoProps {
@@ -8,6 +8,8 @@ interface LogoProps {
 }
 
 export const Logo: React.FC<LogoProps> = ({ className = '', size = 'md' }) => {
+  const [hasError, setHasError] = useState(false);
+
   const sizes = {
     sm: 'h-8 md:h-10',
     md: 'h-12 md:h-16',
@@ -19,7 +21,12 @@ export const Logo: React.FC<LogoProps> = ({ className = '', size = 'md' }) => {
 
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
-      <motion.img 
+      {hasError ? (
+        <div className="text-xs text-center border-2 border-dashed border-primary p-2 rounded text-primary font-bold">
+          Carica l'immagine come<br/> /public/logo.png
+        </div>
+      ) : (
+        <motion.img
         src="/logo.png"
         alt="DoctorBike Italia Logo"
         className={`w-auto object-contain drop-shadow-sm cursor-pointer ${currentHeight}`}
@@ -40,19 +47,12 @@ export const Logo: React.FC<LogoProps> = ({ className = '', size = 'md' }) => {
           },
           tap: { scale: 0.95 }
         }}
-        onError={(e) => {
-          // Se non trova logo.png, mostra un messaggio che richiede il caricamento
-          const target = e.target as HTMLImageElement;
-          target.style.display = 'none';
-          if (target.parentElement) {
-            target.parentElement.innerHTML = `
-              <div class="text-xs text-center border-2 border-dashed border-primary p-2 rounded text-primary font-bold">
-                Carica l'immagine come<br/> /public/logo.png
-              </div>
-            `;
-          }
-        }}
-      />
+          onError={() => {
+            // Se non trova logo.png, mostra un messaggio che richiede il caricamento
+            setHasError(true);
+          }}
+        />
+      )}
     </div>
   );
 };
