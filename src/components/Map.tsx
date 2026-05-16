@@ -3,17 +3,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { User as FirebaseUser } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt } from 'firebase/firestore';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { UserProfile, SOSRequest } from '../types';
-import { User as FirebaseUser } from 'firebase/auth';
 import { Crosshair, Navigation, Map as MapIcon, Layers, Users, Clock, Star, Clock4, MessageCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { TFunction } from 'i18next';
 
 // Cache for divIcons to prevent flickering on re-renders
 const iconCache = new globalThis.Map<string, L.DivIcon>();
@@ -26,7 +27,17 @@ function getCachedDivIcon(options: L.DivIconOptions): L.DivIcon {
   return iconCache.get(key)!;
 }
 
-function MechanicPopup({ mechanic, onStartChat, t, sos, currentUserRole, currentUser, getFaultTypeTranslation }: { mechanic: UserProfile & { id: string, updatedAt?: any }, onStartChat?: (id: string, name: string) => void, t: any, sos?: SOSRequest, currentUserRole?: string | null, currentUser?: FirebaseUser | null, getFaultTypeTranslation: (type: string | undefined) => string }) {
+interface MechanicPopupProps {
+  mechanic: UserProfile & { id: string, updatedAt?: any };
+  onStartChat?: (id: string, name: string) => void;
+  t: TFunction;
+  sos?: SOSRequest;
+  currentUserRole?: string | null;
+  currentUser?: FirebaseUser | null;
+  getFaultTypeTranslation: (type: string | undefined) => string;
+}
+
+function MechanicPopup({ mechanic, onStartChat, t, sos, currentUserRole, currentUser, getFaultTypeTranslation }: MechanicPopupProps) {
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [isAccepting, setIsAccepting] = useState(false);
