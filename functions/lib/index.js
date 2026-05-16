@@ -27,7 +27,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
+exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
@@ -488,6 +488,36 @@ exports.refundPayment = functions.region('europe-west1').https.onCall(async (dat
             reason: reason,
         });
         console.log(`Refund issued for ${paymentIntentId}:`, refund.id);
+        // Update Firestore to reflect the refund
+        try {
+            const txQuery = await db.collection('transactions')
+                .where('stripePaymentIntentId', '==', paymentIntentId)
+                .limit(1)
+                .get();
+            if (!txQuery.empty) {
+                const txDoc = txQuery.docs[0];
+                const txData = txDoc.data();
+                await db.runTransaction(async (t) => {
+                    // 1. Mark transaction as refunded
+                    t.update(txDoc.ref, {
+                        status: 'REFUNDED',
+                        refundId: refund.id,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    // 2. Decrement Platform Stats if it was a subscription
+                    if (txData.type === 'SUBSCRIPTION') {
+                        const statsRef = db.collection('platformStats').doc('global');
+                        t.update(statsRef, {
+                            totalSubscriptionRevenue: admin.firestore.FieldValue.increment(-txData.amount),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                });
+            }
+        }
+        catch (fsErr) {
+            console.error('Error updating Firestore after refund:', fsErr);
+        }
         return { success: true, refundId: refund.id };
     }
     catch (error) {
@@ -601,6 +631,59 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
     }
     catch (error) {
         console.error('Error in notifyUserKycStatus:', error);
+    }
+});
+/**
+ * Send KYC Notification Email (Manual Trigger)
+ */
+exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data, context) => {
+    var _a, _b;
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+    }
+    const { userId, status, reason } = data;
+    if (!userId || !status) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing parameters.');
+    }
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists)
+            throw new functions.https.HttpsError('not-found', 'User not found.');
+        const userData = userDoc.data() || {};
+        const userEmail = userData.email;
+        if (!userEmail)
+            return { success: false, message: 'No email found' };
+        const mailUser = (_a = functions.config().mail) === null || _a === void 0 ? void 0 : _a.user;
+        const mailPass = (_b = functions.config().mail) === null || _b === void 0 ? void 0 : _b.pass;
+        if (!mailUser || !mailPass) {
+            console.warn('Mail configuration missing.');
+            return { success: false, message: 'Mail config missing' };
+        }
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user: mailUser, pass: mailPass }
+        });
+        let subject = '';
+        let text = '';
+        if (status === 'APPROVED') {
+            subject = 'Account DoctorBike Approvato! 🚴‍♂️';
+            text = `Ciao ${userData.name || 'Meccanico'},\n\nGrandi notizie! I tuoi documenti sono stati verificati con successo. Ora sei un meccanico ufficiale sulla piattaforma DoctorBike.\n\nPuoi iniziare a ricevere richieste di assistenza e guadagnare subito!\n\nA presto,\nIl Team DoctorBike`;
+        }
+        else {
+            subject = 'Aggiornamento Documenti DoctorBike ⚠️';
+            text = `Ciao ${userData.name || 'Meccanico'},\n\nTi informiamo che i documenti caricati non hanno superato la verifica KYC.\n\nMotivo: ${reason || 'Documenti non conformi o illeggibili.'}\n\nAbbiamo provveduto a rimborsare la tua quota di iscrizione sul tuo saldo. Puoi caricare nuovi documenti dalla sezione profilo dell'app.\n\nSe hai domande, rispondi a questa email.\n\nIl Team DoctorBike`;
+        }
+        await transporter.sendMail({
+            from: `"DoctorBike Support" <${mailUser}>`,
+            to: userEmail,
+            subject: subject,
+            text: text,
+        });
+        return { success: true };
+    }
+    catch (error) {
+        console.error('Error sending KYC email:', error);
+        throw new functions.https.HttpsError('internal', error.message || 'Email failed');
     }
 });
 //# sourceMappingURL=index.js.map
