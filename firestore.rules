@@ -157,7 +157,11 @@ service cloud.firestore {
       );
 
       match /messages/{msgId} {
-        allow read, write: if isSignedIn(); 
+        allow read, write: if isSignedIn() && (
+          isAdmin() ||
+          (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) ||
+          (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+        );
       }
     }
 
