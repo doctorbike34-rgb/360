@@ -106,15 +106,19 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
       console.log('User and stats snapshots fetched');
 
       const mechanicData = mechanicSnap.data() || {};
-      const plan = sosData.mechanicPlan || 'BASE';
+      // Use mechanic's actual plan from their user doc, not from SOS data
+      const mechanicPlan = mechanicData.plan || 'BASE';
+      const mechanicRole = mechanicData.role || 'MECHANIC';
       
-      // Calculate Fee
+      // Calculate Fee based on mechanic role and plan
+      // PEER_MECHANIC: 5% fixed fee
+      // PRO: 5%, CLUB: 10%, BASE/MECHANIC_FREE: 15%
       let feePercent = 0.15; // default 15%
-      if (mechanicData.role === 'PEER_MECHANIC') {
-        feePercent = 0.05; // 5% for expert cyclists
+      if (mechanicRole === 'PEER_MECHANIC') {
+        feePercent = 0.05; // 5% fixed for peer mechanics
       } else {
-        const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
-        feePercent = feeMultipliers[plan] !== undefined ? feeMultipliers[plan] : 0.15;
+        const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15, MECHANIC_FREE: 0.15 };
+        feePercent = feeMultipliers[mechanicPlan] !== undefined ? feeMultipliers[mechanicPlan] : 0.15;
       }
 
       const feeAmount = amount * feePercent;
@@ -141,7 +145,7 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
         cyclistName: sosData.cyclistName || 'Cyclist',
         mechanicId: mechanicId,
         mechanicName: mechanicData.name || 'Mechanic',
-        mechanicType: plan,
+        mechanicType: mechanicRole,
         problemDescription: sosData.description || sosData.faultType || 'Intervento',
         problemSeverity: 'medium',
         location: {

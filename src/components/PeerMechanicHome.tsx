@@ -65,6 +65,9 @@ export function PeerMechanicHome() {
     setActiveTab('CHAT');
   };
 
+  const activeJobsRef = useRef(activeJobs);
+  activeJobsRef.current = activeJobs;
+
   useEffect(() => {
     if (!user) return;
     
@@ -78,7 +81,7 @@ export function PeerMechanicHome() {
     const unsubSos = onSnapshot(sosQuery, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         // Notify peer mechanic if enabled and no active jobs
-        if (change.type === 'added' && isAvailable && activeJobs.length === 0) {
+        if (change.type === 'added' && isAvailable && activeJobsRef.current.length === 0) {
           const data = change.doc.data();
           
           if (profile?.notificationsEnabled) {
@@ -113,7 +116,7 @@ export function PeerMechanicHome() {
         unsubSos();
         unsubB();
     }
-  }, [user, isAvailable, activeJobs.length, profile?.notificationsEnabled, t]);
+  }, [user, isAvailable, profile?.notificationsEnabled, t]);
 
   const [sosTimeouts, setSosTimeouts] = useState<Record<string, number>>({});
 

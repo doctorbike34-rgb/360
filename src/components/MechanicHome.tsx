@@ -162,14 +162,12 @@ export function MechanicHome() {
 
   const filteredJobs = React.useMemo(() => {
     let jobs = allPendingJobs;
-    // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
 
     if (effectiveLocation) {
       jobs = jobs.filter((job: any) => {
         if (!job.lat || !job.lng || !job.createdAt) return true;
         
-        const dist = calculateDistance(effectiveLocation.lat, effectiveLocation.lng, job.lat, job.lng);
         const createdAt = job.createdAt?.toMillis?.() || job.createdAt?.seconds * 1000 || now;
         const plan = profile?.plan || 'BASE';
         const role = profile?.role || 'CYCLIST';
@@ -195,14 +193,7 @@ export function MechanicHome() {
       });
     }
     return jobs;
-  }, [allPendingJobs, effectiveLocation, profile?.plan]);
-
-  // Force re-filtering every minute to handle time-based escalation
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setTick(t => t + 1), 5000);
-    return () => clearInterval(timer);
-  }, []);
+  }, [allPendingJobs, effectiveLocation, profile?.plan, profile?.role]);
 
   const updateMechanicStatus = async (newStatus: string) => {
     if (!user) return;

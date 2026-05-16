@@ -358,59 +358,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     setVisibleUsers([...usersArray]);
   }, []);
 
-  // 1. GLOBAL LISTENERS
-  useEffect(() => {
-    if (!currentUser) return;
-
-    // 1a. GLOBAL MECHANICS LISTENER
-    const qGlobalMech = query(
-      collection(db, 'users'),
-      where('role', 'in', ['MECHANIC', 'PEER_MECHANIC']),
-      where('isOnline', '==', true),
-      limit(100)
-    );
-    const unsubGlobalMech = onSnapshot(qGlobalMech, (snap) => {
-      snap.docs.forEach(docSnap => {
-        const u = { id: docSnap.id, ...(docSnap.data() as UserProfile) };
-        if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
-           delete localUsersRef.current[u.id];
-           return;
-        }
-        localUsersRef.current[u.id] = u;
-      });
-      syncUsers();
-    }, (error) => {
-      console.warn("Global mechanics listener failed", error);
-    });
-
-    // 1b. GLOBAL CYCLISTS LISTENER
-    const qGlobalCyclists = query(
-      collection(db, 'users'),
-      where('role', '==', 'CYCLIST'),
-      where('isOnline', '==', true),
-      limit(100)
-    );
-    const unsubGlobalCyclists = onSnapshot(qGlobalCyclists, (snap) => {
-      snap.docs.forEach(docSnap => {
-        const u = { id: docSnap.id, ...(docSnap.data() as UserProfile) };
-        if (!u.lastLat || !u.lastLng || u.id === currentUser?.uid || u.isOnline === false) {
-           delete localUsersRef.current[u.id];
-           return;
-        }
-        localUsersRef.current[u.id] = u;
-      });
-      syncUsers();
-    }, (error) => {
-      console.warn("Global cyclists listener failed", error);
-    });
-
-    return () => {
-      unsubGlobalMech();
-      unsubGlobalCyclists();
-    };
-  }, [currentUser, isAdmin, syncUsers]);
-
-  // 2. GEOHASH LISTENERS
+  // 1. GEOHASH-BASED LISTENERS ONLY (no global listeners for performance)
   const lastListenerPos = useRef<[number, number] | null>(null);
 
   useEffect(() => {
