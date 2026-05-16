@@ -8,6 +8,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
 
 import { gamificationService } from '../services/gamificationService';
+import { logger } from '../lib/logger';
 
 interface ReviewModalProps {
   isOpen: boolean;
@@ -28,10 +29,10 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
   const handleSubmit = async () => {
     if (rating === 0 || isSubmitting) return;
     setIsSubmitting(true);
-    console.log('handleSubmit called for SOS:', sosRequest.id);
+    logger.info('handleSubmit called for SOS', { sosId: sosRequest.id });
     try {
       // 1. Call Cloud Function to safely transfer funds & update Escrow
-      console.log('Calling completeSOS Cloud Function for:', sosRequest.id);
+      logger.info('Calling completeSOS Cloud Function', { sosId: sosRequest.id });
       const { functions } = await import('../lib/firebase');
       const completeSOS = httpsCallable(functions, 'completeSOS');
       
@@ -41,11 +42,11 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
          text: comment
       });
 
-      console.log('Cloud Function success:', response.data);
+      logger.info('Cloud Function success', { data: response.data });
 
       onClose();
     } catch (error: any) {
-      console.error('Error submitting review:', error);
+      logger.error('Error submitting review', { error });
       toast.error('Errore durante il completamento: ' + (error.message || String(error)));
     } finally {
       setIsSubmitting(false);
@@ -62,7 +63,7 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
       toast.error('Contestazione inviata all\'assistenza. I fondi rimarranno bloccati e verrai contattato a breve.');
       onClose();
     } catch (err) {
-      console.error('Error creating dispute:', err);
+      logger.error('Error creating dispute', { error: err });
       handleFirestoreError(err, OperationType.UPDATE, 'sosRequests');
     } finally {
       setIsSubmitting(false);
