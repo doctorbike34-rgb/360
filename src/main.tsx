@@ -29,7 +29,20 @@ window.addEventListener('error', (event) => {
     errorDiv.style.color = 'red';
     errorDiv.style.padding = '20px';
     errorDiv.style.background = 'white';
-    errorDiv.innerHTML = `<h1>Inizializzazione fallita</h1><pre>${event.message}</pre><pre>${event.filename}:${event.lineno}</pre>`;
+
+    const h1 = document.createElement('h1');
+    h1.textContent = 'Inizializzazione fallita';
+
+    const preMessage = document.createElement('pre');
+    preMessage.textContent = event.message;
+
+    const preLocation = document.createElement('pre');
+    preLocation.textContent = `${event.filename}:${event.lineno}`;
+
+    errorDiv.appendChild(h1);
+    errorDiv.appendChild(preMessage);
+    errorDiv.appendChild(preLocation);
+
     document.body.appendChild(errorDiv);
   }
 });
