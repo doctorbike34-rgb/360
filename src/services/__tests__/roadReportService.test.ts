@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { roadReportService } from '../roadReportService';
 import { addDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../../lib/firebase';
+import { RoadReport } from '../../types';
 
 // Mock dependencies
 vi.mock('firebase/firestore', async () => {
@@ -11,6 +12,13 @@ vi.mock('firebase/firestore', async () => {
     collection: vi.fn(),
     addDoc: vi.fn(),
     serverTimestamp: vi.fn(() => 'mock-timestamp'),
+    doc: vi.fn(),
+    runTransaction: vi.fn(),
+    updateDoc: vi.fn(),
+    query: vi.fn(),
+    getDocs: vi.fn(),
+    arrayUnion: vi.fn(),
+    arrayRemove: vi.fn(),
   };
 });
 
@@ -18,10 +26,11 @@ vi.mock('../../lib/firebase', () => ({
   db: {},
   handleFirestoreError: vi.fn(),
   OperationType: {
-    CREATE: 'create',
-    UPDATE: 'update',
-    DELETE: 'delete',
-  }
+    CREATE: 'CREATE',
+    READ: 'READ',
+    UPDATE: 'UPDATE',
+    DELETE: 'DELETE',
+  },
 }));
 
 describe('roadReportService', () => {
@@ -31,24 +40,25 @@ describe('roadReportService', () => {
 
   describe('createRoadReport', () => {
     it('should handle Firestore errors when addDoc fails', async () => {
-      const mockError = new Error('Firestore error');
+      const mockError = new Error('Firestore addDoc failed');
       vi.mocked(addDoc).mockRejectedValueOnce(mockError);
 
-      const reportData = {
-        title: 'Test Report',
-        description: 'Test Description',
-        location: { lat: 0, lng: 0 },
+      const mockReportData: Omit<RoadReport, 'id' | 'createdAt' | 'updatedAt' | 'upvotes' | 'status'> = {
         type: 'pothole',
-        category: 'road'
+        location: { lat: 40.7128, lng: -74.0060 },
+        description: 'Large pothole on main street',
+        imageUrl: 'http://example.com/image.jpg',
+        userId: 'user123',
       };
 
-      await expect(roadReportService.createRoadReport(reportData as any)).rejects.toThrow('Firestore error');
+      await expect(roadReportService.createRoadReport(mockReportData as any)).rejects.toThrow(mockError);
 
       expect(handleFirestoreError).toHaveBeenCalledWith(
         mockError,
         OperationType.CREATE,
         'roadReports'
       );
+      expect(handleFirestoreError).toHaveBeenCalledTimes(1);
     });
   });
 });
