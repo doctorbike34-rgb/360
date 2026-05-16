@@ -272,7 +272,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
         console.error("Escrow Release Failed:", error);
         if (error instanceof functions.https.HttpsError)
             throw error;
-        throw new functions.https.HttpsError('internal', error.message || 'Transaction failed');
+        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Transaction failed');
     }
 });
 exports.transferFunds = functions.region('europe-west1').https.onCall(async (data, context) => {
@@ -330,7 +330,7 @@ exports.transferFunds = functions.region('europe-west1').https.onCall(async (dat
         console.error("Transfer Failed:", error);
         if (error instanceof functions.https.HttpsError)
             throw error;
-        throw new functions.https.HttpsError('internal', error.message || 'Transfer failed');
+        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Transfer failed');
     }
 });
 exports.rewardRoadReport = (0, firestore_1.onDocumentUpdated)({
@@ -367,7 +367,7 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
         event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
     }
     catch (err) {
-        res.status(400).send(`Webhook Error: ${err.message}`);
+        res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`);
         return;
     }
     if (event.type === 'payment_intent.succeeded') {
@@ -462,7 +462,7 @@ exports.createStripePayment = functions.region('europe-west1').https.onRequest(a
     }
     catch (error) {
         console.error('Stripe Payment Error:', error);
-        res.status(500).json({ error: error.message || 'Internal Server Error' });
+        res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
     }
 });
 /**
@@ -522,7 +522,7 @@ exports.refundPayment = functions.region('europe-west1').https.onCall(async (dat
     }
     catch (error) {
         console.error('Stripe Refund Error:', error);
-        throw new functions.https.HttpsError('internal', error.message || 'Refund failed');
+        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Refund failed');
     }
 });
 /**
@@ -688,7 +688,7 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
     }
     catch (error) {
         console.error('Error sending KYC email:', error);
-        throw new functions.https.HttpsError('internal', error.message || 'Email failed');
+        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
     }
 });
 //# sourceMappingURL=index.js.map
