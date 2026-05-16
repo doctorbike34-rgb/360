@@ -120,7 +120,7 @@ service cloud.firestore {
     }
 
     match /platformStats/{statId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 
