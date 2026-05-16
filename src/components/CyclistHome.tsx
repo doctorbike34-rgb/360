@@ -245,7 +245,7 @@ export function CyclistHome() {
   const [trackedMechanic, setTrackedMechanic] = useState<any>(null);
   const [eta, setEta] = useState<number | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
-  const [directChat, setDirectChat] = useState<{ id: string, name: string, isAdminSupport?: boolean } | null>(null);
+  const [directChat, setDirectChat] = useState<{ id: string, name: string, isAdminSupport?: boolean, targetUserId?: string } | null>(null);
   const [focusedPos, setFocusedPos] = useState<[number, number] | null>(null);
   const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
@@ -1191,8 +1191,10 @@ export function CyclistHome() {
                     setDirectChat(null); 
                   }} 
                   onViewProfile={setViewProfileId}
+                  isAdminSupport={directChat.isAdminSupport}
+                  targetUserId={directChat.targetUserId}
                 />
-                <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} targetUserId={directChat.targetUserId} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1230,32 +1232,35 @@ export function CyclistHome() {
           <div className={`absolute inset-0 z-20 flex flex-col bg-white pb-[110px] transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {directChat && !showChat ? (
                 <>
-                  <ChatHeader 
-                    chatId={directChat.id} 
-                    defaultName={directChat.name} 
-                    onBack={() => { 
-                      setDirectChat(null); 
-                    }} 
-                    onViewProfile={setViewProfileId}
-                  />
-                  <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                   <ChatHeader 
+                     chatId={directChat.id} 
+                     defaultName={directChat.name} 
+                     onBack={() => { 
+                       setDirectChat(null); 
+                     }} 
+                     onViewProfile={setViewProfileId}
+                     isAdminSupport={directChat.isAdminSupport}
+                     targetUserId={directChat.targetUserId}
+                   />
+                   <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} targetUserId={directChat.targetUserId} />
                 </>
               ) : (
                 <>
                   <div className="bg-primary p-4 flex items-center gap-4 text-white">
                     <h3 className="font-bold text-sm">{t('nav.chat')}</h3>
                   </div>
-                  <ChatListView 
-                    chats={displayChats} 
-                    onSelectChat={(chat: any) => {
-                      setDirectChat({ 
-                        id: chat.id, 
-                        name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat',
-                        isAdminSupport: chat.isAdminSupport || chat.type === 'SUPPORT'
-                      });
-                    }}
-                    currentUserId={user?.uid || ''}
-                  />
+                    <ChatListView 
+                      chats={displayChats} 
+                      onSelectChat={(chat: any) => {
+                        setDirectChat({ 
+                          id: chat.id, 
+                          name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat',
+                          isAdminSupport: chat.isAdminSupport || chat.type === 'SUPPORT',
+                          targetUserId: (chat.isAdminSupport || chat.type === 'SUPPORT') ? user?.uid : undefined
+                        });
+                      }}
+                      currentUserId={user?.uid || ''}
+                    />
                 </>
               )}
           </div>
@@ -1578,7 +1583,7 @@ export function CyclistHome() {
                           id: userSupportTicket.id, 
                           name: 'Doctorbike Admin',
                           isAdminSupport: true 
-                        } as any);
+                        });
                         setShowChat(true);
                         setShowSOSDetails(false);
                       }}
