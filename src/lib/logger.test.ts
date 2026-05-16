@@ -54,6 +54,12 @@ describe('logger', () => {
       expect(console.info).toHaveBeenCalledWith('🔵 [Info Logger]:', mockMessage, mockContext);
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
     });
+
+    it('logger.setUser should not call Sentry.setUser', () => {
+      const mockUser = { id: '123', email: 'test@example.com' };
+      loggerModule.logger.setUser(mockUser);
+      expect(Sentry.setUser).not.toHaveBeenCalled();
+    });
   });
 
   describe('initialized Sentry', () => {
@@ -80,6 +86,17 @@ describe('logger', () => {
 
       expect(console.info).toHaveBeenCalledWith('🔵 [Info Logger]:', mockMessage, mockContext);
       expect(Sentry.captureMessage).toHaveBeenCalledWith(mockMessage, { level: 'info', extra: mockContext });
+    });
+
+    it('logger.setUser should call Sentry.setUser', () => {
+      const mockUser = { id: '456', email: 'user@example.com' };
+      loggerModule.logger.setUser(mockUser);
+      expect(Sentry.setUser).toHaveBeenCalledWith(mockUser);
+    });
+
+    it('logger.setUser(null) should call Sentry.setUser(null)', () => {
+      loggerModule.logger.setUser(null);
+      expect(Sentry.setUser).toHaveBeenCalledWith(null);
     });
   });
 });
