@@ -48,6 +48,8 @@ const resources = {
         error: 'Errore',
         success: 'Successo',
         close: 'Chiudi',
+        goBack: 'Torna indietro',
+        viewProfile: 'Vedi profilo',
         needHelpPrompt: 'Hai bisogno di aiuto?',
         cancelAndLogout: 'Annulla e Logout',
         hi: 'Ciao',
@@ -131,6 +133,8 @@ const resources = {
       chat: {
         sendMessage: 'Invia Messaggio',
         title: 'Messaggi',
+        attachFile: 'Allega file',
+        toggleEmoji: 'Mostra emoji',
         placeholder: 'Scrivi un messaggio...',
       },
       social: {
@@ -293,6 +297,8 @@ const resources = {
         error: 'Error',
         success: 'Success',
         close: 'Close',
+        goBack: 'Go back',
+        viewProfile: 'View profile',
         needHelpPrompt: 'Need some help?',
         cancelAndLogout: 'Cancel and Logout',
         hi: 'Hi',
@@ -373,6 +379,8 @@ const resources = {
       chat: {
         sendMessage: 'Send Message',
         title: 'Messages',
+        attachFile: 'Attach file',
+        toggleEmoji: 'Show emojis',
         placeholder: 'Write a message...',
       },
       social: {

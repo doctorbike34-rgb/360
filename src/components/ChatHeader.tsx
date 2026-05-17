@@ -64,7 +64,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onB
 
   return (
     <div className="bg-primary p-3 flex items-center gap-3 text-white transition-colors border-b border-black/10 ">
-      <button onClick={onBack} className="hover:bg-black/10 p-2 -ml-1 rounded-full transition-colors flex-shrink-0">
+      <button onClick={onBack} className="hover:bg-black/10 p-2 -ml-1 rounded-full transition-colors flex-shrink-0" aria-label={t('common.goBack')}>
         <ArrowLeft size={24} />
       </button>
       
@@ -94,7 +94,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onB
       </div>
       
       {profile?.id && onViewProfile && (
-        <button onClick={() => onViewProfile(profile.id)} className="hover:bg-black/10 p-2 -mr-1 rounded-full transition-colors flex-shrink-0">
+        <button onClick={() => onViewProfile(profile.id)} className="hover:bg-black/10 p-2 -mr-1 rounded-full transition-colors flex-shrink-0" aria-label={t('common.viewProfile')}>
           <Info size={22} />
         </button>
       )}

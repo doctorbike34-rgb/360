@@ -408,6 +408,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
               onClick={() => fileInputRef.current?.click()}
               className="p-2 bg-black text-white rounded-full hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
               disabled={isSending}
+              aria-label={t('chat.attachFile')}
             >
               <ImageIcon size={18} />
             </button>
@@ -423,6 +424,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
                   type="button" 
                   className={`p-2 transition-colors ${showEmojiPicker ? 'text-primary' : 'text-grey hover:text-primary'}`}
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  aria-label={t('chat.toggleEmoji')}
                 >
                   <Smile size={20} />
                 </button>
@@ -450,6 +452,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
           type="submit"
           disabled={!newMessage.trim() || isSending}
           className="w-10 h-10 bg-primary text-black rounded-full flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform cursor-pointer"
+          aria-label={t('chat.sendMessage')}
         >
           {isSending ? (
             <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
