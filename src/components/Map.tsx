@@ -189,6 +189,16 @@ const DefaultIcon = L.icon({
     iconAnchor: [12, 41]
 });
 
+function createMarkerIcon(color: string, size: number = 25): L.Icon {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="${size}" height="${size * 1.5}"><path d="M12 0C7.03 0 3 4.03 3 9c0 6.75 9 15 9 15s9-8.25 9-15c0-4.97-4.03-9-9-9z" fill="${color}" stroke="white" stroke-width="1.5"/><circle cx="12" cy="9" r="4" fill="white" opacity="0.9"/></svg>`;
+  return L.icon({
+    iconUrl: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    iconSize: [size, size * 1.5],
+    iconAnchor: [size / 2, size * 1.5],
+    popupAnchor: [0, -size * 1.2]
+  });
+}
+
 L.Marker.prototype.options.icon = DefaultIcon;
 
 function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslation }: {
@@ -197,15 +207,8 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
 }) {
-  const icon = useMemo(() => L.divIcon({
-    className: 'tracked-mechanic-marker',
-    html: `<div class="marker-size-lg relative flex items-center justify-center bg-accent/30 p-1 rounded-full ring-2 ring-accent ${escapeHtml(mechanic.mechanicStatus) === 'TRAVELING' ? 'pulse-accent' : 'pulse-warning'}">
-             <img src="${escapeHtml(mechanic.photoURL || mechanic.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + mechanic.id)}" class="avatar-size-md rounded-full border-2 border-accent object-cover shadow-sm" />
-             ${mechanic.isOnline ? '<div class="status-dot-lg absolute bottom-0 right-0 bg-green-500 border-2 border-white rounded-full"></div>' : ''}
-           </div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14]
-  }), [mechanic.photoURL, mechanic.avatarUrl, mechanic.id, mechanic.isOnline, mechanic.mechanicStatus]);
+  const color = mechanic.mechanicStatus === 'TRAVELING' ? '#F97316' : '#EA580C';
+  const icon = useMemo(() => createMarkerIcon(color, 30), [color]);
 
   return (
     <Marker position={[mechanic.lastLat, mechanic.lastLng]} icon={icon}>
@@ -216,29 +219,20 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
   );
 }
 
-function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor }: {
+function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick }: {
   user: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
   roleColor: string;
+  onClick?: () => void;
 }) {
-  const icon = useMemo(() => L.divIcon({
-    className: 'regular-user-marker',
-    html: `<div class="marker-size-md relative flex items-center justify-center bg-${roleColor}/30 p-1 rounded-full ring-2 ring-${roleColor}">
-             <img src="${escapeHtml(u.photoURL || u.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + u.id)}" class="avatar-size-sm rounded-full border-2 border-${roleColor} object-cover shadow-sm" />
-             ${u.isOnline ? `<div class="status-dot-sm absolute bottom-0 right-0 bg-green-500 border border-white rounded-full"></div>` : ''}
-           </div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
-  }), [u.photoURL, u.avatarUrl, u.id, u.isOnline, roleColor]);
+  const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', '[#8B5CF6]': '#8B5CF6' };
+  const color = colorMap[roleColor] || '#3B82F6';
+  const icon = useMemo(() => createMarkerIcon(color, 25), [color]);
 
   return (
-    <Marker
-      position={[u.lastLat, u.lastLng]}
-      icon={icon}
-      eventHandlers={{ click: () => {} }}
-    >
+    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
       <Popup>
         <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
       </Popup>
@@ -253,18 +247,7 @@ function ReportMarker({ report, isSelected, t, onClick }: {
   onClick: () => void;
 }) {
   const color = report.severity === 'high' ? '#EF4444' : report.severity === 'medium' ? '#F97316' : '#EAB308';
-
-  const icon = useMemo(() => L.divIcon({
-    className: `report-marker ${isSelected ? 'z-[1000]' : ''}`,
-    html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${escapeHtml(color)}">
-             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-             <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                <span class="text-[8px] font-black uppercase text-black">${escapeHtml(String(t(`reports.categories.${report.category}`, report.category.replace('_', ' '))))}</span>
-             </div>
-           </div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14]
-  }), [report.id, report.category, color, isSelected]);
+  const icon = useMemo(() => createMarkerIcon(color, 28), [color]);
 
   const lat = report.location?.lat ?? report.location?.latitude;
   const lng = report.location?.lng ?? report.location?.longitude;
@@ -272,7 +255,7 @@ function ReportMarker({ report, isSelected, t, onClick }: {
 
   return (
     <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
-      <Popup eventHandlers={{ remove: () => {} }}>
+      <Popup>
         <div className="p-1 min-w-[140px]">
           <div className="font-black uppercase text-sm leading-tight mb-1" style={{ color }}>{t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '') as any}</div>
           <div className="text-[10px] text-black/70 mb-2 truncate max-w-[150px]">{report?.description}</div>
@@ -286,25 +269,11 @@ function ReportMarker({ report, isSelected, t, onClick }: {
   );
 }
 
-function EventMarker({ event, isSelected, onClick }: {
+function EventMarker({ event, onClick }: {
   event: any;
-  isSelected: boolean;
   onClick: () => void;
 }) {
-  const icon = useMemo(() => L.divIcon({
-    className: `event-marker ${isSelected ? 'z-[1000]' : ''}`,
-    html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-xl relative flex items-center justify-center bg-accent text-white p-1 rounded-2xl shadow-accent-lg border-2 border-white ring-4 ring-accent/20 ${isSelected ? 'animate-bounce ring-accent ring-offset-2 border-4' : 'animate-pulse'}">
-             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bike"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
-             <div class="absolute -top-2 -right-2 bg-red-500 text-[8px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
-               ${escapeHtml(event.participantCount || 0)}/${escapeHtml(event.maxParticipants)}
-             </div>
-             <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                <span class="text-[8px] font-black text-primary uppercase italic">${escapeHtml(event.title)}</span>
-             </div>
-           </div>`,
-    iconSize: [38, 38],
-    iconAnchor: [19, 19]
-  }), [event.id, event.title, event.participantCount, event.maxParticipants, isSelected]);
+  const icon = useMemo(() => createMarkerIcon('#EA580C', 32), []);
 
   const lat = event.lastLat ?? event.lat ?? event.location?.latitude;
   const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
@@ -312,7 +281,7 @@ function EventMarker({ event, isSelected, onClick }: {
 
   return (
     <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
-      <Popup eventHandlers={{ remove: () => {} }}>
+      <Popup>
         <div className="p-1">
           <div className="font-black text-primary uppercase italic text-sm leading-tight mb-1">{event.title}</div>
           <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-3">
@@ -334,18 +303,7 @@ function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: 
   const lastFlyPosRef = useRef<string | null>(null);
   const initialCenterSet = useRef(false);
 
-  const customIcon = useMemo(() => avatarUrl ? L.divIcon({
-    className: 'self-marker',
-    html: `<div class="relative flex items-center justify-center">
-             <div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
-             <div class="relative w-10 h-10 rounded-full border-4 border-white shadow-xl overflow-hidden ring-4 ring-primary/30">
-               <img src="${escapeHtml(avatarUrl)}" class="w-full h-full object-cover" />
-             </div>
-             <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
-           </div>`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20]
-  }) : undefined, [avatarUrl]);
+  const customIcon = useMemo(() => avatarUrl ? createMarkerIcon('#3B82F6', 30) : undefined, [avatarUrl]);
 
   const isValidPosition = position && position.length === 2 && 
                            Number.isFinite(position[0]) && 
@@ -850,6 +808,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               t={t}
               getFaultTypeTranslation={getFaultTypeTranslation}
               roleColor={roleColor}
+              onClick={() => setSelectedObj(u)}
             />
           );
         })}
