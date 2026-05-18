@@ -1059,7 +1059,7 @@ export function CyclistHome() {
                  {eta && ` Tempo stimato: ~${eta} min.`}
                </p>
             </div>
-            <button onClick={() => setShowAcceptedToast(false)} className="text-white/80 hover:text-white mt-1">
+            <button onClick={() => setShowAcceptedToast(false)} className="text-white/80 hover:text-white mt-1" aria-label={t('common.close')}>
                <X size={20} />
             </button>
           </motion.div>
@@ -1095,7 +1095,7 @@ export function CyclistHome() {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" title="Ghost Mode">
+                    <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" title="Ghost Mode" aria-label="Toggle Ghost Mode">
                       {!profile?.isOnline ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                     <div className="w-8 h-px bg-grey/20 " />
@@ -1161,7 +1161,7 @@ export function CyclistHome() {
                   </button>
                 </div>
 
-               <button className="bg-white text-black rounded-full p-2.5 shadow-lg text-primary  border border-grey/10">
+               <button className="bg-white text-black rounded-full p-2.5 shadow-lg text-primary  border border-grey/10" aria-label="Notifications">
                   <Bell size={18} />
                </button>
             </div>
@@ -1286,6 +1286,7 @@ export function CyclistHome() {
               <button 
                 onClick={() => setSelectedEventDetails(null)}
                 className="absolute top-6 right-6 text-grey hover:text-black :text-white transition-colors"
+                aria-label={t('common.close')}
               >
                 <X size={24} />
               </button>
@@ -1410,6 +1411,7 @@ export function CyclistHome() {
                       onClick={(e) => { e.stopPropagation(); setIsSOSMinimized(true); }}
                       className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
                       title="Riduci icona"
+                      aria-label="Riduci icona"
                     >
                       <X size={18} />
                     </button>
@@ -1502,7 +1504,7 @@ export function CyclistHome() {
             >
               <div className="p-6 pt-12 border-b border-light-bg  flex items-center justify-between bg-primary  text-white shrink-0 transition-colors">
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setShowSOSDetails(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <button onClick={() => setShowSOSDetails(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors" aria-label="Indietro">
                     <ArrowLeft size={24} />
                   </button>
                   <div>
@@ -1831,6 +1833,7 @@ export function CyclistHome() {
                 onClick={() => { setShowSOSForm(false); setSelectedFaultType(null); setSosStep(1); }}
                 className="absolute top-6 right-6 p-2 bg-grey/10 rounded-full text-grey hover:text-black transition-colors"
                 title={t('common.close')}
+                aria-label={t('common.close')}
               >
                 <X size={20} />
               </button>
@@ -1916,6 +1919,7 @@ export function CyclistHome() {
                              <button 
                                onClick={() => setSosPhotos(prev => prev.filter((_, idx) => idx !== i))}
                                className="absolute -top-2 -right-2 bg-danger text-white rounded-full p-1.5 shadow-xl border-2 border-white hover:scale-110 active:scale-90 transition-all"
+                               aria-label={t('common.removePhoto', 'Rimuovi foto')}
                              >
                                <X size={12} strokeWidth={3}/>
                              </button>
@@ -2094,6 +2098,7 @@ export function CyclistHome() {
               <button 
                 onClick={() => setShowCompletionOverlay(false)}
                 className="absolute top-4 right-4 p-2 bg-black/5 hover:bg-black/10 rounded-full transition-colors z-10"
+                aria-label={t('common.close')}
               >
                 <X size={20} className="text-black" />
               </button>
