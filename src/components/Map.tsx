@@ -16,9 +16,6 @@ import { formatDistanceToNow } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { TFunction } from 'i18next';
 
-// Cache for divIcons to prevent flickering on re-renders
-const iconCache = new globalThis.Map<string, L.DivIcon>();
-
 function escapeHtml(unsafe: string | number | null | undefined): string {
   if (unsafe == null) return '';
   const str = String(unsafe);
@@ -31,11 +28,7 @@ function escapeHtml(unsafe: string | number | null | undefined): string {
 }
 
 function getCachedDivIcon(options: L.DivIconOptions): L.DivIcon {
-  const key = JSON.stringify(options);
-  if (!iconCache.has(key)) {
-    iconCache.set(key, L.divIcon(options));
-  }
-  return iconCache.get(key)!;
+  return L.divIcon(options);
 }
 
 interface MechanicPopupProps {
@@ -325,11 +318,6 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       if (userPosDebounceRef.current) clearTimeout(userPosDebounceRef.current);
     };
   }, [userPos]);
-
-  // Clear icon cache on unmount to prevent stale DOM references
-  useEffect(() => {
-    return () => { iconCache.clear(); };
-  }, []);
 
   const lastUpdateRef = useRef<{ time: number, pos: [number, number] | null }>({ time: 0, pos: null });
 
