@@ -97,7 +97,8 @@ export function AdminHome() {
     if (tab === 'STATS' || tab === 'FINANCE') {
       listeners.push(onSnapshot(doc(db, 'platformStats', 'global'), (snap) => {
         if (snap.exists()) setPlatformStats(snap.data() as PlatformStats);
-      }, (err) => handleSnapError(err, 'platformStats')));
+        setLoading(false);
+      }, (err) => { handleSnapError(err, 'platformStats'); setLoading(false); }));
     }
 
     if (tab === 'AI_ASSISTANCE') {
