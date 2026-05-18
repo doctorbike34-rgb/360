@@ -191,6 +191,139 @@ const DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
+function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslation }: {
+  mechanic: any;
+  onStartChat?: (userId: string, userName: string) => void;
+  t: TFunction;
+  getFaultTypeTranslation: (faultType: string | undefined) => string;
+}) {
+  const icon = useMemo(() => L.divIcon({
+    className: 'tracked-mechanic-marker',
+    html: `<div class="marker-size-lg relative flex items-center justify-center bg-accent/30 p-1 rounded-full ring-2 ring-accent ${escapeHtml(mechanic.mechanicStatus) === 'TRAVELING' ? 'pulse-accent' : 'pulse-warning'}">
+             <img src="${escapeHtml(mechanic.photoURL || mechanic.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + mechanic.id)}" class="avatar-size-md rounded-full border-2 border-accent object-cover shadow-sm" />
+             ${mechanic.isOnline ? '<div class="status-dot-lg absolute bottom-0 right-0 bg-green-500 border-2 border-white rounded-full"></div>' : ''}
+           </div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  }), [mechanic.photoURL, mechanic.avatarUrl, mechanic.id, mechanic.isOnline, mechanic.mechanicStatus]);
+
+  return (
+    <Marker position={[mechanic.lastLat, mechanic.lastLng]} icon={icon}>
+      <Popup>
+        <MechanicPopup mechanic={mechanic} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
+      </Popup>
+    </Marker>
+  );
+}
+
+function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor }: {
+  user: any;
+  onStartChat?: (userId: string, userName: string) => void;
+  t: TFunction;
+  getFaultTypeTranslation: (faultType: string | undefined) => string;
+  roleColor: string;
+}) {
+  const icon = useMemo(() => L.divIcon({
+    className: 'regular-user-marker',
+    html: `<div class="marker-size-md relative flex items-center justify-center bg-${roleColor}/30 p-1 rounded-full ring-2 ring-${roleColor}">
+             <img src="${escapeHtml(u.photoURL || u.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + u.id)}" class="avatar-size-sm rounded-full border-2 border-${roleColor} object-cover shadow-sm" />
+             ${u.isOnline ? `<div class="status-dot-sm absolute bottom-0 right-0 bg-green-500 border border-white rounded-full"></div>` : ''}
+           </div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  }), [u.photoURL, u.avatarUrl, u.id, u.isOnline, roleColor]);
+
+  return (
+    <Marker
+      position={[u.lastLat, u.lastLng]}
+      icon={icon}
+      eventHandlers={{ click: () => {} }}
+    >
+      <Popup>
+        <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
+      </Popup>
+    </Marker>
+  );
+}
+
+function ReportMarker({ report, isSelected, t, onClick }: {
+  report: any;
+  isSelected: boolean;
+  t: TFunction;
+  onClick: () => void;
+}) {
+  const color = report.severity === 'high' ? '#EF4444' : report.severity === 'medium' ? '#F97316' : '#EAB308';
+
+  const icon = useMemo(() => L.divIcon({
+    className: `report-marker ${isSelected ? 'z-[1000]' : ''}`,
+    html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${escapeHtml(color)}">
+             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+             <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
+                <span class="text-[8px] font-black uppercase text-black">${escapeHtml(String(t(`reports.categories.${report.category}`, report.category.replace('_', ' '))))}</span>
+             </div>
+           </div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  }), [report.id, report.category, color, isSelected]);
+
+  const lat = report.location?.lat ?? report.location?.latitude;
+  const lng = report.location?.lng ?? report.location?.longitude;
+  if (!lat || !lng) return null;
+
+  return (
+    <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
+      <Popup eventHandlers={{ remove: () => {} }}>
+        <div className="p-1 min-w-[140px]">
+          <div className="font-black uppercase text-sm leading-tight mb-1" style={{ color }}>{t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '') as any}</div>
+          <div className="text-[10px] text-black/70 mb-2 truncate max-w-[150px]">{report?.description}</div>
+          <div className="flex items-center justify-between text-[9px] font-bold text-grey uppercase mt-2 mb-3">
+            <span>Upvotes: {report?.upvotes?.length || 0}</span>
+            <span className="bg-grey/10 px-1.5 py-0.5 rounded-md">{report?.status}</span>
+          </div>
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
+function EventMarker({ event, isSelected, onClick }: {
+  event: any;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const icon = useMemo(() => L.divIcon({
+    className: `event-marker ${isSelected ? 'z-[1000]' : ''}`,
+    html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-xl relative flex items-center justify-center bg-accent text-white p-1 rounded-2xl shadow-accent-lg border-2 border-white ring-4 ring-accent/20 ${isSelected ? 'animate-bounce ring-accent ring-offset-2 border-4' : 'animate-pulse'}">
+             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bike"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
+             <div class="absolute -top-2 -right-2 bg-red-500 text-[8px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
+               ${escapeHtml(event.participantCount || 0)}/${escapeHtml(event.maxParticipants)}
+             </div>
+             <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
+                <span class="text-[8px] font-black text-primary uppercase italic">${escapeHtml(event.title)}</span>
+             </div>
+           </div>`,
+    iconSize: [38, 38],
+    iconAnchor: [19, 19]
+  }), [event.id, event.title, event.participantCount, event.maxParticipants, isSelected]);
+
+  const lat = event.lastLat ?? event.lat ?? event.location?.latitude;
+  const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
+  if (!lat || !lng) return null;
+
+  return (
+    <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
+      <Popup eventHandlers={{ remove: () => {} }}>
+        <div className="p-1">
+          <div className="font-black text-primary uppercase italic text-sm leading-tight mb-1">{event.title}</div>
+          <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-3">
+            <div className="flex items-center gap-1"><Users size={12} /> {event.participantCount}/{event.maxParticipants}</div>
+          </div>
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
 function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: { 
   position: [number, number] | null, 
   forceCenter?: boolean,
@@ -687,22 +820,12 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         
         {/* Tracked Mechanic (Primary) */}
         {trackedMechanic?.lastLat && trackedMechanic?.lastLng && (
-           <Marker 
-              position={[trackedMechanic.lastLat, trackedMechanic.lastLng]}
-              icon={useMemo(() => L.divIcon({
-                className: 'tracked-mechanic-marker',
-                html: `<div class="marker-size-lg relative flex items-center justify-center bg-accent/30 p-1 rounded-full ring-2 ring-accent ${escapeHtml(trackedMechanic.mechanicStatus) === 'TRAVELING' ? 'pulse-accent' : 'pulse-warning'}">
-                         <img src="${escapeHtml(trackedMechanic.photoURL || trackedMechanic.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + trackedMechanic.id)}" class="avatar-size-md rounded-full border-2 border-accent object-cover shadow-sm" />
-                         ${trackedMechanic.isOnline ? '<div class="status-dot-lg absolute bottom-0 right-0 bg-green-500 border-2 border-white rounded-full"></div>' : ''}
-                       </div>`,
-                iconSize: [28, 28],
-                iconAnchor: [14, 14]
-              }), [trackedMechanic.photoURL, trackedMechanic.avatarUrl, trackedMechanic.id, trackedMechanic.isOnline, trackedMechanic.mechanicStatus])}
-            >
-              <Popup>
-                <MechanicPopup mechanic={trackedMechanic} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
-              </Popup>
-            </Marker>
+           <TrackedMechanicMarker
+              mechanic={trackedMechanic}
+              onStartChat={onStartChat}
+              t={t}
+              getFaultTypeTranslation={getFaultTypeTranslation}
+           />
         )}
 
         {/* Regular Users (Mechanics, Peer Mechanics & Cyclists) */}
@@ -714,88 +837,38 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           if (isCyclist && !showCyclists) return false;
           return true;
         }).map((u: any) => {
-          const hasSOS = activeSOSs[u.id];
-          const isTraveling = u.mechanicStatus === 'TRAVELING';
-          const isAvailable = (u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC') && u.mechanicStatus === 'FREE' && u.isOnline;
-          const isSelected = selectedObj?.id === u.id;
-          
+          if (!u.lastLat || !u.lastLng) return null;
           let roleColor = 'primary';
-          let roleHex = '#3B82F6';
-          if (u.role === 'MECHANIC') { roleColor = 'warning'; roleHex = '#F59E0B'; }
-          else if (u.role === 'PEER_MECHANIC') { roleColor = '[#8B5CF6]'; roleHex = '#8B5CF6'; }
+          if (u.role === 'MECHANIC') roleColor = 'warning';
+          else if (u.role === 'PEER_MECHANIC') roleColor = '[#8B5CF6]';
 
-          const markerIcon = useMemo(() => L.divIcon({
-            className: 'regular-user-marker',
-            html: `<div class="marker-size-md relative flex items-center justify-center bg-${roleColor}/30 p-1 rounded-full ring-2 ring-${roleColor}">
-                     <img src="${escapeHtml(u.photoURL || u.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + u.id)}" class="avatar-size-sm rounded-full border-2 border-${roleColor} object-cover shadow-sm" />
-                     ${u.isOnline ? `<div class="status-dot-sm absolute bottom-0 right-0 bg-green-500 border border-white rounded-full"></div>` : ''}
-                   </div>`,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
-          }), [u.photoURL, u.avatarUrl, u.id, u.isOnline, roleColor]);
-
-          return u.lastLat && u.lastLng && (
-            <Marker 
+          return (
+            <UserMarker
               key={u.id}
-              position={[u.lastLat, u.lastLng]}
-              icon={markerIcon}
-              eventHandlers={{
-                click: () => setSelectedObj(u)
-              }}
-            >
-              <Popup>
-                <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
-              </Popup>
-            </Marker>
+              user={u}
+              onStartChat={onStartChat}
+              t={t}
+              getFaultTypeTranslation={getFaultTypeTranslation}
+              roleColor={roleColor}
+            />
           );
         })}
 
         {/* Road Reports */}
         {visibleReports.map((report: any) => {
           const isSelected = selectedObj?.id === report.id;
-          let color = '#EAB308'; // low
-          if (report.severity === 'medium') color = '#F97316';
-          if (report.severity === 'high') color = '#EF4444';
-
           const lat = report.location?.lat ?? report.location?.latitude;
           const lng = report.location?.lng ?? report.location?.longitude;
-
           if (!lat || !lng) return null;
 
           return (
-            <Marker 
+            <ReportMarker
               key={report.id}
-              position={[lat, lng]}
-              icon={useMemo(() => L.divIcon({
-                className: `report-marker ${isSelected ? 'z-[1000]' : ''}`,
-                html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${escapeHtml(color)}">
-                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-                         <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                            <span class="text-[8px] font-black uppercase text-black">${escapeHtml(String(t(`reports.categories.${report.category}`, report.category.replace('_', ' '))))}</span>
-                         </div>
-                       </div>`,
-                iconSize: [28, 28],
-                iconAnchor: [14, 14]
-              }), [report.id, report.category, color, isSelected])}
-              eventHandlers={{ click: () => setSelectedObj(report) }}
-            >
-              <Popup eventHandlers={{ remove: () => setSelectedObj(null) }}>
-                <div className="p-1 min-w-[140px]">
-                  <div className="font-black uppercase text-sm leading-tight mb-1" style={{ color }}>{t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '') as any}</div>
-                  <div className="text-[10px] text-black/70 mb-2 truncate max-w-[150px]">{report?.description}</div>
-                  <div className="flex items-center justify-between text-[9px] font-bold text-grey uppercase mt-2 mb-3">
-                    <span>Upvotes: {report?.upvotes?.length || 0}</span>
-                    <span className="bg-grey/10 px-1.5 py-0.5 rounded-md">{report?.status}</span>
-                  </div>
-                  <button 
-                    onClick={() => onViewReportDetails?.(report)}
-                    className="w-full bg-primary text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
-                  >
-                    Vedi Foto e Dettagli
-                  </button>
-                </div>
-              </Popup>
-            </Marker>
+              report={report}
+              isSelected={isSelected}
+              t={t}
+              onClick={() => setSelectedObj(report)}
+            />
           );
         })}
 
@@ -804,53 +877,17 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           const isSelected = selectedObj?.id === event.id;
           const lat = event.lastLat ?? event.lat ?? event.location?.latitude;
           const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
-
           if (!lat || !lng) return null;
 
           return (
-          <Marker 
-            key={event.id}
-            position={[lat, lng]}
-            icon={useMemo(() => L.divIcon({
-              className: `event-marker ${isSelected ? 'z-[1000]' : ''}`,
-              html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-xl relative flex items-center justify-center bg-accent text-white p-1 rounded-2xl shadow-accent-lg border-2 border-white ring-4 ring-accent/20 ${isSelected ? 'animate-bounce ring-accent ring-offset-2 border-4' : 'animate-pulse'}">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bike"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
-                       <div class="absolute -top-2 -right-2 bg-red-500 text-[8px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
-                         ${escapeHtml(event.participantCount || 0)}/${escapeHtml(event.maxParticipants)}
-                       </div>
-                       <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                          <span class="text-[8px] font-black text-primary uppercase italic">${escapeHtml(event.title)}</span>
-                       </div>
-                     </div>`,
-              iconSize: [38, 38],
-              iconAnchor: [19, 19]
-            }), [event.id, event.title, event.participantCount, event.maxParticipants, isSelected])}
-            eventHandlers={{
-                click: () => setSelectedObj(event)
-            }}
-          >
-            <Popup eventHandlers={{ remove: () => setSelectedObj(null) }}>
-              <div className="p-1">
-                <div className="font-black text-primary uppercase italic text-sm leading-tight mb-1">{event.title}</div>
-                {event.address && (
-                  <div className="text-[9px] font-bold text-black/60 mb-2 flex items-center gap-1">
-                    <Navigation size={10} /> {event.address}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-3">
-                  <div className="flex items-center gap-1"><Users size={12} /> {event.participantCount}/{event.maxParticipants}</div>
-                  <div className="flex items-center gap-1"><Clock size={12} /> {new Date(event.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                </div>
-                <button 
-                  onClick={() => onViewEventDetails?.(event)}
-                  className="w-full bg-primary text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
-                >
-                  Vedi Dettagli
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        )})}
+            <EventMarker
+              key={event.id}
+              event={event}
+              isSelected={isSelected}
+              onClick={() => setSelectedObj(event)}
+            />
+          );
+        })}
       </MapContainer>
     </div>
   );
