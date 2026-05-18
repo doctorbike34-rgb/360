@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { safeStorage } from '../lib/storage';
 
 interface ThemeState {
   isDarkMode: boolean;
@@ -6,28 +7,40 @@ interface ThemeState {
   setDarkMode: (isDark: boolean) => void;
 }
 
-export const useThemeStore = create<ThemeState>((set) => {
-  // Permanently force light theme
+function applyTheme(isDark: boolean) {
   if (typeof window !== 'undefined') {
-    try {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    } catch (e) {
-      console.warn('LocalStorage access blocked:', e);
     }
+    safeStorage.setItem('theme', isDark ? 'dark' : 'light');
   }
+}
+
+function getInitialTheme(): boolean {
+  if (typeof window !== 'undefined') {
+    const stored = safeStorage.getItem('theme');
+    if (stored === 'dark') return true;
+    if (stored === 'light') return false;
+  }
+  return false;
+}
+
+export const useThemeStore = create<ThemeState>((set) => {
+  const initialDark = getInitialTheme();
+  applyTheme(initialDark);
 
   return {
-    isDarkMode: false,
-    toggleDarkMode: () => set(() => {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-      return { isDarkMode: false };
+    isDarkMode: initialDark,
+    toggleDarkMode: () => set((state) => {
+      const newDark = !state.isDarkMode;
+      applyTheme(newDark);
+      return { isDarkMode: newDark };
     }),
     setDarkMode: (isDark: boolean) => set(() => {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-      return { isDarkMode: false };
+      applyTheme(isDark);
+      return { isDarkMode: isDark };
     }),
   };
 });

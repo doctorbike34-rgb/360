@@ -1,5 +1,5 @@
 import { db } from '../lib/firebase';
-import { doc, getDoc, runTransaction, query, collection, orderBy, limit, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, query, collection, orderBy, limit, getDocs, setDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { BadgeId, Badge, UserProfile } from '../types';
 
 export const gamificationService = {
@@ -10,13 +10,9 @@ export const gamificationService = {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists()) return;
 
-        const data = userDoc.data() as Partial<UserProfile>;
-        const currentPoints = data.points || 0;
-        const currentWeekly = data.weeklyPoints || 0;
-
         transaction.update(userRef, {
-          points: currentPoints + points,
-          weeklyPoints: currentWeekly + points,
+          points: increment(points),
+          weeklyPoints: increment(points),
           updatedAt: serverTimestamp()
         });
       });

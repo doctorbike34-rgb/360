@@ -114,37 +114,37 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
             onClick={onClose}
             className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto"
           />
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="bg-white rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl relative z-[1001] pointer-events-auto"
-          >
-            {/* Header with Photo or Icon */}
-            <div className="relative h-64 bg-grey/10 flex items-center justify-center overflow-hidden">
-               {report.photoUrl ? (
-                 <img src={report.photoUrl} alt="Report photo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-               ) : (
-                 <AlertTriangle size={80} className="text-grey/30" />
-               )}
-               <button 
-                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
-                 className="absolute top-6 right-6 p-3 bg-black/50 hover:bg-black/70 backdrop-blur-md rounded-full text-white transition-all z-50 cursor-pointer active:scale-95"
-               >
-                 <X size={24} />
-               </button>
-               <div className="absolute top-6 left-6 flex gap-2">
-                 <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${getSeverityColor(report?.severity || 'low')}`}>
-                   {t(`reports.severities.${report?.severity || 'low'}`)} Priority
-                 </span>
-                 <span className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-white/90 backdrop-blur-sm text-primary">
-                   {report?.status}
-                 </span>
-               </div>
-            </div>
+           <motion.div
+             initial={{ scale: 0.9, opacity: 0, y: 20 }}
+             animate={{ scale: 1, opacity: 1, y: 0 }}
+             exit={{ scale: 0.9, opacity: 0, y: 20 }}
+             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+             className="bg-white rounded-[2.5rem] w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-hidden shadow-2xl relative z-[1001] pointer-events-auto"
+           >
+             {/* Header with Photo or Icon */}
+             <div className="relative h-48 sm:h-64 bg-grey/10 flex items-center justify-center overflow-hidden">
+                {report.photoUrl ? (
+                  <img src={report.photoUrl} alt="Report photo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <AlertTriangle size={64} className="text-grey/30 sm:size-[80px]" />
+                )}
+                <button 
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+                  className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2.5 sm:p-3 bg-black/50 hover:bg-black/70 backdrop-blur-md rounded-full text-white transition-all z-50 cursor-pointer active:scale-95"
+                >
+                  <X size={20} className="sm:size-[24px]" />
+                </button>
+                <div className="absolute top-4 left-4 sm:top-6 sm:left-6 flex gap-2">
+                  <span className={`px-3 sm:px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${getSeverityColor(report?.severity || 'low')}`}>
+                    {t(`reports.severities.${report?.severity || 'low'}`)} Priority
+                  </span>
+                  <span className="px-3 sm:px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-white/90 backdrop-blur-sm text-primary">
+                    {report?.status}
+                  </span>
+                </div>
+             </div>
 
-            <div className="p-8">
+             <div className="p-4 sm:p-8">
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h3 className="text-2xl font-black text-black uppercase italic mb-1">
@@ -184,38 +184,38 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-primary uppercase">
-                    <ThumbsUp size={16} />
-                    {report?.upvotes?.length || 0} {t('reports.confirms')}
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={handleUpvote}
-                  disabled={isUpvoting || hasUpvoted}
-                  className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-3 transition-all ${
-                    hasUpvoted 
-                      ? 'bg-success/10 text-success border border-success/20 cursor-default' 
-                      : 'bg-primary text-white shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 disabled:opacity-70'
-                  }`}
-                >
-                  {isUpvoting ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      {t('reports.confirmProblem')}...
-                    </>
-                  ) : hasUpvoted ? (
-                    <>
-                      <ThumbsUp size={16} />
-                      Confermato
-                    </>
-                  ) : (
-                    t('reports.confirmProblem')
-                  )}
-                </button>
-              </div>
+               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+                 <div className="flex items-center gap-4">
+                   <div className="flex items-center gap-1.5 text-xs font-black text-primary uppercase">
+                     <ThumbsUp size={16} />
+                     {report?.upvotes?.length || 0} {t('reports.confirms')}
+                   </div>
+                 </div>
+                 
+                 <button 
+                   onClick={handleUpvote}
+                   disabled={isUpvoting || hasUpvoted}
+                   className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 transition-all ${
+                     hasUpvoted 
+                       ? 'bg-success/10 text-success border border-success/20 cursor-default' 
+                       : 'bg-primary text-white shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 disabled:opacity-70'
+                   }`}
+                 >
+                   {isUpvoting ? (
+                     <>
+                       <Loader2 size={16} className="animate-spin" />
+                       {t('reports.confirmProblem')}...
+                     </>
+                   ) : hasUpvoted ? (
+                     <>
+                       <ThumbsUp size={16} />
+                       Confermato
+                     </>
+                   ) : (
+                     t('reports.confirmProblem')
+                   )}
+                 </button>
+               </div>
             </div>
           </motion.div>
         </div>

@@ -70,6 +70,7 @@ export function AdminHome() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<AdminTab>('STATS');
   const [supportMode, setSupportMode] = useState<'SOS' | 'DIRECT'>('SOS');
+  const [ticketFilter, setTicketFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('OPEN');
   const [selectedChat, setSelectedChat] = useState<SOSRequest | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [selectedAIConv, setSelectedAIConv] = useState<AIConversation | null>(null);
@@ -83,70 +84,77 @@ export function AdminHome() {
   useEffect(() => {
     if (!user) return;
 
-    // 1. Listen for platform stats
-    const unsubStats = onSnapshot(doc(db, 'platformStats', 'global'), (snap) => {
-      if (snap.exists()) setPlatformStats(snap.data());
-    });
+    const handleSnapError = (err: any, label: string) => {
+      console.error(`Admin listener [${label}] failed:`, err);
+    };
 
-    // 2. Listen for AI guidelines
-    const unsubAiConfig = onSnapshot(doc(db, 'aiConfig', 'guidelines'), (snap) => {
-      if (snap.exists()) setAiGuidelines(snap.data().guidelines);
-    });
+    const listeners: (() => void)[] = [];
 
-    // 3. Listen for users
-    const unsubUsers = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-      setAllUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    });
+    // Only subscribe to listeners needed for the current tab to avoid quota exhaustion
+    const tab = activeTab;
 
-    // 4. Listen for support tickets
-    const unsubTickets = onSnapshot(query(collection(db, 'supportTickets'), orderBy('updatedAt', 'desc'), limit(50)), (snap) => {
-      setSupportTickets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    // Always: platform stats (shows in header badges)
+    if (tab === 'STATS' || tab === 'FINANCE') {
+      listeners.push(onSnapshot(doc(db, 'platformStats', 'global'), (snap) => {
+        if (snap.exists()) setPlatformStats(snap.data() as PlatformStats);
+      }, (err) => handleSnapError(err, 'platformStats')));
+    }
 
-    // 5. Listen for AI conversations
-    const unsubAiConvs = onSnapshot(query(collection(db, 'aiConversations'), orderBy('updatedAt', 'desc'), limit(50)), (snap) => {
-      setAiConversations(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    if (tab === 'AI_ASSISTANCE') {
+      listeners.push(onSnapshot(doc(db, 'aiConfig', 'guidelines'), (snap) => {
+        if (snap.exists()) setAiGuidelines(snap.data().guidelines);
+      }, (err) => handleSnapError(err, 'aiConfig')));
+    }
 
-    // 6. Listen for disputed SOS requests
-    const unsubDisputes = onSnapshot(query(collection(db, 'sosRequests'), where('status', '==', 'DISPUTED')), (snap) => {
-      setDisputedJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    if (tab === 'USERS') {
+      listeners.push(onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+        setAllUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+        setLoading(false);
+      }, (err) => handleSnapError(err, 'users')));
+    }
 
-    // 7. Listen for active SOS requests for support monitor
-    const unsubSupport = onSnapshot(query(collection(db, 'sosRequests'), where('status', 'in', ['ACCEPTED', 'IN_PROGRESS', 'DISPUTED']), limit(20)), (snap) => {
-      setActiveSupportChats(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    if (tab === 'SUPPORT') {
+      listeners.push(onSnapshot(query(collection(db, 'supportTickets'), orderBy('updatedAt', 'desc'), limit(50)), (snap) => {
+        setSupportTickets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'supportTickets')));
 
-    // 8. Listen for road reports
-    const unsubReports = onSnapshot(query(collection(db, 'roadReports'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
-      setRoadReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+      listeners.push(onSnapshot(query(collection(db, 'sosRequests'), where('status', 'in', ['ACCEPTED', 'IN_PROGRESS', 'DISPUTED']), limit(20)), (snap) => {
+        setActiveSupportChats(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'activeSupportChats')));
+    }
 
-    // 9. Listen for subscriptions
-    const unsubSubs = onSnapshot(query(collection(db, 'subscriptions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-      setSubscriptions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    if (tab === 'AI_ASSISTANCE') {
+      listeners.push(onSnapshot(query(collection(db, 'aiConversations'), orderBy('updatedAt', 'desc'), limit(50)), (snap) => {
+        setAiConversations(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'aiConversations')));
+    }
 
-    // 10. Listen for financial transactions (SUBSCRIPTION, TOPUP, SOS_PAYMENT)
-    const unsubFinTx = onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-      setFinancialTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    if (tab === 'DISPUTES') {
+      listeners.push(onSnapshot(query(collection(db, 'sosRequests'), where('status', '==', 'DISPUTED')), (snap) => {
+        setDisputedJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'disputes')));
+    }
+
+    if (tab === 'REPORTS') {
+      listeners.push(onSnapshot(query(collection(db, 'roadReports'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
+        setRoadReports(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'roadReports')));
+    }
+
+    if (tab === 'FINANCE' || tab === 'STATS') {
+      listeners.push(onSnapshot(query(collection(db, 'subscriptions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+        setSubscriptions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'subscriptions')));
+
+      listeners.push(onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+        setFinancialTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
+      }, (err) => handleSnapError(err, 'transactions')));
+    }
 
     return () => {
-      unsubStats();
-      unsubAiConfig();
-      unsubUsers();
-      unsubTickets();
-      unsubAiConvs();
-      unsubDisputes();
-      unsubSupport();
-      unsubReports();
-      unsubSubs();
-      unsubFinTx();
+      listeners.forEach(unsub => unsub());
     };
-  }, [user?.uid]);
+  }, [user?.uid, activeTab]);
 
   const saveAIGuidelines = async () => {
     setIsSavingAI(true);
@@ -337,7 +345,7 @@ export function AdminHome() {
       id: 'USERS', 
       label: 'Utenti', 
       icon: <Users size={20} />, 
-      badge: allUsers.filter(u => u.kycStatus === 'PENDING').length || allUsers.length,
+      badge: allUsers.filter(u => u.kycStatus === 'PENDING').length,
       badgeColor: allUsers.some(u => u.kycStatus === 'PENDING') ? 'bg-accent' : 'bg-primary'
     },
     { id: 'MAP', label: 'Mappa Live', icon: <MapIcon size={20} /> },
@@ -837,11 +845,12 @@ export function AdminHome() {
                                   <button 
                                     onClick={async () => {
                                       try {
-                                        await updateDoc(doc(db, 'users', u.id), { 
+                                        const updateData: any = { 
                                           kycStatus: 'APPROVED', 
-                                          role: 'MECHANIC',
                                           updatedAt: serverTimestamp() 
-                                        });
+                                        };
+                                        if (u.role === 'PEER_MECHANIC') updateData.role = 'MECHANIC';
+                                        await updateDoc(doc(db, 'users', u.id), updateData);
                                         // Send notification email
                                         try {
                                           const sendKycEmail = httpsCallable(functions, 'sendKycEmail');
@@ -999,6 +1008,21 @@ export function AdminHome() {
                 </button>
               </div>
 
+              {/* Ticket Status Filter */}
+              {supportMode === 'DIRECT' && (
+                <div className="flex gap-2 px-4 shrink-0">
+                  {(['ALL', 'OPEN', 'CLOSED'] as const).map(filter => (
+                    <button
+                      key={filter}
+                      onClick={() => setTicketFilter(filter)}
+                      className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${ticketFilter === filter ? 'bg-primary text-white' : 'bg-grey/10 text-grey hover:bg-grey/20'}`}
+                    >
+                      {filter === 'ALL' ? 'Tutti' : filter === 'OPEN' ? 'Aperti' : 'Chiusi'} ({filter === 'ALL' ? supportTickets.length : supportTickets.filter(t => t.status === filter).length})
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
                 {/* Chat List */}
                 <div className={`w-full lg:w-80 flex flex-col gap-4 ${selectedChat || selectedTicket ? 'hidden lg:flex' : 'flex'}`}>
@@ -1070,30 +1094,38 @@ export function AdminHome() {
                         ))
                       )
                     ) : (
-                      supportTickets.length === 0 ? (
-                        <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5 shadow-sm">
-                          Nessun ticket di assistenza aperto
-                        </div>
-                      ) : (
-                        supportTickets.map(ticket => (
-                          <button
-                            key={ticket.id}
-                            onClick={() => setSelectedTicket(ticket)}
-                            className={`w-full text-left p-4 rounded-3xl border-2 transition-all shadow-sm ${selectedTicket?.id === ticket.id ? 'bg-accent border-accent text-white scale-[1.02]' : 'bg-white text-black border-grey/10 hover:border-accent/30'}`}
-                          >
-                            <div className="flex justify-between items-start mb-2">
-                              <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${ticket.status === 'OPEN' ? 'bg-accent text-white border-white/20' : 'bg-grey/10 text-grey border-grey/20'}`}>
-                                {ticket.status}
-                              </span>
-                              <span className="text-[10px] font-black opacity-60">{ticket.userRole}</span>
-                            </div>
-                            <h4 className="font-black uppercase text-xs line-clamp-1">{ticket.userName}</h4>
-                            <p className={`text-[9px] font-bold leading-tight mt-1 opacity-70 ${selectedTicket?.id === ticket.id ? '' : 'italic'}`}>
-                              {ticket.lastMessage || 'Inizia conversazione'}
-                            </p>
-                          </button>
-                        ))
-                      )
+                      (() => {
+                        const filtered = ticketFilter === 'ALL' ? supportTickets : supportTickets.filter(t => t.status === ticketFilter);
+                        return filtered.length === 0 ? (
+                          <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5 shadow-sm">
+                            {ticketFilter === 'OPEN' ? 'Nessun ticket aperto' : ticketFilter === 'CLOSED' ? 'Nessun ticket chiuso' : 'Nessun ticket'}
+                          </div>
+                        ) : (
+                          filtered.map(ticket => (
+                            <button
+                              key={ticket.id}
+                              onClick={() => setSelectedTicket(ticket)}
+                              className={`w-full text-left p-4 rounded-3xl border-2 transition-all shadow-sm ${selectedTicket?.id === ticket.id ? 'bg-accent border-accent text-white scale-[1.02]' : 'bg-white text-black border-grey/10 hover:border-accent/30'}`}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${ticket.status === 'OPEN' ? 'bg-accent text-white border-white/20' : ticket.status === 'CLOSED' ? 'bg-grey/10 text-grey border-grey/20' : 'bg-warning/10 text-warning border-warning/20'}`}>
+                                  {ticket.status}
+                                </span>
+                                <span className="text-[10px] font-black opacity-60">{ticket.userRole}</span>
+                              </div>
+                              <h4 className="font-black uppercase text-xs line-clamp-1">{ticket.userName}</h4>
+                              <p className={`text-[9px] font-bold leading-tight mt-1 opacity-70 ${selectedTicket?.id === ticket.id ? '' : 'italic'}`}>
+                                {ticket.lastMessage || 'Nessun messaggio'}
+                              </p>
+                              {ticket.updatedAt && (
+                                <p className="text-[8px] font-bold text-grey/50 mt-1">
+                                  {new Date(ticket.updatedAt.seconds * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              )}
+                            </button>
+                          ))
+                        );
+                      })()
                     )}
                   </div>
                 </div>
@@ -1161,8 +1193,20 @@ export function AdminHome() {
                         <button 
                           onClick={async () => {
                             if(!window.confirm('Chiudere questo ticket?')) return;
-                            await updateDoc(doc(db, 'supportTickets', selectedTicket.id), { status: 'CLOSED', updatedAt: serverTimestamp() });
-                            setSelectedTicket(null);
+                            try {
+                              await updateDoc(doc(db, 'supportTickets', selectedTicket.id), { 
+                                status: 'CLOSED', 
+                                updatedAt: serverTimestamp(),
+                                closedBy: user?.uid,
+                                closedAt: serverTimestamp(),
+                                closedByAdmin: true
+                              });
+                              toast.success('Ticket chiuso');
+                              setSelectedTicket(null);
+                            } catch (err) {
+                              console.error(err);
+                              toast.error('Errore nella chiusura del ticket');
+                            }
                           }}
                           className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all"
                         >
@@ -1170,7 +1214,7 @@ export function AdminHome() {
                         </button>
                       </div>
                       <div className="flex-1 flex flex-col overflow-hidden">
-                        <Chat chatId={selectedTicket.id} otherPartyName={selectedTicket.userName} isAdminSupport />
+                        <Chat key={selectedTicket.id} chatId={selectedTicket.id} otherPartyName={selectedTicket.userName} isAdminSupport targetUserId={selectedTicket.userId} />
                       </div>
                     </>
                   )}
@@ -1367,7 +1411,7 @@ export function AdminHome() {
                             <p className="text-[8px] font-black text-primary uppercase tracking-[0.2em] mb-1">JOB ID: #{job.id.slice(-8)}</p>
                             <h3 className="text-xl md:text-2xl font-black text-black uppercase italic group-hover:text-primary transition-colors">{job.faultType || 'Unknown Issue'}</h3>
                             <div className="flex items-center gap-2 mt-2 text-[10px] font-bold text-grey uppercase">
-                              <Clock size={12} /> {job.createdAt ? formatDistanceToNow(job.createdAt.toDate(), { locale: it, addSuffix: true }) : 'recent'}
+                              <Clock size={12} /> {job.createdAt ? formatDistanceToNow((job.createdAt as any).toDate?.() || new Date(job.createdAt), { locale: it, addSuffix: true }) : 'recent'}
                             </div>
                           </div>
                           <div className="md:text-right">
@@ -1464,7 +1508,7 @@ export function AdminHome() {
                      <p className="text-sm text-grey mb-4 flex-1">{report?.description}</p>
                      <div className="flex items-center justify-between text-[10px] font-bold text-grey uppercase tracking-widest mb-4">
                         <span>Upvotes: {report?.upvotes?.length || 0}</span>
-                        <span>{report?.createdAt ? new Date(report.createdAt.seconds ? report.createdAt.seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
+                        <span>{report?.createdAt ? new Date((report.createdAt as any)?.seconds ? (report.createdAt as any).seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
                      </div>
                      <div className="flex gap-2">
                         {report.status !== 'resolved' && (
@@ -1696,7 +1740,7 @@ export function AdminHome() {
                                 tx.type === 'SUBSCRIPTION' ? 'bg-primary/10 text-primary' : 
                                 'bg-grey/10 text-grey'
                               }`}>
-                                {tx.type?.replace('_', ' ')}
+                                {tx.type?.replace(/_/g, ' ')}
                               </span>
                             </td>
                             <td className="py-4">

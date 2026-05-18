@@ -23,11 +23,13 @@ import {
   Moon,
   AlertTriangle,
   X,
-  Zap
+  Zap,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Logo } from './Logo';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { safeStorage } from '../lib/storage';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, arrayUnion, addDoc, setDoc, limit, orderBy, runTransaction, increment, getDocs } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -122,7 +124,7 @@ export function MechanicHome() {
       limit(50)
     );
     const unsub = onSnapshot(q, (snap) => {
-      const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const txs: any[] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
       // Build last 7 days earnings
       const days = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -235,7 +237,7 @@ export function MechanicHome() {
   const updateMechanicStatus = async (newStatus: string) => {
     if (!user) return;
     try {
-    const lockState = localStorage.getItem('fb_tx_lock');
+    const lockState = safeStorage.getItem('fb_tx_lock');
     // eslint-disable-next-line react-hooks/purity
     const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (Date.now() - parseInt(lockState) < 10000));
 
@@ -269,7 +271,7 @@ export function MechanicHome() {
         })
       });
       // If the mechanic was BUSY because of this job, set them back to FREE
-      const lockState = localStorage.getItem('fb_tx_lock');
+      const lockState = safeStorage.getItem('fb_tx_lock');
       const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (Date.now() - parseInt(lockState) < 10000));
 
       if (mechanicStatus === 'BUSY' && !isLocked) {
@@ -280,7 +282,7 @@ export function MechanicHome() {
       }
     } catch (error) {
       console.error('Error cancelling job:', error);
-      toast.error('Errore durante l\'annullamento.');
+      toast.error(t('mechanic.cancelError', { defaultValue: 'Errore durante l\'annullamento.' }));
     }
   };
 
@@ -322,7 +324,7 @@ export function MechanicHome() {
           updatedAt: serverTimestamp()
         });
       });
-      toast.error('Un SOS è stato annullato per inattività.');
+      toast.error(t('mechanic.sosTimeoutCancelled', { defaultValue: 'Un SOS è stato annullato per inattività.' }));
     } catch (e) {
       console.error('Auto-cancel failed:', e);
     }
@@ -379,7 +381,7 @@ export function MechanicHome() {
       setShowChat(true);
     } catch (e) { 
       console.error('Error starting direct chat:', e);
-      toast.error('Errore durante l\'apertura della chat: ' + (e.message || 'Riprova più tardi'));
+      toast.error(t('mechanic.chatOpenError', { defaultValue: "Errore durante l'apertura della chat" }) + ': ' + (e.message || t('common.tryAgain', { defaultValue: 'Riprova più tardi' })));
     }
   };
   const { t, i18n } = useTranslation();
@@ -514,11 +516,11 @@ export function MechanicHome() {
     );
 
     const unsubJobs = onSnapshot(activeQ, (snapshot) => {
-      const jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const jobs: any[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
-      // Separate active from recently completed and reviewed
-      const current = jobs.filter((j: { status: string; isReviewed?: boolean }) => j.status !== 'COMPLETED' || !j.isReviewed);
-      const finished = jobs.filter((j: { status: string; isReviewed?: boolean }) => j.status === 'COMPLETED' && j.isReviewed).slice(0, 5);
+      // Separate active from completed (both reviewed and pending review)
+      const current = jobs.filter((j: any) => j.status !== 'COMPLETED');
+      const finished = jobs.filter((j: any) => j.status === 'COMPLETED').slice(0, 10);
       
       setActiveJobs(current);
       setCompletedJobsList(finished);
@@ -632,14 +634,14 @@ export function MechanicHome() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const chats = snapshot.docs.map(doc => ({
+      const chats: any[] = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
       setRecentChats(chats);
       
       // Calculate total unread count
-      const totalUnread = chats.reduce((acc: number, chat: { unreadCount?: Record<string, number> }) => {
+      const totalUnread = chats.reduce((acc: number, chat: any) => {
         const nestedUnread = chat.unreadCount?.[user?.uid || ''] || 0;
         const flatUnread = chat[`unreadCount.${user?.uid || ''}`] || 0;
         return acc + nestedUnread + flatUnread;
@@ -678,7 +680,7 @@ export function MechanicHome() {
     if (!user) return;
     
     if (!isAvailable && (profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan))) {
-      toast.error("Il piano FREE non permette di andare online. Attiva il piano BASE o superiore dal tuo Profilo per iniziare a ricevere richieste.");
+      toast.error(t('mechanic.freePlanOnlineError', { defaultValue: "Il piano FREE non permette di andare online. Attiva il piano BASE o superiore dal tuo Profilo per iniziare a ricevere richieste." }));
       return;
     }
 
@@ -710,7 +712,7 @@ export function MechanicHome() {
         userUpdate.location = null;
       }
       const p1 = updateDoc(userRef, userUpdate);
-      const p2 = updateDoc(mechanicRef, { isAvailable: newStatus }).catch(() => {});
+      const p2 = updateDoc(mechanicRef, { isAvailable: newStatus }).catch((e) => console.warn('Availability update failed', e));
       
       await Promise.all([p1, p2]);
     } catch (err) {
@@ -727,7 +729,7 @@ export function MechanicHome() {
     setLoadingJobId(jobId);
     
     if (profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan)) {
-      toast.error("Il piano FREE non permette di accettare richieste SOS. Attiva il piano BASE o superiore dal tuo Profilo.");
+      toast.error(t('mechanic.freePlanAcceptError', { defaultValue: "Il piano FREE non permette di accettare richieste SOS. Attiva il piano BASE o superiore dal tuo Profilo." }));
       setLoadingJobId(null);
       return;
     }
@@ -773,7 +775,7 @@ export function MechanicHome() {
       toast.success(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
     } catch (error) {
       if (error.message === 'SOS already accepted or invalid') {
-         toast.error("Questa richiesta SOS è già stata presa in carico da un altro meccanico.");
+         toast.error(t('mechanic.sosAlreadyAccepted', { defaultValue: "Questa richiesta SOS è già stata presa in carico da un altro meccanico." }));
       } else {
          handleFirestoreError(error, OperationType.UPDATE, `sosRequests/${jobId}`);
       }
@@ -791,18 +793,22 @@ export function MechanicHome() {
         status: 'IN_PROGRESS' // still technically open until cyclist confirms
       });
       // Do not clear the active job yet, we wait for cyclist response
-      toast.success('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
+      toast.success(t('mechanic.repairCompleted', { defaultValue: 'Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.' }));
     } catch (err) {
       console.error('Error completing job:', err);
     }
   };
+
+  if (!profile) {
+    return <div className="flex-1 flex items-center justify-center bg-white"><Loader2 size={32} className="animate-spin text-primary" /></div>;
+  }
 
   if (profile?.role === 'MECHANIC' && profile?.kycStatus !== 'APPROVED') {
       return <KYCVerification />;
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white overflow-hidden relative transition-colors duration-500">
+    <div className="flex flex-col relative bg-white transition-colors duration-500" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
       {/* New SOS Banner */}
       <AnimatePresence>
         {showNewSOSBanner && newSOS && (
@@ -845,7 +851,7 @@ export function MechanicHome() {
       </AnimatePresence>
 
       {/* Content Area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="relative overflow-hidden" style={{ flex: '1 1 0%', minHeight: 0 }}>
         {/* Main Content Area - Render all tabs but show only active one for instant switching */}
         <div className="absolute inset-0 flex flex-col">
           {/* Support Chat Overlay */}
@@ -856,7 +862,7 @@ export function MechanicHome() {
                 initial={{ opacity: 0, x: 20 }} 
                 animate={{ opacity: 1, x: 0 }} 
                 exit={{ opacity: 0, x: 20 }} 
-                className="absolute inset-0 z-30 flex flex-col bg-white pb-[110px] transition-colors"
+                className="absolute inset-0 z-[100] flex flex-col bg-white transition-colors"
               >
                 <ChatHeader 
                   chatId={directChat.id} 
@@ -958,7 +964,7 @@ export function MechanicHome() {
                                <CheckCircle2 size={20}/>
                             </div>
                             <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">Job Completati</p>
-                            <p className="text-2xl font-black text-accent">{mechanicData?.completedJobs || 0}</p>
+                            <p className="text-2xl font-black text-accent">{mechanicData?.completedJobs ?? profile?.completedJobs ?? 0}</p>
                          </div>
                          <div className="bg-warning/10 p-5 rounded-[2.5rem] shadow-sm border border-warning/10">
                             <div className="w-10 h-10 bg-warning/20 rounded-2xl flex items-center justify-center text-warning mb-4">
@@ -971,13 +977,15 @@ export function MechanicHome() {
                      {earningsData.length > 0 && (
                        <div className="mb-6">
                          <h3 className="text-sm font-black text-grey uppercase mb-3">Guadagni Ultimi 7 Giorni</h3>
-                         <div className="h-40 bg-grey/5 rounded-2xl p-3">
-                           <BarChart width={300} height={140} data={earningsData}>
-                             <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
-                               {earningsData.map((_, i) => <Cell key={i} fill={i === earningsData.length - 1 ? '#f59e0b' : '#f59e0b40'} />)}
-                             </Bar>
-                           </BarChart>
-                         </div>
+                          <div className="h-40 bg-grey/5 rounded-2xl p-3">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={earningsData}>
+                                <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+                                  {earningsData.map((_, i) => <Cell key={i} fill={i === earningsData.length - 1 ? '#f59e0b' : '#f59e0b40'} />)}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
                        </div>
                      )}
                      {activityData.length > 0 && (
@@ -1026,42 +1034,42 @@ export function MechanicHome() {
           {/* Work Tab (Home) */}
           <div className={`absolute inset-0 overflow-y-auto pb-48 transition-opacity duration-300 ${activeTab === 'WORK' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {/* Header */}
-             <div className="bg-primary pt-12 pb-16 px-6 rounded-b-[3rem] relative transition-colors">
-               <div className="flex justify-between items-center mb-6">
-                 <div className="flex items-center gap-3">
-                    <button onClick={() => setActiveTab('PROFILE')} className="w-12 h-12 rounded-2xl border-2 border-white/50 overflow-hidden active:scale-95 transition-transform">
-                       <img src={profile?.photoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt="Avatar" className="w-full h-full object-cover"/>
-                    </button>
-                    <div>
-                      <h2 className="text-white font-black text-xl transition-colors">{t('common.hi')}, {user?.displayName || t('auth.mechanic')}!</h2>
-                      <div className="flex items-center gap-3 mt-1">
-                           <span className={`text-xs font-black uppercase tracking-[0.2em] transition-colors ${isAvailable ? 'text-accent' : 'text-white/70'}`}>
-                             {isAvailable ? t('mechanic.online') : t('mechanic.offline')}
-                           </span>
-                      </div>
-                    </div>
-                 </div>
-                 {/* ... (rest of header actions) */}
-                 <div className="flex flex-wrap items-center justify-end gap-2 flex-1 sm:flex-none">
-                    <button onClick={() => setActiveTab('CHAT')} className="bg-white/10 p-2 rounded-xl text-white transition-all hover:bg-white/20 relative">
-                       <MessageSquare size={20}/>
-                       {unreadCount > 0 && (
-                         <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border-2 border-primary">
-                           {unreadCount}
-                         </div>
-                       )}
-                    </button>
-                    <button onClick={() => setShowAIDoctor(true)} className="bg-accent text-white p-2 rounded-xl transition-all shadow-lg shadow-accent/20">
-                       <Sparkles size={20}/>
-                    </button>
-                    <button onClick={async () => {
-                        if (auth.currentUser) {
-                            try {
-                              await updateDoc(doc(db, 'users', auth.currentUser.uid), { isOnline: false, updatedAt: serverTimestamp() });
-                            } catch (e) { console.error(e); }
-                        }
-                        signOut(auth);
-                    }} className="bg-white/10 p-2 rounded-xl text-white">
+             <div className="bg-primary pt-8 pb-12 px-4 sm:pt-12 sm:pb-16 sm:px-6 rounded-b-[3rem] relative transition-colors">
+                <div className="flex justify-between items-center mb-4 sm:mb-6">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                     <button onClick={() => setActiveTab('PROFILE')} className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl border-2 border-white/50 overflow-hidden active:scale-95 transition-transform">
+                        <img src={profile?.photoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt="Avatar" className="w-full h-full object-cover"/>
+                     </button>
+                     <div>
+                       <h2 className="text-white font-black text-lg sm:text-xl transition-colors">{t('common.hi')}, {user?.displayName || t('auth.mechanic')}!</h2>
+                       <div className="flex items-center gap-3 mt-1">
+                            <span className={`text-xs font-black uppercase tracking-[0.2em] transition-colors ${isAvailable ? 'text-accent' : 'text-white/70'}`}>
+                              {isAvailable ? t('mechanic.online') : t('mechanic.offline')}
+                            </span>
+                       </div>
+                     </div>
+                  </div>
+                  {/* ... (rest of header actions) */}
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 flex-1 sm:flex-none">
+                     <button onClick={() => setActiveTab('CHAT')} className="bg-white/10 p-1.5 sm:p-2 rounded-xl text-white transition-all hover:bg-white/20 relative">
+                        <MessageSquare size={18} className="sm:size-[20px]"/>
+                        {unreadCount > 0 && (
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border-2 border-primary">
+                              {unreadCount}
+                          </div>
+                        )}
+                     </button>
+                     <button onClick={() => setShowAIDoctor(true)} className="bg-accent text-white p-1.5 sm:p-2 rounded-xl transition-all shadow-lg shadow-accent/20">
+                        <Sparkles size={18} className="sm:size-[20px]"/>
+                     </button>
+                     <button onClick={async () => {
+                         if (auth.currentUser) {
+                             try {
+                               await updateDoc(doc(db, 'users', auth.currentUser.uid), { isOnline: false, updatedAt: serverTimestamp() });
+                             } catch (e) { console.error(e); }
+                         }
+                         signOut(auth);
+                     }} className="bg-white/10 p-1.5 sm:p-2 rounded-xl text-white">
                        <Power size={20}/>
                     </button>
                  </div>

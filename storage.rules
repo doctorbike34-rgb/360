@@ -15,15 +15,21 @@ service firebase.storage {
       );
     }
 
-    // KYC Documents: Private to owner, readable by Admins
-    match /kyc/{userId}/{allPaths=**} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+    // SOS Photos: Owner writable, publicly readable (for mechanics to see)
+    match /sos-photos/{userId}/{allPaths=**} {
+      allow read: if isSignedIn();
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
     // Profile Photos: Publicly readable, owner writable
     match /profiles/{userId}/{allPaths=**} {
       allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // KYC Documents: Private to owner, readable by Admins
+    match /kyc/{userId}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
     

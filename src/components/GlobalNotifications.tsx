@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { onSnapshot, query, collection, where, orderBy, getDocs } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuthStore } from '../store/useAuthStore';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'motion/react';
 import { MessageCircle, X, Bell } from 'lucide-react';
 import { soundService } from '../lib/sounds';
 

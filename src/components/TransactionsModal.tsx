@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, or } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 
 interface TransactionsModalProps {
   onClose: () => void;
@@ -16,26 +16,65 @@ export function TransactionsModal({ onClose }: TransactionsModalProps) {
 
   useEffect(() => {
     if (!user) return;
-    
-    // We want where(fromId == user.uid OR toId == user.uid), but firestore "or" is supported.
-    const q = query(
+
+    // Use two separate queries merged client-side to avoid needing composite indexes.
+    // Firestore "or" queries require composite indexes for each clause.
+    const sentQ = query(
       collection(db, 'transactions'),
-      or(
-          where('fromId', '==', user.uid),
-          where('toId', '==', user.uid)
-      ),
-      orderBy('createdAt', 'desc')
+      where('fromId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    const receivedQ = query(
+      collection(db, 'transactions'),
+      where('toId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(50)
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    let unsub1: (() => void) | null = null;
+    let unsub2: (() => void) | null = null;
+    let sentLoaded = false;
+    let receivedLoaded = false;
+    let sentData: any[] = [];
+    let receivedData: any[] = [];
+
+    const mergeAndSet = () => {
+      if (!sentLoaded || !receivedLoaded) return;
+      const all = [...receivedData, ...sentData];
+      all.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() ?? a.createdAt?.seconds ?? 0;
+        const bTime = b.createdAt?.toMillis?.() ?? b.createdAt?.seconds ?? 0;
+        return bTime - aTime;
+      });
+      setTransactions(all);
       setLoading(false);
+    };
+
+    unsub1 = onSnapshot(sentQ, (snap) => {
+      sentData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      sentLoaded = true;
+      mergeAndSet();
     }, (err) => {
-      console.error(err);
-      setLoading(false);
+      console.error('Sent transactions query error:', err);
+      sentLoaded = true;
+      mergeAndSet();
     });
 
-    return () => unsub();
+    unsub2 = onSnapshot(receivedQ, (snap) => {
+      receivedData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      receivedLoaded = true;
+      mergeAndSet();
+    }, (err) => {
+      console.error('Received transactions query error:', err);
+      receivedLoaded = true;
+      mergeAndSet();
+    });
+
+    return () => {
+      if (unsub1) unsub1();
+      if (unsub2) unsub2();
+    };
   }, [user]);
 
   return (

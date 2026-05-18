@@ -36,7 +36,8 @@ import {
   QrCode,
   Download,
   MapPin as MapIcon,
-  Navigation2
+  Navigation2,
+  ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { increment } from 'firebase/firestore';
@@ -85,6 +86,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const [isReviewsLoading, setIsReviewsLoading] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+  const [showFAQ, setShowFAQ] = useState(false);
   const [userSupportTicket, setUserSupportTicket] = useState<any | null>(null);
   const [isCreatingTicket, setIsCreatingTicket] = useState(false);
   
@@ -118,10 +120,13 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       // Timeout after 15s if no webhook
       const timeout = setTimeout(() => {
         unsub();
-        if (paymentStep === 'PROCESSING') {
-          setPaymentStep('SELECT_AMOUNT');
-          toast('Il pagamento è ancora in elaborazione. Ricarica la pagina tra qualche istante per vedere il saldo aggiornato.', { icon: '⏳' });
-        }
+        setPaymentStep(prev => {
+          if (prev === 'PROCESSING') {
+            toast('Il pagamento è ancora in elaborazione. Ricarica la pagina tra qualche istante per vedere il saldo aggiornato.', { icon: '⏳' });
+            return 'SELECT_AMOUNT';
+          }
+          return prev;
+        });
       }, 15000);
 
       return () => {
@@ -149,6 +154,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const [verificationSent, setVerificationSent] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showInterventionHistory, setShowInterventionHistory] = useState(false);
+  const [showPaymentMethods, setShowPaymentMethods] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
   const sendVerification = async () => {
@@ -171,12 +177,6 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     { id: 'CLUB', title: 'CLUB', price: 59, features: ['Meccanico in primo piano', 'Commissione 10%', 'Creazione eventi social', 'Badge Certificato ARGENTO'], color: 'bg-slate-300 text-slate-700' },
     { id: 'PRO', title: 'PRO', price: 99, features: ['Visibilità prioritaria', 'Commissione 5%', 'Dashboard statistiche', 'Badge Certificato ORO'], color: 'bg-amber-400 text-amber-900' }
   ];
-
-  const processPayment = async (planId: string) => {
-    // Simulate payment processing
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    return true; // Simulate success
-  };
 
   const upgradePlan = async (planId: string) => {
     if (!user) return;
@@ -231,23 +231,6 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     }
   };
 
-  const finalizeUpgrade = async () => {
-    if (!user || !selectedPlanForUpgrade) return;
-    setPlanUpgradeStep('PROCESSING');
-    try {
-      // Webhook handles everything server-side now.
-      // Just poll briefly and show success.
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      setPlanUpgradeStep('SUCCESS');
-    } catch (err) {
-      console.error(err);
-      toast.error("Errore durante il salvataggio del piano");
-      setPlanUpgradeStep('PAYMENT');
-    } finally {
-      setIsUpgrading(null);
-    }
-  };
-
   useEffect(() => {
     if (user) {
       const q = query(
@@ -270,10 +253,21 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   }, [user]);
 
   const startSupportTicket = async () => {
-    if (!user || userSupportTicket) {
-      if (userSupportTicket) setShowSupport(true);
+    if (!user) return;
+    if (userSupportTicket && userSupportTicket.status === 'OPEN') {
+      setShowSupport(true);
       return;
     }
+    if (userSupportTicket && userSupportTicket.status === 'CLOSED') {
+      setShowFAQ(true);
+      return;
+    }
+    setShowFAQ(true);
+  };
+
+  const createTicketFromFAQ = async () => {
+    if (!user) return;
+    setShowFAQ(false);
     setIsCreatingTicket(true);
     try {
       const ticketRef = doc(collection(db, 'supportTickets'));
@@ -286,9 +280,12 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         updatedAt: serverTimestamp(),
         lastMessage: 'Richiesta di assistenza avviata'
       });
+      setUserSupportTicket({ id: ticketRef.id, userId: user.uid, status: 'OPEN' });
+      toast.success('Ticket di assistenza creato');
       setShowSupport(true);
     } catch (err) {
       console.error('Error creating support ticket:', err);
+      toast.error('Errore nella creazione del ticket di assistenza');
     } finally {
       setIsCreatingTicket(false);
     }
@@ -795,40 +792,40 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
         {/* Top Up Modal */}
         <AnimatePresence>
-          {showTopUp && (
-            <div className="fixed inset-0 z-[100] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={resetTopUp} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[100]"/>
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 z-[110] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-safe">
-                <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-8"/>
-                
-                <div className="flex justify-between items-center mb-6">
-                   <h3 className="text-2xl font-black text-primary  uppercase italic">{t('profile.topUpWallet')}</h3>
-                   <button onClick={resetTopUp} className="p-2 text-grey">
-                      <X size={24}/>
-                   </button>
-                </div>
+           {showTopUp && (
+             <div className="fixed inset-0 z-[100] flex flex-col justify-end sm:justify-center overflow-hidden">
+               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={resetTopUp} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[100]"/>
+                <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[110] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
+                 
+                 <div className="flex justify-between items-center mb-4 sm:mb-6">
+                    <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.topUpWallet')}</h3>
+                    <button onClick={resetTopUp} className="p-2 text-grey">
+                       <X size={24}/>
+                    </button>
+                 </div>
 
                 <AnimatePresence mode="wait">
-                  {paymentStep === 'SELECT_AMOUNT' && (
-                    <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                      <p className="text-xs text-grey  font-bold uppercase tracking-widest">{t('profile.chooseAmount')}</p>
-                      <div className="grid grid-cols-2 gap-4">
-                        {amounts.map(amount => (
-                          <button key={amount} onClick={() => setSelectedAmount(amount)}
-                            className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-1 ${selectedAmount === amount ? 'bg-primary/5 border-primary' : 'bg-white text-black shadow-sm border border-grey/10 border-transparent'}`}
-                          >
-                            <span className="text-2xl font-black text-primary ">⚡{amount}</span>
-                            <span className="text-[10px] font-bold text-grey/60">DB Coin (€{amount})</span>
-                          </button>
-                        ))}
-                      </div>
-                      <button disabled={!selectedAmount} onClick={() => setPaymentStep('SELECT_METHOD')}
-                        className="w-full bg-primary text-white py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
-                      >
-                        {t('profile.continue')}
-                      </button>
-                    </motion.div>
-                  )}
+                   {paymentStep === 'SELECT_AMOUNT' && (
+                     <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 sm:space-y-6">
+                       <p className="text-xs text-grey font-bold uppercase tracking-widest">{t('profile.chooseAmount')}</p>
+                       <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                         {amounts.map(amount => (
+                           <button key={amount} onClick={() => setSelectedAmount(amount)}
+                             className={`p-4 sm:p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-1 ${selectedAmount === amount ? 'bg-primary/5 border-primary' : 'bg-white text-black shadow-sm border border-grey/10 border-transparent'}`}
+                           >
+                             <span className="text-xl sm:text-2xl font-black text-primary">⚡{amount}</span>
+                             <span className="text-[10px] font-bold text-grey/60">DB Coin (€{amount})</span>
+                           </button>
+                         ))}
+                       </div>
+                       <button disabled={!selectedAmount} onClick={() => setPaymentStep('SELECT_METHOD')}
+                         className="w-full bg-primary text-white py-4 sm:py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+                       >
+                         {t('profile.continue')}
+                       </button>
+                     </motion.div>
+                   )}
 
                   {paymentStep === 'SELECT_METHOD' && (
                     <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
@@ -897,7 +894,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
         {/* Menu Items */}
         <div className="space-y-2">
-           <MenuButton icon={<CreditCard size={18}/>} label={t('profile.paymentMethods')} onClick={() => setShowTopUp(true)} />
+            <MenuButton icon={<CreditCard size={18}/>} label={t('profile.paymentMethods')} onClick={() => setShowPaymentMethods(true)} />
            <MenuButton icon={<History size={18}/>} label={'Storico Interventi (PDF)'} onClick={() => setShowInterventionHistory(true)} />
            {role === 'MECHANIC' && (
              <MenuButton icon={<Star size={18}/>} label="Recensioni Ricevute" onClick={() => setShowReviews(true)} />
@@ -911,9 +908,28 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
            />
            <MenuButton icon={<Shield size={18}/>} label={t('profile.safety')} onClick={() => setShowSafety(true)} />
            <MenuButton icon={<Shield size={18} className="text-accent"/>} label={t('profile.privacyAndLegal')} onClick={() => setShowPrivacy(true)} />
-           <MenuButton icon={<Settings size={18}/>} label={t('profile.settings')} onClick={() => setShowSettings(true)} />
-           
-           {deferredPrompt && (
+            <MenuButton icon={<Settings size={18}/>} label={t('profile.settings')} onClick={() => setShowSettings(true)} />
+            
+            <button onClick={async () => {
+              try {
+                await signOut(auth);
+                window.location.href = '/';
+              } catch (err) {
+                console.error('Logout error:', err);
+              }
+            }}
+              className="w-full bg-danger/5 hover:bg-danger/10 text-danger p-5 rounded-[1.5rem] flex items-center justify-between group shadow-sm border border-danger/10 transition-all mt-4"
+            >
+               <div className="flex items-center gap-4 text-danger font-bold text-sm italic">
+                  <div className="text-danger">
+                    <LogOut size={18}/>
+                  </div>
+                  {t('profile.logout')}
+               </div>
+               <ChevronRight size={18} className="text-danger/40 transition-transform group-hover:translate-x-1"/>
+            </button>
+            
+            {deferredPrompt && (
              <div className="pt-4 mt-4 border-t border-primary/10">
                <button onClick={handleInstallClick}
                  className="w-full flex items-center gap-4 p-5 bg-primary/5 hover:bg-primary/10 rounded-3xl transition-all border border-primary/20 group"
@@ -956,7 +972,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showAvatarPicker && (
             <div className="fixed inset-0 z-[200] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAvatarPicker(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[200]"/>
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 z-[210] shadow-2xl pb-safe">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 z-[210] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-8"/>
                 
                 <div className="flex justify-between items-center mb-8">
@@ -974,13 +990,13 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <Camera size={32} className="text-grey group-hover:scale-110 transition-transform mb-2"/>
                         <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-relaxed">Tocca per caricare</p>
-                        <p className="text-[8px] font-medium text-grey/60 uppercase tracking-tighter mt-1">PNG, JPG (MAX. 1MB)</p>
+                        <p className="text-[8px] font-medium text-grey/60 uppercase tracking-tighter mt-1">PNG, JPG (MAX. 2MB)</p>
                       </div>
                       <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        if (file.size > 1024 * 1024) {
-                          toast.error('Immagine troppo grande (max 1MB).');
+                        if (file.size > 2 * 1024 * 1024) {
+                          toast.error('Immagine troppo grande (max 2MB).');
                           return;
                         }
                         const reader = new FileReader();
@@ -1083,11 +1099,11 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showHistory && (
             <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowHistory(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
                   <h3 className="text-2xl font-black text-primary  uppercase italic">{t('profile.history')}</h3>
-                  <button onClick={() => setShowHistory(false)} className="p-2 text-grey"><X size={24}/></button>
+                  <button onClick={() => setShowHistory(false)} aria-label="Close history" className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 
                 {isHistoryLoading ? (
@@ -1136,593 +1152,282 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showReviews && (
             <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReviews(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-black text-primary  uppercase italic">Le tue Recensioni</h3>
-                  <button onClick={() => setShowReviews(false)} className="p-2 text-grey"><X size={24}/></button>
-                </div>
+                   <h3 className="text-2xl font-black text-primary  uppercase italic">Le tue Recensioni</h3>
+                   <button onClick={() => setShowReviews(false)} aria-label="Close reviews" className="p-2 text-grey"><X size={24}/></button>
+                 </div>
                 
-                {isReviewsLoading ? (
-                  <div className="flex justify-center py-20 text-primary">
-                    <Loader2 className="w-8 h-8 animate-spin"/>
-                  </div>
-                ) : reviews.length > 0 ? (
-                  <div className="space-y-4 pb-12">
-                    {reviews.map((review: any) => (
-                      <div key={review.id} className="bg-white text-black shadow-sm border border-grey/10 p-6 rounded-3xl border border-grey/5">
-                        <div className="flex justify-between items-center mb-3">
-                           <div className="flex gap-0.5">
-                              {[1,2,3,4,5].map(s => (
-                                <Star key={s} size={14} className={s <= (review.rating || 0) ? 'text-accent fill-accent' : 'text-grey/20'} />
-                              ))}
-                           </div>
-                           <p className="text-[8px] font-black text-grey uppercase tracking-widest leading-none">
-                             {review.createdAt?.toDate?.()?.toLocaleDateString() || 'N/D'}
-                           </p>
-                        </div>
-                        {review.comment && (
-                          <div className="flex gap-3">
-                             <MessageSquare size={16} className="text-primary/20 shrink-0"/>
-                             <p className="text-xs text-grey italic leading-relaxed">"{review.comment}"</p>
-                          </div>
-                        )}
-                        <div className="mt-4 flex items-center gap-2">
-                           <div className="w-5 h-5 rounded-full overflow-hidden bg-white">
-                              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${review.cyclistId}`} alt="User"/>
-                           </div>
-                           <span className="text-[10px] font-bold text-black/40  uppercase">Ciclista</span>
-                        </div>
+<div className="space-y-4 pb-12">
+                    {isReviewsLoading ? (
+                      <div className="flex justify-center py-12">
+                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-20 text-center opacity-40">
-                    <Star size={48} className="mb-4"/>
-                    <p className="text-xs font-bold uppercase tracking-widest">Ancora nessuna recensione</p>
-                  </div>
-                )}
+                    ) : reviews.length === 0 ? (
+                      <div className="text-center py-12">
+                        <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Star size={28} className="text-accent" />
+                        </div>
+                        <p className="text-sm font-bold text-grey uppercase tracking-widest">Nessuna recensione ancora</p>
+                        <p className="text-xs text-grey/60 mt-2">Le recensioni appariranno qui dopo aver completato i primi interventi</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {reviews.map((review: any) => (
+                          <div key={review.id} className="bg-white border border-grey/10 rounded-2xl p-4">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                                  <span className="text-xs font-black text-primary uppercase">
+                                    {(review.cyclistName || 'C').charAt(0)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-black">{review.cyclistName || 'Ciclista'}</p>
+                                  <p className="text-[9px] text-grey font-medium">
+                                    {review.createdAt?.toDate ? review.createdAt.toDate().toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-0.5">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                  <Star key={i} size={12} className={i < (review.rating || 0) ? 'text-accent fill-accent' : 'text-grey/20'} />
+                                ))}
+                              </div>
+                            </div>
+                            {review.text && (
+                              <p className="text-xs text-grey leading-relaxed">{review.text}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                 </div>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
 
-        {/* Safety Modal */}
         <AnimatePresence>
-          {showSafety && (
-            <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSafety(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
-                <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
-                <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-black text-primary  uppercase italic">{t('profile.safety')}</h3>
-                  <button onClick={() => setShowSafety(false)} className="p-2 text-grey"><X size={24}/></button>
+          {showSettings && (
+            <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSettings(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+                <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.settings')}</h3>
+                  <button onClick={() => setShowSettings(false)} className="p-2 text-grey"><X size={24}/></button>
                 </div>
-                
                 <div className="space-y-6">
-                  <div className="bg-primary/5 border border-primary/10 rounded-2xl p-5">
-                    <h4 className="text-sm font-black text-primary uppercase mb-3 flex items-center gap-2">
-                      <Shield size={18} /> SOS Rapido
-                    </h4>
-                    <p className="text-xs text-grey  leading-relaxed">
-                      In caso di emergenza, premi il pulsante SOS sulla mappa per richiedere aiuto immediato. 
-                      Un meccanico nearby riceverà la tua posizione e ti contatterà.
-                    </p>
-                  </div>
-                  <div className="bg-accent/5 border border-accent/10 rounded-2xl p-5">
-                    <h4 className="text-sm font-black text-accent uppercase mb-3 flex items-center gap-2">
-                      <Navigation2 size={18} /> Condivisione Posizione
-                    </h4>
-                    <p className="text-xs text-grey  leading-relaxed">
-                      Quando sei online, la tua posizione è visibile ai meccanici nearby per interventi rapidi. 
-                      Puoi nasconderti con il Ghost Mode (icona occhio sulla mappa).
-                    </p>
-                  </div>
-                  <div className="bg-warning/5 border border-warning/10 rounded-2xl p-5">
-                    <h4 className="text-sm font-black text-warning uppercase mb-3 flex items-center gap-2">
-                      <Star size={18} /> Verifica Meccanici
-                    </h4>
-                    <p className="text-xs text-grey  leading-relaxed">
-                      Tutti i meccanici sono verificati tramite KYC. Controlla recensioni e rating prima di accettare un intervento.
-                    </p>
-                  </div>
-                  <div className="bg-grey/5 border border-grey/10 rounded-2xl p-5">
-                    <h4 className="text-sm font-black text-grey uppercase mb-3 flex items-center gap-2">
-                      <Phone size={18} /> Numeri Emergenza
-                    </h4>
-                    <div className="space-y-2 text-xs">
-                      <p className="font-bold">🚑 Emergenza Sanitaria: <span className="text-primary">112</span></p>
-                      <p className="font-bold">🚔 Polizia: <span className="text-primary">113</span></p>
-                      <p className="font-bold">🚒 Vigili del Fuoco: <span className="text-primary">115</span></p>
-                      <p className="font-bold">🔧 Soccorso Stradale: <span className="text-primary">800-123456</span></p>
+                  <div className="bg-grey/5 p-6 rounded-[2rem]">
+                    <h4 className="text-[10px] font-black text-grey uppercase tracking-widest mb-4">{t('profile.notificationPrefs')}</h4>
+                    <div className="space-y-3">
+                      <PreferenceToggle label={t('profile.prefSOS')} checked={profile?.notificationPreferences?.sosAlerts ?? true} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { 'notificationPreferences.sosAlerts': val, updatedAt: serverTimestamp() }); }} />
+                      {(role === 'MECHANIC' || role === 'PEER_MECHANIC') && (
+                        <PreferenceToggle label={t('profile.prefJobs')} checked={profile?.notificationPreferences?.newJobs ?? true} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { 'notificationPreferences.newJobs': val, updatedAt: serverTimestamp() }); }} />
+                      )}
+                      <PreferenceToggle label={t('profile.prefCommunity')} checked={profile?.notificationPreferences?.communityUpdates ?? true} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { 'notificationPreferences.communityUpdates': val, updatedAt: serverTimestamp() }); }} />
+                      <PreferenceToggle label={t('profile.prefMarketing')} checked={profile?.notificationPreferences?.marketing ?? false} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { 'notificationPreferences.marketing': val, updatedAt: serverTimestamp() }); }} />
                     </div>
                   </div>
+
+                  {(role === 'MECHANIC' || role === 'PEER_MECHANIC') && (
+                    <div className="bg-grey/5 p-6 rounded-[2rem]">
+                      <h4 className="text-[10px] font-black text-grey uppercase tracking-widest mb-4">Meccanico</h4>
+                      <div className="space-y-3">
+                        <PreferenceToggle label="Mostra disponibilità sulla mappa" checked={profile?.isOnline ?? false} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { isOnline: val, updatedAt: serverTimestamp() }); }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {role === 'CYCLIST' && (
+                    <div className="bg-grey/5 p-6 rounded-[2rem]">
+                      <h4 className="text-[10px] font-black text-grey uppercase tracking-widest mb-4">Ciclista</h4>
+                      <div className="space-y-3">
+                        <PreferenceToggle label="Mostra posizione sulla mappa" checked={profile?.isOnline ?? false} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { isOnline: val, updatedAt: serverTimestamp() }); }} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-grey/5 p-6 rounded-[2rem]">
+                    <h4 className="text-[10px] font-black text-grey uppercase tracking-widest mb-4">Account</h4>
+                    <button onClick={async () => { if (!user?.email) return; setIsResettingPassword(true); try { await sendPasswordResetEmail(auth, user.email); toast.success('Email di reset inviata!'); } catch (err) { console.error(err); toast.error('Errore nel reset password'); } finally { setIsResettingPassword(false); } }} disabled={isResettingPassword} className="w-full py-4 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20 rounded-2xl bg-primary/5 hover:bg-primary/10 transition-all disabled:opacity-50">
+                      {isResettingPassword ? <Loader2 className="animate-spin mx-auto" size={16}/> : 'Reset Password'}
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
 
-        {/* Support Ticket Modal... (existing) */}
+        <AnimatePresence>
+          {showSafety && (
+            <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSafety(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+                <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.safety')}</h3>
+                  <button onClick={() => setShowSafety(false)} className="p-2 text-grey"><X size={24}/></button>
+                </div>
+                <div className="space-y-6">
+                  <div className="bg-accent/5 p-6 rounded-[2rem] border border-accent/10">
+                    <h4 className="text-sm font-black text-accent uppercase italic mb-2">Copertura Assicurativa</h4>
+                    <p className="text-xs text-grey font-bold uppercase tracking-widest">DB360 offre una copertura base per tutti gli interventi effettuati tramite la piattaforma. Per maggiori dettagli, contatta il supporto.</p>
+                  </div>
+                  <div className="bg-primary/5 p-6 rounded-[2rem] border border-primary/10">
+                    <h4 className="text-sm font-black text-primary uppercase italic mb-2">Sicurezza SOS</h4>
+                    <p className="text-xs text-grey font-bold uppercase tracking-widest">Quando invii un SOS, la tua posizione è condivisa solo con i meccanici disponibili nelle vicinanze. I dati sono crittografati e protetti.</p>
+                  </div>
+                  <div className="bg-grey/5 p-6 rounded-[2rem]">
+                    <h4 className="text-sm font-black text-black uppercase italic mb-2">Consigli di Sicurezza</h4>
+                    <ul className="text-xs text-grey font-bold uppercase tracking-widest space-y-2">
+                      <li>• Indossa sempre il casco</li>
+                      <li>• Usa luci e catarifrangenti di notte</li>
+                      <li>• Rispetta il codice della strada</li>
+                      <li>• Mantieni la bici in buono stato</li>
+                    </ul>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
-        {/* Plans Modal */}
         <AnimatePresence>
           {showPlans && (
             <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowPlans(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[90vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[130] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-black text-primary  uppercase italic">Piani Doctorbike</h3>
-                  <button onClick={() => setShowPlans(false)} className="p-2 text-grey"><X size={24}/></button>
+                   <h3 className="text-2xl font-black text-primary uppercase italic">
+                     {planUpgradeStep === 'SELECT' ? 'Piani Abbonamento' : 'Conferma Piano'}
+                   </h3>
+                   <button onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} className="p-2 text-grey"><X size={24}/></button>
                 </div>
 
-                <div className="space-y-6 pb-12">
-                {planUpgradeStep === 'SELECT' && (
-                  <div className="space-y-6 pb-12">
-                     <div className="p-6 bg-primary/5 rounded-3xl border border-primary/10">
-                        <p className="text-xs font-bold text-black  leading-relaxed italic">
-                          "Evolvi la tua officina digitale. Più visibilità, meno commissioni, più successo."
-                        </p>
-                     </div>
-                     
-                     <div className="grid grid-cols-1 gap-4">
-                        {plans.map((p) => (
-                          <div key={p.id} className={`p-6 rounded-[2.5rem] border-2 transition-all relative overflow-hidden ${profile?.plan === p.id ? 'border-primary ring-4 ring-primary/10' : 'border-grey/10'}`}>
-                             {profile?.plan === p.id && (
-                               <div className="absolute top-0 right-0 bg-primary text-white px-6 py-2 rounded-bl-3xl font-black text-[10px] uppercase">Piano Attuale</div>
-                             )}
-                             <div className="flex justify-between items-start mb-4">
-                                <div>
-                                   <h4 className="text-2xl font-black text-primary uppercase italic">{p.title}</h4>
-                                   <p className="text-xl font-black text-accent">{p.price}</p>
-                                </div>
-                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${p.color}`}>
-                                   <Sparkles size={24}/>
-                                </div>
-                             </div>
-                             <ul className="space-y-3 mb-8">
-                                {p.features.map(f => (
-                                  <li key={f} className="flex items-center gap-3 text-xs font-bold text-grey">
-                                     <div className="w-2 h-2 bg-accent rounded-full"/>
-                                     {f}
-                                  </li>
-                                ))}
-                             </ul>
-                             {profile?.plan !== p.id && (
-                               <button onClick={() => upgradePlan(p.id)}
-                                 disabled={isUpgrading !== null}
-                                 className="w-full bg-primary text-white py-4 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-50"
-                               >
-                                 Attiva {p.title}
-                               </button>
-                             )}
+                {planUpgradeStep === 'SELECT' ? (
+                  <div className="space-y-4 pb-12">
+                    <p className="text-xs text-grey font-medium mb-6">Scegli il piano migliore per te. Il downgrade sarà attivo dal prossimo ciclo di fatturazione, l'upgrade ha inizio immediato.</p>
+                    {plans.map((plan) => (
+                      <div key={plan.id} className={`rounded-[2rem] p-6 border-2 transition-all ${profile?.plan === plan.id ? 'border-primary bg-primary/5 shadow-lg' : 'border-grey/10 bg-white'}`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${plan.color}`}>{plan.title}</span>
+                            {profile?.plan === plan.id && <span className="ml-2 text-[9px] font-bold text-primary uppercase">Piano Attivo</span>}
                           </div>
-                        ))}
-                     </div>
-                  </div>
-                )}
-
-                {planUpgradeStep === 'PAYMENT' && selectedPlanForUpgrade && (
-                  <div className="py-8 space-y-6">
-                    <div className="bg-white text-black shadow-sm border border-grey/10 p-6 rounded-3xl border border-grey/10 text-center">
-                      <p className="text-xs font-bold text-grey uppercase mb-1">Riepilogo Ordine</p>
-                      <h4 className="text-xl font-black text-primary">Piano {selectedPlanForUpgrade.title}</h4>
-                      <p className="text-accent font-black">{selectedPlanForUpgrade.price}</p>
-                    </div>
-
-                    <div className="space-y-4">
-                       <h5 className="text-[10px] font-black uppercase tracking-widest text-grey">Metodo di Pagamento</h5>
-                       <div className="bg-white  p-6 rounded-3xl border-2 border-primary shadow-sm space-y-4">
-                          <div className="flex items-center justify-between pb-4 border-b border-grey/5">
-                             <div className="flex items-center gap-3">
-                                <CardIcon size={20} className="text-primary"/>
-                                <span className="text-sm font-bold">Carta di Credito (Simulata)</span>
-                             </div>
-                             <CheckCircle2 size={16} className="text-accent"/>
+                          <div className="text-right">
+                            <span className="text-2xl font-black text-primary">€{plan.price}</span>
+                            <span className="text-[10px] text-grey font-bold">/mese</span>
                           </div>
-                          
-                          <div className="space-y-3">
-                             <div className="grid grid-cols-2 gap-3">
-                                <div className="col-span-2 bg-white text-black shadow-sm border border-grey/10 p-4 rounded-xl text-xs font-bold text-grey/40">
-                                   4242 4242 4242 4242
-                                </div>
-                                <div className="bg-white text-black shadow-sm border border-grey/10 p-4 rounded-xl text-xs font-bold text-grey/40">
-                                   MM/AA
-                                </div>
-                                <div className="bg-white text-black shadow-sm border border-grey/10 p-4 rounded-xl text-xs font-bold text-grey/40">
-                                   CVC
-                                </div>
-                             </div>
-                          </div>
-                       </div>
-                    </div>
-
-                    <div className="flex gap-4">
-                       <button onClick={() => setPlanUpgradeStep('SELECT')}
-                         className="flex-1 py-4 text-grey font-black uppercase text-[10px]"
-                       >
-                         Indietro
-                       </button>
-                       <button onClick={initStripeUpgrade} className="flex-[2] bg-primary text-white py-4 rounded-[2rem] font-black uppercase text-[10px] shadow-xl shadow-primary/20 active:scale-95 transition-all">
-                         Paga e Attiva
-                       </button>
-                    </div>
-                  </div>
-                )}
-
-                {planUpgradeStep === 'PROCESSING' && (
-                  <div className="py-20 flex flex-col items-center text-center">
-                    <Loader2 className="w-12 h-12 text-primary animate-spin mb-4"/>
-                    <h4 className="text-xl font-black text-primary uppercase italic">Elaborazione...</h4>
-                    <p className="text-xs text-grey italic mb-6">{t('profile.processingPlan')}</p>
-                    <button onClick={() => setPlanUpgradeStep('SELECT')} className="text-grey font-bold uppercase tracking-widest text-[10px] hover:underline">
-                      Annulla / Torna indietro
-                    </button>
-                  </div>
-                )}
-
-                {planUpgradeStep === 'SUCCESS' && (
-                  <div className="py-12 flex flex-col items-center text-center">
-                    <div className="w-20 h-20 bg-accent text-white rounded-[2.5rem] flex items-center justify-center mb-6 shadow-xl shadow-accent/20">
-                       <CheckCircle2 size={40}/>
-                    </div>
-                    <h4 className="text-2xl font-black text-accent uppercase italic mb-2">Benvenuto nel Club!</h4>
-                    <p className="text-sm text-grey font-bold italic mb-8 px-8">{t('profile.planSuccess')}</p>
-                    <button onClick={() => {
-                        setShowPlans(false);
-                        setTimeout(() => setPlanUpgradeStep('SELECT'), 500);
-                      }}
-                      className="bg-primary text-white px-12 py-4 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20"
-                    >
-                      Inizia ora
-                    </button>
-                  </div>
-                )}
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-        <AnimatePresence>
-          {showSupport && userSupportTicket && (
-            <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSupport(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative flex flex-col w-full h-[90vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-t-[3rem] z-[130] shadow-2xl pb-safe overflow-hidden">
-                <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto my-4 shrink-0"/>
-                <div className="flex justify-between items-center px-8 mb-4 shrink-0">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-accent/10 text-accent rounded-xl flex items-center justify-center">
-                      <MessageSquare size={20}/>
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-black text-primary  uppercase italic">Assistenza Clienti</h3>
-                      <p className="text-[10px] font-bold text-grey uppercase tracking-widest">Chat Diretta con Admin</p>
-                    </div>
-                  </div>
-                  <button onClick={() => setShowSupport(false)} className="p-2 text-grey"><X size={24}/></button>
-                </div>
-                
-                <div className="flex-1 overflow-hidden flex flex-col">
-                  <Chat chatId={userSupportTicket.id} otherPartyName="Doctorbike Admin" isAdminSupport />
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-        <AnimatePresence>
-          {showSettings && (
-            <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSettings(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
-                <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
-                <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-black text-primary  uppercase italic">{t('profile.settings')}</h3>
-                  <button onClick={() => setShowSettings(false)} className="p-2 text-grey"><X size={24}/></button>
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="bg-white text-black shadow-sm border border-grey/10 p-6 rounded-3xl flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                       <Bell size={18} className="text-accent"/>
-                       <span className="font-bold text-black  uppercase text-xs italic">{t('profile.notificationsSOS')}</span>
-                    </div>
-                    <button onClick={toggleNotifications} disabled={isRequestingNotification} className={`relative w-12 h-6 rounded-full transition-colors ${profile?.notificationsEnabled ? 'bg-accent' : 'bg-grey/20'}`}>
-                      <motion.div animate={{ x: profile?.notificationsEnabled ? 26 : 4 }} className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-md"/>
-                    </button>
-                  </div>
-
-                  <div className="bg-white text-black shadow-sm border border-grey/10 p-6 rounded-3xl flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                       <div className="w-5 h-5 flex items-center justify-center font-black text-[10px] text-primary  bor der border-current rounded-md italic">文</div>
-                       <span className="font-bold text-black  uppercase text-xs italic">{t('profile.language')}</span>
-                    </div>
-                    <button onClick={() => i18n.changeLanguage(i18n.language === 'it' ? 'en' : 'it')}
-                       className="bg-white text-black px-4 py-2 rounded-xl text-black  font-black text-[10px] uppercase tracking-widest shadow-sm"
-                    >
-                       {i18n.language === 'it' ? 'English' : 'Italiano'}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-        <AnimatePresence>
-          {showEditProfile && (
-            <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowEditProfile(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
-                <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
-                <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-black text-primary  uppercase italic">{t('profile.editProfile')}</h3>
-                  <button onClick={() => setShowEditProfile(false)} className="p-2 text-grey"><X size={24}/></button>
-                </div>
-                
-                <div className="space-y-4">
-                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-grey uppercase tracking-widest ml-2">{t('profile.fullName')}</label>
-                      <div className="bg-white text-black shadow-sm border border-grey/10 rounded-2xl p-4 flex items-center gap-3">
-                         <UserIcon size={18} className="text-grey"/>
-                         <input value={editName} onChange={(e) => setEditName(e.target.value)} className="bg-transparent border-none outline-none flex-1 font-bold text-sm text-black " placeholder="Name" />
-                      </div>
-                   </div>
-                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-grey uppercase tracking-widest ml-2">Email</label>
-                      <div className="bg-white text-black shadow-sm border border-grey/10 rounded-2xl p-4 flex items-center gap-3">
-                         <Mail size={18} className="text-grey"/>
-                         <input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="bg-transparent border-none outline-none flex-1 font-bold text-sm text-black " placeholder="email" />
-                      </div>
-                   </div>
-                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-grey uppercase tracking-widest ml-2">{t('profile.phone')}</label>
-                      <div className="bg-white text-black shadow-sm border border-grey/10 rounded-2xl p-4 flex items-center gap-3">
-                         <Phone size={18} className="text-grey"/>
-                         <input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="bg-transparent border-none outline-none flex-1 font-bold text-sm text-black " placeholder="+39 000 0000000" />
-                      </div>
-                   </div>
-                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-grey uppercase tracking-widest ml-2">{t('profile.bikeModel')}</label>
-                      <div className="bg-white text-black shadow-sm border border-grey/10 rounded-2xl p-4 flex items-center gap-3">
-                         <BikeIcon size={18} className="text-grey"/>
-                         <input value={editBikeModel} onChange={(e) => setEditBikeModel(e.target.value)} className="bg-transparent border-none outline-none flex-1 font-bold text-sm text-black " placeholder="E.g. Scott Addict" />
-                      </div>
-                   </div>
-
-                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-grey uppercase tracking-widest ml-2">Posizione / Zona</label>
-                      <div className="bg-white text-black shadow-sm border border-grey/10 rounded-2xl p-4 flex items-center gap-3">
-                         <MapIcon size={18} className="text-grey"/>
-                         <input value={editLocationName} onChange={(e) => setEditLocationName(e.target.value)} className="bg-transparent border-none outline-none flex-1 font-bold text-sm text-black " placeholder="E.g. Milano, centro" />
-                         <button 
-                           onClick={async () => {
-                             if (!navigator.geolocation) return;
-                             navigator.geolocation.getCurrentPosition(async (pos) => {
-                               const { latitude, longitude } = pos.coords;
-                               try {
-                                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
-                                 const data = await res.json();
-                                 if (data.display_name) {
-                                   const parts = data.display_name.split(',');
-                                   const city = parts[0] || parts[1] || 'Sconosciuto';
-                                   setEditLocationName(city.trim());
-                                 }
-                               } catch (err) {
-                                 console.error('Reverse geocoding failed', err);
-                               }
-                             });
-                           }}
-                           className="p-2 bg-primary/10 text-primary rounded-xl hover:bg-primary/20 transition-colors"
-                           title="Rileva posizione"
-                         >
-                            <Zap size={14}/>
-                         </button>
-                      </div>
-                   </div>
-
-                   <div className="pt-4 border-t border-grey/10">
-                      <label className="text-[10px] font-black text-grey uppercase tracking-widest ml-2">Sicurezza</label>
-                      <button onClick={handlePasswordReset} 
-                        disabled={isResettingPassword}
-                        className="w-full mt-2 bg-grey/5 border border-grey/10 p-4 rounded-2xl flex items-center justify-between text-black active:scale-95 transition-all text-left"
-                      >
-                        <div className="flex items-center gap-3">
-                           <Shield size={18} className="text-grey"/>
-                           <span className="text-sm font-bold">Cambia Password</span>
                         </div>
-                        {isResettingPassword ? <Loader2 size={16} className="animate-spin" /> : <ChevronRight size={18} className="text-grey"/>}
-                      </button>
-                   </div>
-                </div>
-
-                <button onClick={saveProfile} disabled={isSavingProfile} className="w-full mt-8 bg-accent text-white py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-xl shadow-accent/20 flex items-center justify-center gap-2">
-                   {isSavingProfile ? <Loader2 className="animate-spin" size={20}/> : <Save size={18}/>}
-                   {isSavingProfile ? t('profile.saving') : t('profile.saveChanges')}
-                </button>
+                        <ul className="space-y-2 mt-4">
+                          {plan.features.map((feature: string, i: number) => (
+                            <li key={i} className="flex items-center gap-2 text-xs text-grey">
+                              <CheckCircle2 size={14} className="text-primary shrink-0" />
+                              <span className="font-medium">{feature}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {profile?.plan === plan.id ? (
+                          <div className="mt-4 w-full py-3 text-center text-[10px] font-black uppercase tracking-widest text-primary/50 border border-primary/10 rounded-2xl">
+                            Piano Attivo
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => upgradePlan(plan.id)}
+                            className="mt-4 w-full py-3 text-center text-[10px] font-black uppercase tracking-widest text-white bg-primary rounded-2xl hover:bg-primary/90 active:scale-95 transition-all"
+                          >
+                            {plan.id === 'BASE' ? 'Downgrade' : 'Upgrade'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : planUpgradeStep === 'PAYMENT' && selectedPlanForUpgrade ? (
+                  <div className="space-y-6 pb-12">
+                    <div className="bg-primary/5 border border-primary/10 rounded-[2rem] p-6 text-center">
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${selectedPlanForUpgrade.color}`}>{selectedPlanForUpgrade.title}</span>
+                      <div className="mt-3">
+                        <span className="text-4xl font-black text-primary">€{selectedPlanForUpgrade.price}</span>
+                        <span className="text-sm text-grey font-bold">/mese</span>
+                      </div>
+                      <ul className="space-y-2 mt-4 text-left">
+                        {selectedPlanForUpgrade.features.map((feature: string, i: number) => (
+                          <li key={i} className="flex items-center gap-2 text-xs text-grey">
+                            <CheckCircle2 size={14} className="text-primary shrink-0" />
+                            <span className="font-medium">{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="bg-warning/5 border border-warning/10 rounded-[2rem] p-4">
+                      <p className="text-xs text-warning font-bold">
+                        {selectedPlanForUpgrade.id === 'BASE'
+                          ? 'Il downgrade sarà attivo dal prossimo ciclo di fatturazione. Continui a godere dei benefici del piano attuale fino alla fine del periodo.'
+                          : 'L\'upgrade è immediato. Verrai addebitato solo la differenza proporzionale per il periodo rimanente.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={initStripeUpgrade}
+                      disabled={isUpgrading === selectedPlanForUpgrade.id}
+                      className="w-full py-4 text-[11px] font-black uppercase tracking-widest text-white bg-primary rounded-2xl hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {isUpgrading === selectedPlanForUpgrade.id ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <Loader2 size={16} className="animate-spin" /> Reindirizzamento a Stripe...
+                        </span>
+                      ) : (
+                        'Procedi al Pagamento Sicuro'
+                      )}
+                    </button>
+                    <button
+                      onClick={() => { setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }}
+                      className="w-full py-3 text-[10px] font-bold text-grey uppercase tracking-widest hover:text-black transition-colors"
+                    >
+                      Torna ai Piani
+                    </button>
+                  </div>
+                ) : planUpgradeStep === 'PROCESSING' ? (
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <Loader2 size={40} className="animate-spin text-primary mb-4" />
+                    <p className="text-sm font-bold text-grey uppercase tracking-widest">Elaborazione in corso...</p>
+                  </div>
+                ) : null}
               </motion.div>
             </div>
-          )}
-        </AnimatePresence>
-
-        <button onClick={async () => {
-             try {
-               await signOut(auth);
-                toast.success(t('profile.signedOut'));
-               setTimeout(() => window.location.reload(), 300);
-             } catch (err) {
-               console.error("Logout error", err);
-               window.location.reload();
-             }
-           }}
-           className="w-full flex items-center justify-center gap-2 p-5 bg-danger/5 text-danger rounded-[2rem] font-black uppercase tracking-widest text-[10px] hover:bg-danger/10 transition-colors"
-        >
-           <LogOut size={16}/> {t('profile.signOut')}
-        </button>
-
-        {/* Production Reset Confirmation */}
-        <AnimatePresence>
-          {showResetConfirm && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !isResetting && setShowResetConfirm(false)}
-                className="absolute inset-0 bg-dark/80 backdrop-blur-md"
-              />
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm bg-white text-black rounded-[40px] p-8 text-center shadow-2xl overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-2 bg-danger"/>
-                <div className="w-20 h-20 bg-danger/10 text-danger rounded-3xl flex items-center justify-center mx-auto mb-6">
-                  <AlertCircle size={40}/>
-                </div>
-                
-                <h3 className="text-2xl font-black text-black  uppercase italic mb-4">Reset Produzione?</h3>
-                <p className="text-grey text-xs font-bold uppercase tracking-widest leading-relaxed mb-8">
-                  Questa azione è <span className="text-danger italic">irreversibile</span>. <br/>
-                  - Elimina tutti gli utenti (tranne Admin)<br/>
-                  - Elimina tutti i SOS, Chat e Recensioni<br/>
-                  - Azzera Eventi, Avvisi e Statistiche Admin<br/>
-                </p>
-
-                <div className="space-y-3">
-                  <button disabled={isResetting} onClick={performProductionReset} className="w-full bg-danger text-white py-5 rounded-3xl font-black uppercase tracking-widest text-xs shadow-xl shadow-danger/20 flex items-center justify-center gap-3 active:scale-95 transition-all disabled:opacity-50">
-                    {isResetting ? (
-                      <>RESETTING... <Loader2 size={18} className="animate-spin"/></>
-                    ) : (
-                      <>CONFERMA RESET TOTALE</>
-                    )}
-                  </button>
-                  <button disabled={isResetting} onClick={() => setShowResetConfirm(false)}
-                    className="w-full py-4 text-grey font-black uppercase tracking-widest text-[10px] hover:underline"
-                  >
-                    Annulla
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showLeaderboard && (
-            <LeaderboardView onClose={() => setShowLeaderboard(false)} />
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showInterventionHistory && (
-             <InterventionHistory onClose={() => setShowInterventionHistory(false)} />
           )}
         </AnimatePresence>
 
         <AnimatePresence>
           {showPrivacy && (
-            <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowPrivacy(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-safe">
-                <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
-                <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-2xl font-black text-primary uppercase italic">{t('profile.privacyAndLegal')}</h3>
+            <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowPrivacy(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+                <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.privacyAndLegal')}</h3>
                   <button onClick={() => setShowPrivacy(false)} className="p-2 text-grey"><X size={24}/></button>
                 </div>
-                
-                <div className="space-y-8 pb-12">
-                   {/* Notifications Section */}
-                   <section>
-                      <h4 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                        <Bell size={14} className="text-primary"/> {t('profile.notificationPrefs')}
-                      </h4>
-                      <div className="space-y-3">
-                         <PreferenceToggle 
-                            label={t('profile.prefSOS')} 
-                            checked={profile?.notificationPreferences?.sosAlerts ?? true} 
-                            onChange={async (val) => {
-                               if (!user) return;
-                               await updateDoc(doc(db, 'users', user.uid), {
-                                  'notificationPreferences.sosAlerts': val,
-                                  updatedAt: serverTimestamp()
-                               });
-                            }}
-                         />
-                         <PreferenceToggle 
-                            label={t('profile.prefJobs')} 
-                            checked={profile?.notificationPreferences?.newJobs ?? true} 
-                            onChange={async (val) => {
-                               if (!user) return;
-                               await updateDoc(doc(db, 'users', user.uid), {
-                                  'notificationPreferences.newJobs': val,
-                                  updatedAt: serverTimestamp()
-                               });
-                            }}
-                         />
-                         <PreferenceToggle 
-                            label={t('profile.prefCommunity')} 
-                            checked={profile?.notificationPreferences?.communityUpdates ?? true} 
-                            onChange={async (val) => {
-                               if (!user) return;
-                               await updateDoc(doc(db, 'users', user.uid), {
-                                  'notificationPreferences.communityUpdates': val,
-                                  updatedAt: serverTimestamp()
-                               });
-                            }}
-                         />
-                         <PreferenceToggle 
-                            label={t('profile.prefMarketing')} 
-                            checked={profile?.notificationPreferences?.marketing ?? false} 
-                            onChange={async (val) => {
-                               if (!user) return;
-                               await updateDoc(doc(db, 'users', user.uid), {
-                                  'notificationPreferences.marketing': val,
-                                  updatedAt: serverTimestamp()
-                               });
-                            }}
-                         />
-                      </div>
-                   </section>
-
-                   {/* Legal Section */}
-                   <section>
-                      <h4 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                        <Shield size={14} className="text-accent"/> {t('profile.privacyAndLegal')}
-                      </h4>
-                      <div className="bg-grey/5 p-6 rounded-[2rem] border border-grey/10 space-y-6">
-                         <LegalItem 
-                            label={t('profile.privacyPolicy')} 
-                            checked={profile?.consents?.privacyPolicy ?? true} 
-                            isRequired
-                            onChange={() => {}} // Mandatory check
-                         />
-                         <LegalItem 
-                            label={t('profile.termsOfService')} 
-                            checked={profile?.consents?.termsOfService ?? true} 
-                            isRequired
-                            onChange={() => {}}
-                         />
-                         <LegalItem 
-                            label={t('profile.dataProcessing')} 
-                            checked={profile?.consents?.dataProcessing ?? true} 
-                            isRequired
-                            onChange={() => {}}
-                         />
-                         <LegalItem 
-                            label={t('profile.marketingConsent')} 
-                            checked={profile?.consents?.marketing ?? false} 
-                            onChange={async (val) => {
-                               if (!user) return;
-                               await updateDoc(doc(db, 'users', user.uid), {
-                                  'consents.marketing': val,
-                                  updatedAt: serverTimestamp()
-                               });
-                            }}
-                         />
-                         <p className="text-[9px] text-grey font-bold italic mt-4">{t('profile.legalDesc')}</p>
-                      </div>
-                   </section>
-
-                   <div className="pt-4 flex flex-col gap-3">
-                      <button className="w-full py-4 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20 rounded-2xl bg-primary/5 hover:bg-primary/10 transition-all">
-                        {t('profile.privacyPolicy')}
-                      </button>
-                      <button className="w-full py-4 text-grey text-[10px] font-black uppercase tracking-widest border border-grey/20 rounded-2xl hover:bg-grey/5 transition-all">
-                        {t('profile.termsOfService')}
-                      </button>
-                   </div>
+                <div className="space-y-6">
+                  <div className="bg-grey/5 p-6 rounded-[2rem] border border-grey/10 space-y-6">
+                    <LegalItem label={t('profile.privacyPolicy')} checked={profile?.consents?.privacyPolicy ?? true} isRequired onChange={() => {}} />
+                    <LegalItem label={t('profile.termsOfService')} checked={profile?.consents?.termsOfService ?? true} isRequired onChange={() => {}} />
+                    <LegalItem label={t('profile.dataProcessing')} checked={profile?.consents?.dataProcessing ?? true} isRequired onChange={() => {}} />
+                    <LegalItem label={t('profile.marketingConsent')} checked={profile?.consents?.marketing ?? false} onChange={async (val) => { if (!user) return; await updateDoc(doc(db, 'users', user.uid), { 'consents.marketing': val, updatedAt: serverTimestamp() }); }} />
+                    <p className="text-[9px] text-grey font-bold italic mt-4">{t('profile.legalDesc')}</p>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <button className="w-full py-4 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20 rounded-2xl bg-primary/5 hover:bg-primary/10 transition-all">
+                      {t('profile.privacyPolicy')}
+                    </button>
+                    <button className="w-full py-4 text-grey text-[10px] font-black uppercase tracking-widest border border-grey/20 rounded-2xl hover:bg-grey/5 transition-all">
+                      {t('profile.termsOfService')}
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>
@@ -1730,8 +1435,126 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         </AnimatePresence>
 
         <AnimatePresence>
+          {showInterventionHistory && (
+            <InterventionHistory onClose={() => setShowInterventionHistory(false)} />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showSupport && userSupportTicket && (
+            <div className="fixed inset-0 z-[200] flex flex-col bg-white">
+              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setShowSupport(false)} className="p-1 rounded-full hover:bg-white/10 transition-colors">
+                    <ArrowLeft size={20} />
+                  </button>
+                  <div>
+                    <h3 className="font-black text-sm uppercase">Assistenza Clienti</h3>
+                    <p className="text-[9px] text-white/70 uppercase font-bold">Ticket #{userSupportTicket.id.slice(0, 6)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${userSupportTicket.status === 'OPEN' ? 'bg-accent/20 text-accent' : userSupportTicket.status === 'CLOSED' ? 'bg-grey/20 text-grey' : 'bg-warning/20 text-warning'}`}>
+                    {userSupportTicket.status}
+                  </span>
+                  {userSupportTicket.status !== 'CLOSED' && (
+                    <button 
+                      onClick={async () => {
+                        if (!window.confirm('Chiudere questo ticket?')) return;
+                        try {
+                          await updateDoc(doc(db, 'supportTickets', userSupportTicket.id), { 
+                            status: 'CLOSED', 
+                            updatedAt: serverTimestamp(),
+                            closedBy: user?.uid,
+                            closedAt: serverTimestamp()
+                          });
+                          toast.success('Ticket chiuso');
+                          setShowSupport(false);
+                          setUserSupportTicket(null);
+                        } catch (err) {
+                          console.error(err);
+                          toast.error('Errore nella chiusura del ticket');
+                        }
+                      }}
+                      className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                      title="Chiudi ticket"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {userSupportTicket.status === 'CLOSED' ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                  <div className="w-20 h-20 bg-grey/10 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 size={40} className="text-grey" />
+                  </div>
+                  <h4 className="text-lg font-black text-black uppercase mb-2">Ticket Chiuso</h4>
+                  <p className="text-xs text-grey font-bold uppercase tracking-widest mb-6">Questo ticket è stato chiuso</p>
+                  <button onClick={() => { setShowSupport(false); setUserSupportTicket(null); }} className="bg-primary text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest">
+                    Torna al Profilo
+                  </button>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <Chat key={userSupportTicket.id} chatId={userSupportTicket.id} otherPartyName="Supporto DB360" isAdminSupport={true} targetUserId="admin" />
+                </div>
+              )}
+            </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showFAQ && (
+            <div className="fixed inset-0 z-[200] flex flex-col bg-white">
+              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setShowFAQ(false)} className="p-1 rounded-full hover:bg-white/10 transition-colors">
+                    <ArrowLeft size={20} />
+                  </button>
+                  <div>
+                    <h3 className="font-black text-sm uppercase">Domande Frequenti</h3>
+                    <p className="text-[9px] text-white/70 uppercase font-bold">Prima di contattarci</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {[
+                  { q: 'Come funziona il SOS?', a: 'Premi il pulsante SOS sulla mappa. I meccanici vicini riceveranno la tua richiesta e potranno accettarla. Vedrai chi ha accettato e il suo percorso verso di te.' },
+                  { q: 'Come si pagano gli interventi?', a: 'Puoi pagare con DB Coin (portafoglio interno), carta di credito, PayPal o bonifico. Ricarica il portafoglio dalla sezione "Metodi di Pagamento" nel profilo.' },
+                  { q: 'Cosa sono le DB Coin?', a: 'Le DB Coin sono la valuta interna di DoctorBike. 1 DB Coin = 1€. Puoi ricaricarle e usarle per pagare interventi, abbonamenti e servizi.' },
+                  { q: 'Come diventa un Meccanico?', a: 'Registrati come meccanico, completa la verifica KYC e inizia ad accettare SOS nella tua zona. I meccanici esperti possono diventare Peer Mechanic.' },
+                  { q: 'Come funziona la reputazione?', a: 'Ogni intervento completato ti dà punti reputazione. Le recensioni positive aumentano la tua visibilità sulla mappa e sbloccano badge speciali.' },
+                  { q: 'Posso annullare un SOS?', a: 'Sì, puoi annullare un SOS finché non è stato accettato da un meccanico. Dopo l\'accettazione, contatta il meccanico o il supporto.' },
+                  { q: 'Come segnalo un problema sulla strada?', a: 'Premi il pulsante "Segnala" sulla mappa per segnalare buche, ostacoli o pericoli. La segnalazione sarà visibile a tutti gli utenti.' },
+                  { q: 'Problemi con l\'app?', a: 'Prova a ricaricare la pagina o a chiudere e riaprire l\'app. Se il problema persiste, crea un ticket di assistenza qui sotto.' },
+                ].map((faq, i) => (
+                  <FAQItem key={i} question={faq.q} answer={faq.a} />
+                ))}
+                <div className="pt-6 pb-8">
+                  <button 
+                    onClick={createTicketFromFAQ}
+                    disabled={isCreatingTicket}
+                    className="w-full py-4 bg-accent text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-accent/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isCreatingTicket ? <Loader2 className="animate-spin" size={16}/> : <MessageSquare size={16}/>}
+                    {isCreatingTicket ? 'Creazione ticket...' : 'Non hai trovato risposta? Contattaci'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showPaymentMethods && (
+            <PaymentMethodsModal onClose={() => setShowPaymentMethods(false)} onAddPayment={() => setShowTopUp(true)} />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {showP2PWallet && (
-             <P2PWalletModal onClose={() => setShowP2PWallet(false)} />
+              <P2PWalletModal onClose={() => setShowP2PWallet(false)} />
           )}
         </AnimatePresence>
 
@@ -1786,5 +1609,123 @@ function LegalItem({ label, checked, onChange, isRequired = false }: { label: st
            <p className="text-[11px] font-black text-black uppercase tracking-tight">{label} {isRequired && <span className="text-danger">*</span>}</p>
         </div>
      </div>
+  );
+}
+
+function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; onAddPayment: () => void }) {
+  const { user, profile } = useAuthStore();
+  const [savedMethods, setSavedMethods] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadMethods = async () => {
+      if (!user) return;
+      setIsLoading(true);
+      try {
+        const methods = (profile as any)?.paymentMethods || [];
+        setSavedMethods(methods);
+      } catch (err) {
+        console.error('Error loading payment methods:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadMethods();
+  }, [user, profile]);
+
+  const removeMethod = async (id: string) => {
+    if (!user) return;
+    try {
+      const updated = savedMethods.filter(m => m.id !== id);
+      await updateDoc(doc(db, 'users', user.uid), { paymentMethods: updated });
+      setSavedMethods(updated);
+      toast.success('Metodo rimosso');
+    } catch (err) {
+      console.error(err);
+      toast.error('Errore nella rimozione');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
+      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+        <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">Metodi di Pagamento</h3>
+          <button onClick={onClose} className="p-2 text-grey"><X size={24}/></button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="animate-spin text-primary" size={32}/>
+          </div>
+        ) : savedMethods.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <CreditCard size={48} className="text-grey/30 mb-4"/>
+            <p className="text-sm font-bold text-grey uppercase tracking-widest mb-2">Nessun metodo salvato</p>
+            <p className="text-xs text-grey/60">Aggiungi una carta, PayPal o IBAN per pagare più velocemente</p>
+          </div>
+        ) : (
+          <div className="space-y-3 mb-6">
+            {savedMethods.map((method) => (
+              <div key={method.id} className="bg-grey/5 p-4 rounded-2xl flex items-center justify-between border border-grey/10">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${method.type === 'card' ? 'bg-primary/10 text-primary' : method.type === 'paypal' ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
+                    {method.type === 'card' ? <CardIcon size={20}/> : method.type === 'paypal' ? <span className="text-lg font-bold">P</span> : <span className="text-xs font-bold">IBAN</span>}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-black">{method.type === 'card' ? `•••• ${method.last4}` : method.type === 'paypal' ? 'PayPal' : method.name}</p>
+                    <p className="text-[10px] text-grey uppercase">{method.type === 'card' ? method.brand : method.type}</p>
+                  </div>
+                </div>
+                <button onClick={() => removeMethod(method.id)} className="p-2 text-danger/60 hover:text-danger transition-colors">
+                  <X size={16}/>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button onClick={onAddPayment} className="w-full py-4 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20 rounded-2xl bg-primary/5 hover:bg-primary/10 transition-all flex items-center justify-center gap-2">
+          <span className="text-lg">+</span> Aggiungi Metodo di Pagamento
+        </button>
+
+        <div className="mt-6 pt-6 border-t border-grey/10">
+          <p className="text-[10px] text-grey font-bold uppercase tracking-widest text-center mb-4">Oppure ricarica il portafoglio</p>
+          <button onClick={() => { onClose(); onAddPayment(); }} className="w-full py-4 bg-accent text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-accent/20">
+            Ricarica DB Coin
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function FAQItem({ question, answer }: { question: string; answer: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="bg-grey/5 rounded-2xl border border-grey/10 overflow-hidden">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full p-4 flex items-center justify-between text-left"
+      >
+        <span className="text-sm font-black text-black uppercase pr-4">{question}</span>
+        <ChevronRight size={18} className={`text-grey transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <p className="px-4 pb-4 text-xs text-grey font-bold leading-relaxed">{answer}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

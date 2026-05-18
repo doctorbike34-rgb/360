@@ -3,10 +3,11 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, setDoc, GeoPoint } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { analyticsTracker } from './lib/analytics';
+import { safeStorage } from './lib/storage';
 import { logger } from './lib/logger';
 import { useAuthStore } from './store/useAuthStore';
 import { useThemeStore } from './store/useThemeStore';
-import { Loader2, Navigation2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Navigation2, X } from 'lucide-react';
 import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { geohashForLocation } from 'geofire-common';
@@ -41,6 +42,7 @@ export default function App() {
   const { isDarkMode } = useThemeStore();
   const [showWelcome, setShowWelcome] = useState(false);
   const hasShownDailyToastRef = useRef(false);
+  const adminBootstrappedRef = useRef(false);
 
   useEffect(() => {
     // End boot timer only on first full mount
@@ -107,7 +109,7 @@ export default function App() {
                         lastSeenAt: serverTimestamp(),
                         updatedAt: serverTimestamp(),
                         isOnline: profile?.isOnline ?? true
-                     }, { merge: true }).catch(() => {}); 
+                     }, { merge: true }).catch((e) => console.warn('Background update failed', e)); 
                   }
                   return;
                 }
@@ -151,15 +153,15 @@ export default function App() {
         const adminSnap = await getDoc(doc(db, 'admins', fbUser.uid));
         const isAdmin = adminSnap.exists() || fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com';
         
-        unsubscribeProfile = onSnapshot(doc(db, 'users', fbUser.uid), (snapshot) => {
+        const processProfileSnapshot = (snapshot: { exists: () => boolean; data: () => any }) => {
           if (snapshot.exists()) {
             const profileData = snapshot.data() as UserProfile;
             
             if (isAdmin) {
-              if (profileData.role !== 'ADMIN' && !(window as any).firebaseTransactionInProgress) {
-                updateDoc(doc(db, 'users', fbUser.uid), { role: 'ADMIN' });
+              if (profileData.role !== 'ADMIN' && !adminBootstrappedRef.current) {
+                adminBootstrappedRef.current = true;
+                updateDoc(doc(db, 'users', fbUser.uid), { role: 'ADMIN' }).catch(err => console.error("Admin bootstrap failed", err));
               }
-              // Ensure the admin record exists for security rules helper to work
               if (!adminSnap.exists()) {
                 setDoc(doc(db, 'admins', fbUser.uid), { 
                   email: fbUser.email, 
@@ -178,30 +180,23 @@ export default function App() {
             } else {
               setShowWelcome(false);
             }
-            // Update store location if it exists on profile
             if (profileData.lastLat && profileData.lastLng) {
               setUserLocation({ lat: profileData.lastLat, lng: profileData.lastLng });
             }
 
-            // Gamification: Daily Reward Check
             const now = new Date();
             const lastLogin = (profileData as any).lastLoginDate?.toDate ? (profileData as any).lastLoginDate.toDate() : new Date(0);
-            
-            // CHECK LOCK: Use a shared localStorage lock with auto-expiry
-            const lockState = localStorage.getItem('fb_tx_lock');
-            const isLocked = lockState && (Date.now() - parseInt(lockState) < 10000); // 10s TTL
+            const lockState = safeStorage.getItem('fb_tx_lock');
+            const isLocked = lockState && (Date.now() - parseInt(lockState) < 10000);
 
             if (now.getDate() !== lastLogin.getDate() || now.getMonth() !== lastLogin.getMonth() || now.getFullYear() !== lastLogin.getFullYear()) {
-              // It's a new day! Give a daily reward.
               try {
                 if (!isLocked) {
                   updateDoc(doc(db, 'users', fbUser.uid), {
                     lastLoginDate: serverTimestamp()
                   }).catch(console.error);
                 }
-                
                 if (!hasShownDailyToastRef.current) {
-                  // Trigger toast for daily login!
                   toast.success('Accesso Giornaliero! +0.5 DBC (In arrivo con la prossima Cloud Function!)', { icon: '🎁', duration: 4000 });
                   hasShownDailyToastRef.current = true;
                 }
@@ -210,7 +205,6 @@ export default function App() {
               }
             }
 
-            // Reset quota error if we successfully get data
             setQuotaError(false);
           } else {
             if (isAdmin) {
@@ -240,24 +234,37 @@ export default function App() {
               }
             } else {
               setProfile(null);
-              // Prevent cache miss from destroying the role just granted during sign up
               if (!useAuthStore.getState().role) {
                 setRole(null);
               }
             }
           }
-          setLoading(false); // Done loading initial profile
-        }, (error) => {
-          setLoading(false); // Done attempting load
-          if (error.message.includes('Quota exceeded')) {
-             console.warn("Profile sync error (Quota exceeded). Waiting for reset...");
-             setQuotaError(true);
-          } else if (!auth.currentUser) {
-             console.warn("Expected Auth sync error during logout: ", error);
-          } else {
-             handleFirestoreError(error, OperationType.GET, `users/${fbUser.uid}`);
-          }
-        });
+          setLoading(false);
+        };
+
+        const profileErrorHandler = (error: any) => {
+          console.warn('Profile listener failed, falling back to getDoc:', error.code || error.message);
+          getDoc(doc(db, 'users', fbUser.uid)).then((snap) => {
+            if (!auth.currentUser) return;
+            processProfileSnapshot({ exists: () => snap.exists(), data: () => snap.data() });
+          }).catch((getDocError) => {
+            console.error('getDoc fallback also failed:', getDocError.code || getDocError.message);
+            if (getDocError.message?.includes('Quota exceeded')) {
+              setQuotaError(true);
+            }
+            setProfile(null);
+            if (!useAuthStore.getState().role) setRole(null);
+            setLoading(false);
+          });
+        };
+
+        try {
+          unsubscribeProfile = onSnapshot(doc(db, 'users', fbUser.uid), (snapshot) => {
+            processProfileSnapshot(snapshot);
+          }, profileErrorHandler);
+        } catch (snapshotError) {
+          profileErrorHandler(snapshotError);
+        }
 
       } else {
         setUser(null);
@@ -283,7 +290,7 @@ export default function App() {
     if (!user) return;
 
     // If user explicitly turned off online status, stop tracking and CLEAR location for total privacy
-    const lockState = localStorage.getItem('fb_tx_lock');
+    const lockState = safeStorage.getItem('fb_tx_lock');
     const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (Date.now() - parseInt(lockState) < 10000));
 
     if (profile?.isOnline === false) {
@@ -294,7 +301,7 @@ export default function App() {
           location: null,
           isOnline: false,
           updatedAt: serverTimestamp()
-        }).catch(() => {}); // Silent catch for background cleanup
+        }).catch((e) => console.warn('Background update failed', e)); // Silent catch for background cleanup
       }
       return;
     }
@@ -305,12 +312,16 @@ export default function App() {
       setUserLocation({ lat: coords.latitude, lng: coords.longitude });
       setLocationPermissionError(false);
 
+      // Read fresh state from store to avoid stale closure
+      const currentProfile = useAuthStore.getState().profile;
+      if (currentProfile?.isOnline === false) return;
+
       // Short-circuit if quota is exceeded
       if (useAuthStore.getState().quotaError) return;
 
       const now = Date.now();
       // Skip update if a critical transaction is in progress (Check window and shared localStorage)
-      const lockState = localStorage.getItem('fb_tx_lock');
+      const lockState = safeStorage.getItem('fb_tx_lock');
       const isLocked = (window as any).firebaseTransactionInProgress || (lockState && (now - parseInt(lockState) < 10000));
       
       if (isLocked) return;
@@ -342,7 +353,7 @@ export default function App() {
 
       try {
         // Final guard check immediately before write
-        const finalLockState = localStorage.getItem('fb_tx_lock');
+        const finalLockState = safeStorage.getItem('fb_tx_lock');
         const isStillLocked = (window as any).firebaseTransactionInProgress || (Date.now() - parseInt(finalLockState || '0') < 10000);
         
         if (isStillLocked) {
@@ -356,7 +367,7 @@ export default function App() {
           location: new GeoPoint(coords.latitude, coords.longitude),
           lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          isOnline: profile?.isOnline ?? true,
+          isOnline: useAuthStore.getState().profile?.isOnline ?? true,
           geohash: geohashForLocation([coords.latitude, coords.longitude])
         };
         
@@ -394,7 +405,7 @@ export default function App() {
           lastLng: null,
           location: null,
           updatedAt: serverTimestamp()
-        }).catch(() => {});
+        }).catch((e) => console.warn('Background update failed', e));
       } else if (!currentLoc) {
         // Timeout or unavailable: automatically fallback to approximate/IP location
           try {
@@ -457,17 +468,28 @@ export default function App() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className={`flex flex-col h-[100dvh] w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black`}>
+    <div className="flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black" style={{ height: '100dvh', width: '100%' }}>
       <>
         <AnimatePresence>
           {quotaError && (
             <motion.div 
-              initial={{ y: -50 }}
+              initial={{ y: -100 }}
               animate={{ y: 0 }}
-              exit={{ y: -50 }}
-              className="absolute top-0 left-0 right-0 z-[1000] bg-red-500 text-white text-[10px] font-black uppercase py-2 px-4 text-center shadow-lg"
+              exit={{ y: -100 }}
+              className="absolute top-0 left-0 right-0 z-[1000] bg-red-500 text-white p-4 sm:p-5 text-center shadow-lg"
             >
-              Limite Quota Raggiunto. Alcune funzioni potrebbero essere limitate fino al reset.
+              <div className="flex items-start justify-center gap-3 max-w-lg mx-auto">
+                <AlertTriangle size={20} className="shrink-0 mt-0.5 text-white/90" />
+                <div className="text-left">
+                  <p className="font-black text-sm uppercase tracking-wider">Limite Quota Raggiunto</p>
+                  <p className="text-xs text-white/80 mt-1 leading-relaxed">
+                    Alcune funzioni potrebbero essere momentaneamente limitate. I dati verranno aggiornati automaticamente al reset del piano.
+                  </p>
+                </div>
+                <button onClick={() => useAuthStore.getState().setQuotaError(false)} aria-label="Dismiss quota warning" className="shrink-0 p-1.5 hover:bg-white/20 rounded-full transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -485,9 +507,9 @@ export default function App() {
                    initial={{ opacity: 0 }}
                    animate={{ opacity: 1 }}
                    exit={{ opacity: 0 }}
-                   className="absolute inset-0 z-[2000] bg-white flex flex-col items-center justify-center p-8 text-center"
-                >
-                  <div className="flex flex-col items-center gap-8 max-w-sm">
+                   className="absolute inset-0 z-[2000] bg-white flex flex-col items-center justify-center p-4 text-center"
+                  >
+                    <div className="flex flex-col items-center gap-6 max-w-sm">
                     <div className="relative">
                       <div className="w-24 h-24 bg-primary/20 rounded-[2.5rem] flex items-center justify-center text-primary">
                         <Navigation2 size={48} className="animate-pulse" />

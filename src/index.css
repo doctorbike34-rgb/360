@@ -57,12 +57,12 @@
     --color-card: #FFFFFF;
   }
 
-  /* Force white theme even if .dark class is present */
+  /* Dark mode variables */
   .dark {
-    --color-bg: #FFFFFF;
-    --color-text: #000000;
-    --color-card: #FFFFFF;
-    --color-light-bg: #FFFFFF;
+    --color-bg: #1a1a2e;
+    --color-text: #e0e0e0;
+    --color-card: #16213e;
+    --color-light-bg: #0f3460;
   }
 }
 
@@ -168,6 +168,23 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-t
 }
 
 /* Removed Focus Mode Styles */
+
+/* Mobile Responsiveness — prevent layout shifts on small screens */
+html, body, #root {
+  overflow-x: hidden;
+}
+.content-safe {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-left: max(env(safe-area-inset-left), 0.75rem);
+  padding-right: max(env(safe-area-inset-right), 0.75rem);
+}
+@media (max-width: 400px) {
+  .hide-on-mobile { display: none !important; }
+  .text-responsive { font-size: clamp(0.625rem, 3vw, 0.875rem); }
+  .p-responsive { padding: clamp(0.5rem, 3vw, 1rem); }
+  .gap-responsive { gap: clamp(0.25rem, 2vw, 0.75rem); }
+}
 
 /* React Phone Number Input Customizations */
 .PhoneInput {

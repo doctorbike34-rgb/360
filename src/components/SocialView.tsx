@@ -1,12 +1,13 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove, increment, limit, where, setDoc, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove, increment, limit, where, setDoc, getDocs, startAt, endAt } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Users, MapPin, Plus, Bike, ChevronRight, X, Clock, MessageCircle, ArrowLeft, Search } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { gamificationService } from '../services/gamificationService';
+import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 
 function DraggableMarker({ position, setPosition }: { position: [number, number], setPosition: (pos: [number, number]) => void }) {
   const map = useMap();
@@ -71,6 +72,9 @@ interface UserSuggestion {
   photoURL?: string;
   updatedAt?: any;
   lastSeenAt?: any;
+  lastLat?: number;
+  lastLng?: number;
+  distance?: number;
 }
 
 interface AddressSuggestion {
@@ -114,35 +118,41 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
   const lastUpdateRef = React.useRef<number>(0);
 
   useEffect(() => {
-    const qNearby = query(
+    const userLocation = useAuthStore.getState().userLocation;
+    if (!userLocation) return;
+
+    const radiusInM = 50_000; // 50km radius
+    const bounds = geohashQueryBounds([userLocation.lat, userLocation.lng], radiusInM);
+    const queries = bounds.map(b => query(
       collection(db, 'users'),
       where('role', '==', 'CYCLIST'),
       where('isOnline', '==', true),
-      limit(100) // Increase from 20 to 100 to catch more local users
-    );
+      orderBy('geohash'),
+      startAt(b[0]),
+      endAt(b[1]),
+      limit(20)
+    ));
 
-    const unsubscribe = onSnapshot(qNearby, (snapshot) => {
+    const allUnsubscribes = queries.map(q => onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as UserSuggestion))
-        .filter(u => {
-          if (u.id === user?.uid) return false;
-          const lastSeen = u.lastSeenAt instanceof Date ? u.lastSeenAt.getTime() : ((u.lastSeenAt as any)?.seconds ? (u.lastSeenAt as any).seconds * 1000 : 0);
-          const now = Date.now();
-          // Filter users seen in last 30 mins (increased from 15)
-          return (now - lastSeen) < (30 * 60 * 1000);
-        })
-        .sort((a, b) => {
-          const valA = a.updatedAt instanceof Date ? a.updatedAt.getTime() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
-          const valB = b.updatedAt instanceof Date ? b.updatedAt.getTime() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
-          return valB - valA;
-        });
-      setNearbyCyclists(docs);
+        .filter(u => u.id !== user?.uid)
+        .map(u => ({
+          ...u,
+          distance: distanceBetween([u.lastLat || 0, u.lastLng || 0], [userLocation.lat, userLocation.lng])
+        }))
+        .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      setNearbyCyclists(prev => {
+        const merged = new Map(prev.map(c => [c.id, c]));
+        docs.forEach(d => merged.set(d.id, d));
+        return Array.from(merged.values()).slice(0, 50);
+      });
     }, (error: any) => {
-      if (error.message.includes('Quota exceeded')) setQuotaError(true);
-      console.warn('Error listening to nearby cyclists', error);
-    });
+      if (error.message?.includes('Quota exceeded')) setQuotaError(true);
+      else console.warn('Error listening to nearby cyclists', error);
+    }));
 
-    return () => unsubscribe();
+    return () => allUnsubscribes.forEach(u => u());
   }, [user, setQuotaError]);
 
   useEffect(() => {

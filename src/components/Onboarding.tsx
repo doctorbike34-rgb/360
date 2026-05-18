@@ -18,7 +18,7 @@ import {
   Bell,
   Shield
 } from 'lucide-react';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from '../store/useAuthStore';
@@ -145,7 +145,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       id: 'peerSkills',
       title: "Competenze",
       desc: "Seleziona le tue competenze ciclistiche",
-      icon: <Check className="text-[teal-500]" size={48} />,
+      icon: <Check className="text-teal-500" size={48} />,
       gradient: 'from-[#14B8A6]/20 to-[#14B8A6]/5',
       image: 'https://images.unsplash.com/photo-1576403061268-d069da1922fa?auto=format&fit=crop&q=80&w=1000'
   };
@@ -155,7 +155,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       title: "Tariffa e Raggio",
       // eslint-disable-next-line no-useless-escape
       desc: "Definisci il tuo rimborso spese e l\'area di disponibilità.",
-      icon: <Zap className="text-[teal-500]" size={48} />,
+      icon: <Zap className="text-teal-500" size={48} />,
       gradient: 'from-[#14B8A6]/20 to-[#14B8A6]/5',
       image: 'https://images.unsplash.com/photo-1512314889357-e157c22f938d?auto=format&fit=crop&q=80&w=1000'
   };
@@ -311,12 +311,16 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
             updateData.peerMechanicRate = peerRate;
             updateData.peerMechanicRadius = peerRadius;
           }
-          await updateDoc(doc(db, 'users', user?.uid), updateData);
+          await setDoc(doc(db, 'users', user?.uid), updateData, { merge: true });
+          onComplete();
         } catch (e) {
           console.error('Error completing onboarding:', e);
+          toast.error('Errore durante il salvataggio. Riprova.');
+          setIsFinishing(false);
         }
+      } else {
+        onComplete();
       }
-      onComplete();
     }
   };
 

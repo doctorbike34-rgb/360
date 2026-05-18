@@ -51,7 +51,6 @@ describe('roadReportService', () => {
         photoUrl: 'http://example.com/image.jpg',
         reporterId: 'user123',
         reporterName: 'Test User',
-        severity: 'medium',
       };
 
       await expect(roadReportService.createRoadReport(mockReportData as any)).rejects.toThrow(mockError);

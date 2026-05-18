@@ -2,6 +2,7 @@ import { getToken, onMessage } from 'firebase/messaging';
 import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, getFCM } from './firebase';
 import { FIREBASE_VAPID_KEY } from '../config/env';
+import { safeStorage } from './storage';
 
 let lastRequestTime = 0;
 
@@ -27,24 +28,14 @@ export const requestNotificationPermission = async () => {
       });
       
       if (token && auth.currentUser) {
-        // Only update if the token is not already registered in this session/local for this user
         const storageKey = `fcm_token_${auth.currentUser.uid}`;
-        let cachedToken = null;
-        try {
-          cachedToken = localStorage.getItem(storageKey);
-        } catch (e) {
-          console.warn('localStorage access denied in notifications');
-        }
+        const cachedToken = safeStorage.getItem(storageKey);
 
         if (cachedToken !== token) {
           await updateDoc(doc(db, 'users', auth.currentUser.uid), {
             fcmTokens: arrayUnion(token)
           });
-          try {
-            localStorage.setItem(storageKey, token);
-          } catch (e) {
-            // Ignore
-          }
+          safeStorage.setItem(storageKey, token);
         }
         return token;
       }

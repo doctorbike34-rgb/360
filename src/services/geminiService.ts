@@ -5,10 +5,11 @@ import { doc, getDoc } from "firebase/firestore";
 let aiClient: GoogleGenAI | null = null;
 function getAI() {
   if (!aiClient) {
-    if (!process.env.GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY is not defined");
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      console.error("VITE_GEMINI_API_KEY is not defined in .env");
     }
-    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    aiClient = new GoogleGenAI({ apiKey: apiKey || '' });
   }
   return aiClient;
 }

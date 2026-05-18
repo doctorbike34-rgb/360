@@ -4,13 +4,13 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, useMapEvents 
 import L from 'leaflet';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { User as FirebaseUser } from 'firebase/auth';
-import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt, runTransaction } from 'firebase/firestore';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { UserProfile, SOSRequest } from '../types';
-import { Crosshair, Navigation, Map as MapIcon, Layers, Users, Clock, Star, Clock4, MessageCircle } from 'lucide-react';
+import { Crosshair, Navigation, Map as MapIcon, Layers, Users, Clock, Star, Clock4, MessageCircle, Sun, Moon, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -87,15 +87,22 @@ function MechanicPopup({
     if (!sos || !currentUser) return;
     setIsAccepting(true);
     try {
-      await updateDoc(doc(db, 'sosRequests', sos.id), {
-        mechanicId: currentUser.uid,
-        status: 'ACCEPTED',
-        acceptedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+      await runTransaction(db, async (transaction) => {
+        const sosRef = doc(db, 'sosRequests', sos.id);
+        const sosSnap = await transaction.get(sosRef);
+        if (!sosSnap.exists || sosSnap.data()?.status !== 'PENDING') {
+          throw new Error('SOS already accepted by another mechanic');
+        }
+        transaction.update(sosRef, {
+          mechanicId: currentUser.uid,
+          status: 'ACCEPTED',
+          acceptedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
       });
     } catch (e) {
       console.error('Failed to accept SOS', e);
-      toast.error(t('common.error') + ': Impossibile accettare SOS');
+      toast.error(t('common.error') + ': SOS già accettato da un altro meccanico');
     } finally {
       setIsAccepting(false);
     }
@@ -273,7 +280,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   showMechanics?: boolean,
   showCyclists?: boolean,
 }) {
-  const { user: currentUser, profile, role: currentUserRole, setQuotaError, userLocation: storeLocation } = useAuthStore();
+  const { user: currentUser, profile, role: currentUserRole, setQuotaError, userLocation: storeLocation, setShowAIDoctor } = useAuthStore();
   const [visibleUsers, setVisibleUsers] = useState<any[]>([]);
   const [visibleEvents, setVisibleEvents] = useState<any[]>([]);
   const [visibleReports, setVisibleReports] = useState<any[]>([]);
@@ -289,7 +296,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   const [showMapTypes, setShowMapTypes] = useState(false);
   const [showNavMenu, setShowNavMenu] = useState(false);
   const [forceCenterToggle, setForceCenterToggle] = useState(false);
-  const { isDarkMode } = useThemeStore();
+  const { isDarkMode, toggleDarkMode } = useThemeStore();
   const { t } = useTranslation();
   const mapRef = useRef<L.Map | null>(null);
   const localUsersRef = useRef<Record<string, any>>({});
@@ -464,7 +471,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     const unsubEvents = onSnapshot(qEvents, (snapshot) => {
       const events = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((event: any) => (event.lastLat || event.lat || event.location?.latitude) && (event.lastLng || event.lng || event.location?.longitude));
+        .filter((event: any) => (event.lastLat ?? event.lat ?? event.location?.latitude) != null && (event.lastLng ?? event.lng ?? event.location?.longitude) != null);
       setVisibleEvents(events);
     }, (err) => {
       console.warn("Events listener error:", err);
@@ -556,9 +563,24 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
   return (
     <div className="w-full h-full relative z-0">
-      {/* Map Controls */}
+      {/* Top-Left Controls: Online Counters */}
+      {!minimal && (
+        <div className="absolute top-4 left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
+           <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
+             <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+             <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length} Meccanici online</span>
+           </div>
+           <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
+             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+             <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'CYCLIST').length} Ciclisti online</span>
+           </div>
+        </div>
+      )}
+
+      {/* Bottom-Right Controls: Map Type, Dark Mode, AI, Locate */}
       {!minimal && (
         <div className="absolute bottom-28 right-4 z-[999] flex flex-col gap-3 pointer-events-auto items-end">
+           {/* Map Type Selector */}
            <div className="relative flex flex-col items-end gap-2">
              {showMapTypes && (
                <motion.div 
@@ -586,30 +608,53 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
                whileHover={{ scale: 1.05 }}
                whileTap={{ scale: 0.95 }}
                onClick={() => setShowMapTypes(!showMapTypes)} 
-               className={`bg-white text-primary p-3 rounded-xl shadow-xl border border-grey/10 cursor-pointer transition-all flex items-center justify-center`}
+               className="bg-white text-primary p-3 rounded-xl shadow-xl border border-grey/10 cursor-pointer transition-all flex items-center justify-center"
                title={t('map.toggle')}
              >
                <Layers size={20} />
              </motion.button>
            </div>
- 
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setFlyPos(null);
-                if (storeLocation) {
-                  setUserPos([storeLocation.lat, storeLocation.lng]);
-                  setForceCenterToggle(prev => !prev);
-                } else {
-                  updateRealPosition(true);
-                }
-              }} 
-              className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
-              title={t('map.locate')}
-            >
-              <Crosshair className={isRefreshing ? "animate-spin" : ""} size={20} />
-            </motion.button>
+
+           {/* Dark Mode Toggle */}
+           <motion.button
+             whileHover={{ scale: 1.05 }}
+             whileTap={{ scale: 0.95 }}
+             onClick={toggleDarkMode}
+             className="bg-white text-primary p-3 rounded-xl shadow-xl border border-grey/10 cursor-pointer transition-all flex items-center justify-center"
+             title={isDarkMode ? 'Modalità chiara' : 'Modalità scura'}
+           >
+             {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+           </motion.button>
+
+           {/* AI Assistant Toggle */}
+           <motion.button
+             whileHover={{ scale: 1.05 }}
+             whileTap={{ scale: 0.95 }}
+             onClick={() => setShowAIDoctor?.(true)}
+             className="bg-white text-warning p-3 rounded-xl shadow-xl border border-grey/10 cursor-pointer transition-all flex items-center justify-center"
+             title="AI Doctor"
+           >
+             <Sparkles size={20} />
+           </motion.button>
+
+           {/* Locate */}
+           <motion.button
+             whileHover={{ scale: 1.05 }}
+             whileTap={{ scale: 0.95 }}
+             onClick={() => {
+               setFlyPos(null);
+               if (storeLocation) {
+                 setUserPos([storeLocation.lat, storeLocation.lng]);
+                 setForceCenterToggle(prev => !prev);
+               } else {
+                 updateRealPosition(true);
+               }
+             }} 
+             className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
+             title={t('map.locate')}
+           >
+             <Crosshair className={isRefreshing ? "animate-spin" : ""} size={20} />
+           </motion.button>
         </div>
       )}
 
@@ -766,7 +811,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
                   html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${escapeHtml(color)}">
                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                            <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                              <span class="text-[8px] font-black uppercase text-black">${escapeHtml(t(`reports.categories.${report.category}`, report.category.replace('_', ' ')))}</span>
+                              <span class="text-[8px] font-black uppercase text-black">${escapeHtml(String(t(`reports.categories.${report.category}`, report.category.replace('_', ' '))))}</span>
                            </div>
                          </div>`,
                   iconSize: [28, 28],

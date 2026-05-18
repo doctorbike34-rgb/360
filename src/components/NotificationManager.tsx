@@ -14,6 +14,7 @@ export const NotificationManager: React.FC = () => {
   const lastUnreadRef = useRef<Record<string, number>>({});
   const processedMechanicSOS = useRef<Map<string, number>>(new Map());
   const hasRequestedPermission = useRef<string | null>(null);
+  const fcmUnsubRef = useRef<() => void>(() => {});
 
   const playNotificationSound = (isSOS = false) => {
     try {
@@ -49,24 +50,24 @@ export const NotificationManager: React.FC = () => {
       }
     }
 
-    // Set up FCM foreground listener
-    let unsubscribeFCM: () => void = () => {};
-    const setupFCM = async () => {
-      unsubscribeFCM = await onForegroundMessage((payload: any) => {
-        console.log('Foreground FCM received:', payload);
-        if (payload?.notification) {
-          const title = payload.notification.title || 'Doctorbike Ai';
-          const body = payload.notification.body || '';
-          const isSOS = title.includes('SOS') || body.includes('SOS');
-          
-          notify(title, {
-            body,
-            isSOS
-          });
-        }
-      });
-    };
-    setupFCM();
+    // Set up FCM foreground listener — use ref to avoid async race
+    onForegroundMessage((payload: any) => {
+      console.log('Foreground FCM received:', payload);
+      if (payload?.notification) {
+        const title = payload.notification.title || 'Doctorbike Ai';
+        const body = payload.notification.body || '';
+        const isSOS = title.includes('SOS') || body.includes('SOS');
+        
+        notify(title, {
+          body,
+          isSOS
+        });
+      }
+    }).then((unsub) => {
+      fcmUnsubRef.current = unsub;
+    }).catch((err) => {
+      console.warn('FCM setup failed:', err);
+    });
 
     // --- SNAPSHOT-BASED "PUSH" FALLBACK (Works even without FCM setup) ---
     
@@ -137,11 +138,11 @@ export const NotificationManager: React.FC = () => {
               // Avoid duplicate notifications - use TTL-based Set
               const now = Date.now();
               // Clean up old entries (older than 1 hour)
-              for (const key of processedMechanicSOS.current) {
-                if (now - (processedMechanicSOS.current as any)[key] > 3600000) {
-                  (processedMechanicSOS.current as any).delete(key);
+              processedMechanicSOS.current.forEach((value, key) => {
+                if (now - value > 3600000) {
+                  processedMechanicSOS.current.delete(key);
                 }
-              }
+              });
               
               if (!(processedMechanicSOS.current as any).has(id)) {
                 (processedMechanicSOS.current as any).set(id, now);
@@ -200,7 +201,7 @@ export const NotificationManager: React.FC = () => {
     }
 
     return () => {
-      if (unsubscribeFCM) unsubscribeFCM();
+      fcmUnsubRef.current();
       if (cleanupSOS) cleanupSOS();
       if (cleanupNearby) cleanupNearby();
       if (cleanupChats) cleanupChats();

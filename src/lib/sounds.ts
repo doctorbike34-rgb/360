@@ -86,7 +86,6 @@ class SoundService {
           gainNode.gain.setValueAtTime(0.3, now + 0.15);
           gainNode.gain.linearRampToValueAtTime(0.01, now + 0.2);
           
-          gainNode.gain.setValueAtTime(0, now + 0.2);
           gainNode.gain.linearRampToValueAtTime(0.3, now + 0.25);
           gainNode.gain.setValueAtTime(0.3, now + 0.35);
           gainNode.gain.linearRampToValueAtTime(0.01, now + 0.4);

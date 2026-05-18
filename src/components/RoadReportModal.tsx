@@ -2,12 +2,12 @@ import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, MapPin as MapIcon, Image as ImageIcon, CheckCircle2, Loader2, AlertTriangle, Route, Navigation2, LogIn } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import imageCompression from 'browser-image-compression';
 import { useAuthStore } from '../store/useAuthStore';
 import { roadReportService } from '../services/roadReportService';
-import { useTranslation } from 'react-i18next';
 import { fileToBase64 } from '../lib/fileUtils';
 
 // Fix for Leaflet default icons in Vite
@@ -115,7 +115,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (file.size > 10 * 1024 * 1024) {
-        toast.error('File troppo grande (max 10MB).');
+        toast.error(t('reports.fileTooLarge', { defaultValue: 'File troppo grande (max 10MB).' }));
         return;
       }
       
@@ -148,7 +148,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
         
       } catch (error: any) {
          console.error('Image compression error:', error);
-         toast.error("Errore durante l'ottimizzazione della foto: " + (error.message || "Riprova tra poco."));
+         toast.error(t('reports.photoOptimizeError', { defaultValue: "Errore durante l'ottimizzazione della foto" }) + ': ' + (error.message || t('common.tryAgain', { defaultValue: 'Riprova tra poco.' })));
          setIsPhotoUploading(false);
       } finally {
          if (fileInputRef.current) fileInputRef.current.value = '';
@@ -188,8 +188,8 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
                 return true;
              }
           }
-       // eslint-disable-next-line no-empty
-       } catch (e) {}
+        // eslint-disable-next-line no-empty
+        } catch (e) { console.warn('IP geolocation fallback failed', e); }
        return false;
     };
 
@@ -204,29 +204,29 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
         async () => {
           const ipSuccess = await tryIPFallback();
           if (!ipSuccess) {
-            toast.error("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
+            toast.error(t('reports.locationError', { defaultValue: "Impossibile ottenere la posizione esatta. Trascina la mappa manualmente." }));
           }
         },
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
     } else {
       tryIPFallback().then(success => {
-        if (!success) toast.error("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
+        if (!success) toast.error(t('reports.locationError', { defaultValue: "Impossibile ottenere la posizione esatta. Trascina la mappa manualmente." }));
       });
     }
   };
 
   const handleSubmit = async () => {
     if (!user) {
-      toast.error('Devi essere loggato per inviare una segnalazione');
+      toast.error(t('reports.mustBeLoggedIn', { defaultValue: 'Devi essere loggato per inviare una segnalazione' }));
       return;
     }
     if (!category || !severity || !description) {
-      toast.error('Tutti i campi (categoria, gravità, descrizione) sono obbligatori');
+      toast.error(t('reports.requiredFields', { defaultValue: 'Tutti i campi (categoria, gravità, descrizione) sono obbligatori' }));
       return;
     }
     if (!pos) {
-      toast.error('Posizione non disponibile. Muovi la mappa per selezionare un punto.');
+      toast.error(t('reports.locationRequired', { defaultValue: 'Posizione non disponibile. Muovi la mappa per selezionare un punto.' }));
       return;
     }
 
@@ -244,7 +244,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
       setStep(4);
     } catch (e: any) {
       console.error('Submission failed:', e);
-      toast.error('Errore durante l\'invio: ' + (e.message || 'Riprova più tardi'));
+      toast.error(t('reports.submitError', { defaultValue: "Errore durante l'invio" }) + ': ' + (e.message || t('common.tryAgain', { defaultValue: 'Riprova più tardi' })));
     } finally {
       setIsSubmitting(false);
     }
@@ -266,14 +266,14 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: '100%', opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="relative pointer-events-auto w-full max-h-[90dvh] sm:max-w-md sm:mx-auto bg-white text-black rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 z-[210] shadow-2xl pb-safe flex flex-col"
+            className="relative pointer-events-auto w-full max-h-[90dvh] sm:max-w-md sm:mx-auto bg-white text-black rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 z-[210] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))] flex flex-col"
           >
             <div className="flex justify-between items-center mb-6 shrink-0">
           <h3 className="text-xl font-black uppercase text-black  flex items-center gap-2">
             <AlertTriangle className="text-warning" size={24} />
             {t('reports.title', 'Segnala Problema')}
           </h3>
-          <button onClick={onClose} className="p-2 text-grey bg-grey/10 rounded-full"><X size={20} /></button>
+          <button onClick={onClose} aria-label="Close" className="p-2 text-grey bg-grey/10 rounded-full"><X size={20} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto pt-2 space-y-6">
@@ -327,7 +327,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
                    {photoPreview ? (
                      <div className="relative inline-block">
                         <img src={photoPreview} alt="Preview" className="h-32 w-auto rounded-xl object-cover border border-grey/20" />
-                        <button onClick={() => setPhotoPreview(null)} className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1 hover:bg-black/80"><X size={16}/></button>
+                        <button onClick={() => setPhotoPreview(null)} aria-label="Remove photo" className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1 hover:bg-black/80"><X size={16}/></button>
                      </div>
                    ) : isPhotoUploading ? (
                      <div className="flex items-center gap-3 border-2 border-dashed border-primary/30 bg-primary/5 rounded-xl p-4 w-full text-primary justify-center">

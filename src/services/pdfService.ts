@@ -1,6 +1,19 @@
 import jsPDF from 'jspdf';
 import { InterventionRecord } from '../types';
 
+function safeDate(value: any): Date {
+  if (!value) return new Date();
+  if (typeof value.toDate === 'function') return value.toDate();
+  if (typeof value === 'number') return new Date(value);
+  if (value instanceof Date) return value;
+  return new Date(value);
+}
+
+function safeCost(value: any): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '0.00';
+  return value.toFixed(2);
+}
+
 export const pdfService = {
   generateInterventionPDF: (intervention: InterventionRecord) => {
     const doc = new jsPDF();
@@ -10,14 +23,14 @@ export const pdfService = {
 
     doc.setFontSize(12);
     doc.setFont("helvetica", "normal");
-    doc.text(`ID Intervento: ${intervention.id}`, 20, 35);
-    doc.text(`Data: ${new Date(intervention.date).toLocaleString()}`, 20, 45);
-    
+    doc.text(`ID Intervento: ${intervention.id || 'N/A'}`, 20, 35);
+    doc.text(`Data: ${safeDate(intervention.date).toLocaleString()}`, 20, 45);
+
     doc.text(`Ciclista: ${intervention.cyclistName || intervention.cyclistId}`, 20, 60);
     doc.text(`Meccanico: ${intervention.mechanicName || intervention.mechanicId} (${intervention.mechanicType})`, 20, 70);
 
     doc.text(`Tipo Guasto: ${intervention.problemDescription}`, 20, 85);
-    doc.text(`Costo Finale: €${intervention.cost?.toFixed(2) || '0.00'}`, 20, 95);
+    doc.text(`Costo Finale: €${safeCost(intervention.cost)}`, 20, 95);
     doc.text(`Stato: ${intervention.status}`, 20, 105);
 
     if (intervention.review) {
@@ -26,7 +39,7 @@ export const pdfService = {
 
     doc.setFontSize(10);
     doc.text("Documento privo di valenza fiscale ufficiale.", 20, 280);
-    doc.save(`intervento_${intervention.id}.pdf`);
+    doc.save(`intervento_${intervention.id || 'unknown'}.pdf`);
   },
 
   generatePeriodPDF: (interventions: InterventionRecord[], fromDate?: string, toDate?: string) => {
@@ -38,7 +51,7 @@ export const pdfService = {
     doc.setFontSize(12);
     doc.setFont("helvetica", "normal");
     doc.text(`Totale Interventi: ${interventions.length}`, 20, 35);
-    
+
     const totalAmount = interventions.reduce((acc, curr) => acc + (curr.cost || 0), 0);
     doc.text(`Imponibile Totale: €${totalAmount.toFixed(2)}`, 20, 45);
 
@@ -48,10 +61,11 @@ export const pdfService = {
             doc.addPage();
             yPos = 20;
         }
-        doc.text(`${index + 1}. [${new Date(inv.date).toLocaleDateString()}] ${inv.problemDescription} - €${inv.cost?.toFixed(2)}`, 20, yPos);
+        doc.text(`${index + 1}. [${safeDate(inv.date).toLocaleDateString()}] ${inv.problemDescription} - €${safeCost(inv.cost)}`, 20, yPos);
         yPos += 10;
     });
 
-    doc.save(`riepilogo_interventi.pdf`);
+    const timestamp = new Date().toISOString().split('T')[0];
+    doc.save(`riepilogo_interventi_${timestamp}.pdf`);
   }
 };

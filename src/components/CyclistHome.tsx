@@ -35,6 +35,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { auth, db, handleFirestoreError, OperationType, functions, storage } from '../lib/firebase';
+import { safeStorage } from '../lib/storage';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { 
@@ -74,6 +75,7 @@ import { RoadReportDetailModal } from './RoadReportDetailModal';
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 
 function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, number]) => void, userLoc: [number, number] | null }) {
+  const { t } = useTranslation();
   const map = useMap();
   const initRef = useRef(false);
   
@@ -421,7 +423,7 @@ export function CyclistHome() {
         setNearbyCyclistsCount(localCyclistsCount);
         setQuotaError(false);
       }, (error) => {
-        if (error.message.includes('Quota exceeded')) setQuotaError(true);
+        if (error.message?.includes('Quota exceeded')) setQuotaError(true);
         else console.warn('Error listening to users via geohash:', error);
       });
       unsubs.push(unsub);
@@ -467,7 +469,7 @@ export function CyclistHome() {
     if (!file) return;
 
     if (file.size > 15 * 1024 * 1024) {
-      toast.error("L'immagine è troppo grande (Max 15MB).");
+      toast.error(t('cyclist.imageTooLarge', { defaultValue: "L'immagine è troppo grande (Max 15MB)." }));
       return;
     }
 
@@ -628,7 +630,7 @@ export function CyclistHome() {
         setActiveSOS(null);
       }
     }, (error) => {
-      if (!error.message.includes('Quota exceeded')) {
+      if (!error.message?.includes('Quota exceeded')) {
         console.warn('Error listening to SOS:', error);
       }
     });
@@ -655,7 +657,7 @@ export function CyclistHome() {
           }
         }
       }, (error) => {
-        if (error.message.includes('Quota exceeded')) {
+        if (error.message?.includes('Quota exceeded')) {
           console.warn('Firestore Quota exceeded (Mechanic tracking)');
         } else if (!auth.currentUser) {
           console.warn('Expected Auth sync error during logout: ', error);
@@ -688,7 +690,7 @@ export function CyclistHome() {
     
     setIsCreatingSOS(true);
     (window as any).firebaseTransactionInProgress = true;
-    localStorage.setItem('fb_tx_lock', Date.now().toString());
+    safeStorage.setItem('fb_tx_lock', Date.now().toString());
     
     // Give a small window for any pending background location updates to finish
     // before we start the optimistic transaction snapshot
@@ -884,7 +886,7 @@ export function CyclistHome() {
     if (!activeSOS || !user) return;
     setIsCancelling(true);
     (window as any).firebaseTransactionInProgress = true;
-    localStorage.setItem('fb_tx_lock', Date.now().toString());
+    safeStorage.setItem('fb_tx_lock', Date.now().toString());
     try {
       const sosRef = doc(db, 'sosRequests', activeSOS.id);
       const userRef = doc(db, 'users', user.uid);
@@ -941,7 +943,7 @@ export function CyclistHome() {
 
   const [isJoiningEventId, setIsJoiningEventId] = useState<string | null>(null);
 
-  const toggleJoin = async (event: { id: string; participantCount: number; maxParticipants: number; participants?: string[] }) => {
+  const toggleJoin = async (event: { id: string; participantCount: number; maxParticipants: number; participants?: string[]; title?: string }) => {
     if (!user) return;
     const isJoined = event.participants?.includes(user?.uid);
     setIsJoiningEventId(event.id);
@@ -1027,7 +1029,7 @@ export function CyclistHome() {
   };
 
   return (
-    <div className="flex-1 flex flex-col relative bg-white transition-colors duration-500">
+    <div className="flex flex-col relative bg-white transition-colors duration-500" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
       <AnimatePresence>
         {showAcceptedToast && (
           <motion.div
@@ -1096,16 +1098,16 @@ export function CyclistHome() {
                  </div>
               </div>
               
-              <div className="flex flex-col gap-2 pointer-events-auto">
-                <div className="bg-white/80  backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2 transition-colors w-fit border border-grey/5">
-                   <span className={`w-2 h-2 rounded-full ${nearbyCount > 0 ? 'bg-accent animate-pulse' : 'bg-danger'}`} />
-                   <span className="text-[9px] font-bold uppercase tracking-tight text-black ">{nearbyCount} {t('cyclist.nearTip')}</span>
-                </div>
-                <div className="bg-white/80  backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2 transition-colors w-fit border border-grey/5">
-                   <span className={`w-2 h-2 rounded-full ${nearbyCyclistsCount > 0 ? 'bg-primary animate-pulse' : 'bg-danger'}`} />
-                   <span className="text-[9px] font-bold uppercase tracking-tight text-black ">{nearbyCyclistsCount} {t('cyclist.nearCyclists')}</span>
-                </div>
-              </div>
+               <div className="flex flex-col gap-2 pointer-events-auto">
+                 <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2 transition-colors w-fit border border-grey/5 max-w-[180px]">
+                    <span className={`w-2 h-2 rounded-full ${nearbyCount > 0 ? 'bg-accent animate-pulse' : 'bg-danger'}`} />
+                    <span className="text-[9px] font-bold uppercase tracking-tight text-black truncate">{nearbyCount} {t('cyclist.nearTip')}</span>
+                 </div>
+                 <div className="bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2 transition-colors w-fit border border-grey/5 max-w-[180px]">
+                    <span className={`w-2 h-2 rounded-full ${nearbyCyclistsCount > 0 ? 'bg-primary animate-pulse' : 'bg-danger'}`} />
+                    <span className="text-[9px] font-bold uppercase tracking-tight text-black truncate">{nearbyCyclistsCount} {t('cyclist.nearCyclists')}</span>
+                 </div>
+               </div>
             </div>
             
             <div className="flex flex-col items-end gap-3 pointer-events-auto">
@@ -1138,9 +1140,9 @@ export function CyclistHome() {
       )}
 
       {/* Main View */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="relative overflow-hidden" style={{ flex: '1 1 0%', minHeight: 0 }}>
         {/* Main Content Area - Render all tabs but show only active one for instant switching */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
           {/* SOS Overlay Chat / Direct Chat View */}
           <AnimatePresence>
             {showChat && directChat && (
@@ -1149,7 +1151,7 @@ export function CyclistHome() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
-                className="absolute inset-0 z-30 flex flex-col bg-white pb-[110px]"
+                className="absolute inset-0 z-[100] flex flex-col bg-white"
               >
                 <ChatHeader 
                   chatId={directChat.id} 
@@ -1325,16 +1327,16 @@ export function CyclistHome() {
       <AnimatePresence>
         {activeSOS && !showSOSDetails && (
           <motion.div 
-            initial={{ y: 40, opacity: 0, scale: 0.95 }}
+            initial={{ y: -40, opacity: 0, scale: 0.95 }}
             animate={{ 
               y: 0, 
               x: 0,
               scale: isSOSMinimized ? 0.9 : 1,
               opacity: 1 
             }}
-            exit={{ y: 40, opacity: 0, scale: 0.95 }}
+            exit={{ y: -40, opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className={`fixed ${isSOSMinimized ? 'bottom-64 right-4 w-12 h-12' : 'bottom-28 left-4 right-4'} origin-bottom-right z-20 flex flex-col gap-3 pointer-events-auto transition-all duration-500`}
+            className={`fixed ${isSOSMinimized ? 'top-20 right-4 w-12 h-12' : 'top-20 right-4 left-4 sm:left-auto sm:w-96'} origin-top-right z-20 flex flex-col gap-3 pointer-events-auto transition-all duration-500`}
           >
             {/* Status Card */}
             <div 
@@ -1783,7 +1785,7 @@ export function CyclistHome() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-[2rem] sm:rounded-t-[2.5rem] p-6 sm:p-8 z-[100] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] max-h-[90dvh] overflow-y-auto pb-safe sm:pb-8 flex flex-col"
+              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-[2rem] sm:rounded-t-[2.5rem] p-6 sm:p-8 z-[100] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] max-h-[90dvh] overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))] sm:pb-8 flex flex-col"
             >
               <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6 shrink-0" />
               <button 

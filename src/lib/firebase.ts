@@ -1,11 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
-import { 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager
-} from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
 import { getFunctions } from 'firebase/functions';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -19,28 +15,30 @@ if (!firebaseConfig || !firebaseConfig.apiKey) {
 export const app = initializeApp(firebaseConfig);
 
 // App Check — reCAPTCHA Enterprise
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
-
-if (typeof window !== 'undefined') {
-  if (import.meta.env?.DEV) (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-  if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY === 'your_recaptcha_site_key') {
-    console.warn('RECAPTCHA_SITE_KEY is not configured. App Check will not be initialized.');
-  } else {
-    initializeAppCheck(app, {
-      provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
-      isTokenAutoRefreshEnabled: true
-    });
-  }
-}
+// DISABLED: reCAPTCHA Enterprise key returns 403. Re-enable after configuring
+// the key in Firebase Console > App Check with allowed domains.
+// import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+//
+// if (typeof window !== 'undefined') {
+//   if (import.meta.env?.DEV) (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+//   if (!RECAPTCHA_SITE_KEY) {
+//     console.warn('RECAPTCHA_SITE_KEY is not configured. App Check will not be initialized.');
+//   } else {
+//     try {
+//       initializeAppCheck(app, {
+//         provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
+//         isTokenAutoRefreshEnabled: true
+//       });
+//     } catch (err) {
+//       console.warn('App Check initialization failed. App will run without App Check:', err);
+//     }
+//   }
+// }
 
 export const storage = getStorage(app);
 
-// Modern Firestore Cache Configuration with Multi-Tab support
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-}, firebaseConfig.firestoreDatabaseId || undefined);
+// Using default memory-only cache (no persistence)
+export const db = getFirestore(app);
 
 export const auth = getAuth(app);
 // Firebase Functions are deployed to europe-west1.
@@ -99,7 +97,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 let messaging: Messaging | null = null;

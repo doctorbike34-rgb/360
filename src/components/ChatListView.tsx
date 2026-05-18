@@ -3,54 +3,48 @@ import { motion } from 'motion/react';
 import { MessageCircle, ChevronRight, Users, Shield, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+type ChatItem = {
+  id: string;
+  type?: string;
+  title?: string;
+  otherPartyName?: string;
+  lastMessage?: string;
+  lastMessageAt?: any;
+  unreadCount?: Record<string, number>;
+  participants?: string[];
+  sosRequestId?: string;
+  faultType?: string;
+  fetchedProfileName?: string;
+  [key: string]: any;
+};
 
-const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, currentUserId: string, onSelectChat: (c: any) => void }) => {
-  const [profile, setProfile] = React.useState<any>(null);
-
-  React.useEffect(() => {
-    let unsubscribe: () => void = () => {};
-    if (chat.type === 'DIRECT') {
-      const participants = chat.participants as string[] | undefined;
-      const otherId = participants?.find((p: string) => p !== currentUserId) || chat.id.replace('direct_', '').split('_').find((id: string) => id !== currentUserId);
-      if (otherId && typeof otherId === 'string' && !otherId.includes('/')) {
-        unsubscribe = onSnapshot(doc(db, 'users', otherId), (snap) => {
-          if (snap.exists()) setProfile({ id: otherId, ...snap.data() });
-        }, (err) => console.error(err));
-      }
-    }
-    return () => unsubscribe();
-  }, [chat, currentUserId]);
-
+const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: ChatItem, currentUserId: string, onSelectChat: (c: ChatItem) => void }) => {
   const isDirect = chat.type === 'DIRECT';
-  const isOnline = profile?.isOnline || profile?.presenceStatus === 'ONLINE';
   const isGroup = chat.type === 'GROUP';
   const isSOS = !!chat.sosRequestId;
   const { t } = useTranslation();
-  
-  let title = (chat.title as string) || 'Chat';
-  const subtitle = (chat.lastMessage as string) || '...';
-  let icon = <MessageCircle size={20} />;
-  let avatarSeed = chat.id;
-  let avatarImage = `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 
+  const participants = chat.participants as string[] | undefined;
+  const otherId = isDirect
+    ? participants?.find((p: string) => p !== currentUserId) || ''
+    : '';
+
+  let title = (chat.title as string) || 'Chat';
   if (isDirect) {
-    const participants = chat.participants as string[] | undefined;
-    const otherParticipantId = participants?.find((p: string) => p !== currentUserId) || chat.id.replace('direct_', '').split('_').find((id: string) => id !== currentUserId);
-    avatarSeed = otherParticipantId || (chat.id as string);
-    title = profile?.name || profile?.displayName || (chat.otherPartyName as string) || (otherParticipantId ? `Utente ${otherParticipantId.substring(0, 4)}` : 'Chat Privata');
-    icon = <User size={18} />;
-    avatarImage = profile?.photoURL || profile?.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
+    title = chat.fetchedProfileName || chat.otherPartyName || (otherId ? `Utente ${otherId.substring(0, 4)}` : 'Chat Privata');
   } else if (isSOS) {
-    title = `SOS ${chat.faultType ? ' - ' + chat.faultType : ''}`;
-    icon = <Shield size={18} />;
-    avatarSeed = chat.sosRequestId;
+    title = `SOS${chat.faultType ? ' - ' + chat.faultType : ''}`;
   } else if (isGroup) {
     title = chat.title || 'Uscita di Gruppo';
-    icon = <Users size={18} />;
-    avatarSeed = `group_${chat.id}`;
   }
+
+  const subtitle = (chat.lastMessage as string) || '...';
+
+  let icon = <MessageCircle size={20} />;
+  let avatarSeed = isDirect ? otherId : (chat.sosRequestId || `group_${chat.id}`);
+  if (isDirect) icon = <User size={18} />;
+  else if (isSOS) icon = <Shield size={18} />;
+  else if (isGroup) icon = <Users size={18} />;
 
   const getTimeString = (time: any) => {
     if (!time) return '';
@@ -66,17 +60,18 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
     <motion.button 
       whileHover={{ scale: 1.01 }}
       whileTap={{ scale: 0.98 }}
-      onClick={() => onSelectChat({ ...chat, fetchedProfileName: profile?.name || profile?.displayName })}
-      className="w-full bg-white text-black p-4 rounded-[2rem] flex items-center gap-4 group border border-grey/5  shadow-sm hover:shadow-md transition-all outline-none"
+      onClick={() => onSelectChat(chat)}
+      className="w-full bg-white text-black p-4 rounded-[2rem] flex items-center gap-4 group border border-grey/5 shadow-sm hover:shadow-md transition-all outline-none"
     >
       <div className="relative">
-        <div className="w-14 h-14 rounded-2xl bg-white text-black border border-grey/10 shadow-sm shadow-inner flex items-center justify-center overflow-hidden border border-grey/10">
-          <img src={avatarImage} alt="Avatar" className="w-full h-full object-cover" />
+        <div className="w-14 h-14 rounded-2xl bg-white text-black border border-grey/10 shadow-sm shadow-inner flex items-center justify-center overflow-hidden">
+          <img
+            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`}
+            alt="Avatar"
+            className="w-full h-full object-cover"
+          />
         </div>
-        {isDirect && isOnline && (
-          <div className="absolute -top-1 -left-1 w-4 h-4 bg-accent rounded-full border-2 border-white shadow-sm z-10 animate-pulse" />
-        )}
-        <div className="absolute -bottom-1 -right-1 bg-primary text-white p-1.5 rounded-xl border-2 border-white  shadow-sm">
+        <div className="absolute -bottom-1 -right-1 bg-primary text-white p-1.5 rounded-xl border-2 border-white shadow-sm">
           {icon}
         </div>
         {unreadCount > 0 && (
@@ -88,7 +83,7 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
       
       <div className="flex-1 text-left min-w-0">
         <div className="flex justify-between items-center mb-0.5">
-          <h5 className="font-black text-black  transition-colors truncate pr-2 uppercase tracking-tight">
+          <h5 className="font-black text-black transition-colors truncate pr-2 uppercase tracking-tight">
             {title}
           </h5>
           <div className="flex items-center gap-2">
@@ -102,7 +97,7 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
             </span>
           </div>
         </div>
-        <p className={`text-[10px] font-bold truncate italic ${unreadCount > 0 ? 'text-primary' : 'text-grey '}`}>
+        <p className={`text-[10px] font-bold truncate italic ${unreadCount > 0 ? 'text-primary' : 'text-grey'}`}>
           {subtitle}
         </p>
       </div>
@@ -115,8 +110,8 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: any, curren
 };
 
 interface ChatListViewProps {
-  chats: any[];
-  onSelectChat: (chat: any) => void;
+  chats: ChatItem[];
+  onSelectChat: (chat: ChatItem) => void;
   currentUserId: string;
 }
 
@@ -137,7 +132,7 @@ export const ChatListView: React.FC<ChatListViewProps> = ({ chats, onSelectChat,
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-grey  px-2 italic">{t('nav.chat')}</h4>
+      <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-grey px-2 italic">{t('nav.chat')}</h4>
       <div className="space-y-3">
         {chats.map(chat => (
           <ChatListItem key={chat.id} chat={chat} currentUserId={currentUserId} onSelectChat={onSelectChat} />

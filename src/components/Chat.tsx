@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { auth, db, handleFirestoreError, OperationType, storage } from '../lib/firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import imageCompression from 'browser-image-compression';
@@ -19,12 +19,12 @@ import {
   deleteField
 } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
-import { Send, Image as ImageIcon, Smile } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
-import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { soundService } from '../lib/sounds';
-import { fileToBase64 } from '../lib/fileUtils';
+
+const LazyEmojiPicker = lazy(() => import('emoji-picker-react'));
 
 interface Message {
   id: string;
@@ -68,9 +68,9 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
     
     useAuthStore.getState().setActiveChatId(chatId);
 
-    // Reset unread count for current user when opening chat and keep it 0 if it changes
     let messagesUnsubscribe: (() => void) | null = null;
     let isReadyToListenToMessages = false;
+    let hasResetUnread = false;
 
     const chatDocRef = doc(db, collectionPath, chatId);
     const unsubChatDoc = onSnapshot(chatDocRef, (docSnap) => {
@@ -81,30 +81,31 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
               updateDoc(chatDocRef, {
                  participants: arrayUnion(user.uid)
               }).then(() => {
-                 // Once added, the snapshot will fire again, so we don't need to do anything here
               }).catch(err => console.warn('Failed to add self to participants:', err));
            } else {
               isReadyToListenToMessages = true;
            }
 
-           const nestedUnread = data.unreadCount?.[user.uid] || 0;
-           const flatUnread = data[`unreadCount.${user.uid}`] || undefined;
-           
-            if (flatUnread !== undefined) {
-               // Delete the incorrectly created flat field
-               updateDoc(
-                 chatDocRef, 
-                 { [`unreadCount.${user.uid}`]: deleteField() }
-               ).catch((e) => console.error('Failed to delete flat unread count', e));
-            }
+           // Only reset unread count once when chat is first opened
+           if (!hasResetUnread) {
+              const nestedUnread = data.unreadCount?.[user.uid] || 0;
+              const flatUnread = data[`unreadCount.${user.uid}`] || undefined;
+              
+              if (flatUnread !== undefined) {
+                 updateDoc(
+                   chatDocRef, 
+                   { [`unreadCount.${user.uid}`]: deleteField() }
+                 ).catch((e) => console.error('Failed to delete flat unread count', e));
+              }
 
-           if (nestedUnread > 0) {
-              updateDoc(chatDocRef, {
-                 [`unreadCount.${user.uid}`]: 0
-              }).catch((e) => console.error('Failed to reset unread count', e));
+              if (nestedUnread > 0) {
+                 updateDoc(chatDocRef, {
+                    [`unreadCount.${user.uid}`]: 0
+                 }).catch((e) => console.error('Failed to reset unread count', e));
+              }
+              hasResetUnread = true;
            }
         } else if (!isAdminSupport && chatId.startsWith('direct_')) {
-           // Auto-create direct chat doc if it doesn't exist yet but we are opening it
            const parts = chatId.replace('direct_', '').split('_');
            if (parts.includes(user.uid)) {
              setDoc(chatDocRef, {
@@ -115,7 +116,6 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
              }, { merge: true }).catch(err => console.warn('Failed to auto-create direct chat:', err));
            }
         } else if (!isAdminSupport) {
-           // Auto-create group chat doc if it doesn't exist yet
            setDoc(chatDocRef, {
              participants: arrayUnion(user.uid),
              type: 'GROUP',
@@ -128,7 +128,6 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
           isReadyToListenToMessages = true;
         }
 
-        // Attach messages listener once we know we are valid to read
         if (isReadyToListenToMessages && !messagesUnsubscribe) {
            const q = query(
              collection(db, collectionPath, chatId, 'messages'),
@@ -276,7 +275,25 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
         compressedFile = file;
       }
       
-      const base64string = await fileToBase64(compressedFile);
+      // Upload to Firebase Storage instead of storing base64 in Firestore
+      const storageRef = ref(storage, `chat-photos/${chatId}/${Date.now()}-${file.name}`);
+      const uploadTask = uploadBytesResumable(storageRef, compressedFile);
+      
+      const downloadURL = await new Promise<string>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setUploadProgress(progress);
+          },
+          (error) => reject(error),
+          async () => {
+            const url = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(url);
+          }
+        );
+      });
+      
       setUploadProgress(null);
 
       try {
@@ -335,7 +352,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
         const msgData = {
           senderId: user?.uid,
           senderName: user?.displayName || 'Utente',
-          content: base64string,
+          content: downloadURL,
           type: 'IMAGE',
           createdAt: serverTimestamp(),
         };
@@ -362,9 +379,36 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
   };
 
   return (
-    <div className={`flex flex-col h-full ${isAdminSupport ? 'bg-transparent' : 'bg-white'} relative`}>
+    <div className={`flex flex-col ${isAdminSupport ? 'flex-1' : 'h-full'} relative bg-white`} style={{ minHeight: 0 }}>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div 
+        className="overflow-y-auto px-4 py-6 space-y-4" 
+        style={{ 
+          flex: 1,
+          paddingBottom: '80px',
+          WebkitOverflowScrolling: 'touch'
+        }}
+      >
+        {isAdminSupport && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-start gap-3 mb-4"
+          >
+            <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+              <MessageSquare size={16} className="text-primary" />
+            </div>
+            <div className="bg-primary/5 border border-primary/10 rounded-2xl rounded-tl-none p-4 max-w-[85%]">
+              <p className="text-xs font-bold text-black leading-relaxed">
+                Benvenuto nell'assistenza DB360! 🙌
+              </p>
+              <p className="text-xs text-grey font-medium mt-2 leading-relaxed">
+                Per aiutarti al meglio, ti chiediamo di descrivere il problema in dettaglio e allegare foto o documenti se necessario. 
+                Il nostro team ti risponderà <strong className="text-primary">entro 1 ora</strong>.
+              </p>
+            </div>
+          </motion.div>
+        )}
         {messages.map((msg) => {
           const isMe = msg.senderId === user?.uid;
             return (
@@ -400,15 +444,25 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
         <div ref={scrollRef} />
       </div>
 
-      {/* Input */}
+      {/* Input - pinned to bottom */}
       {uploadProgress !== null && (
-        <div className="absolute bottom-full left-0 w-full bg-white border-t border-grey/10 px-4 py-2 text-[10px] font-bold text-primary flex items-center justify-between z-10 transition-colors">
+        <div className="bg-white border-t border-grey/10 px-4 py-2 text-[10px] font-bold text-primary flex items-center justify-between shrink-0">
            <span>Invio foto in corso...</span>
            <span>{Math.round(uploadProgress)}%</span>
         </div>
       )}
-      <form onSubmit={sendMessage} className="p-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white text-black border-t border-grey/10  flex gap-2 items-center transition-colors relative z-20">
-        <div className="flex items-center">
+      <form 
+        onSubmit={sendMessage} 
+        className="shrink-0 bg-white text-black border-t border-grey/10 flex gap-2 items-center"
+        style={{ 
+          padding: '12px 16px',
+          paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+          position: 'relative',
+          zIndex: 20,
+          minHeight: '56px'
+        }}
+      >
+        <div className="flex items-center gap-1">
             <button 
               type="button" 
               onClick={() => fileInputRef.current?.click()}
@@ -434,14 +488,16 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
                 </button>
                 {showEmojiPicker && (
                     <div ref={pickerRef} className="absolute bottom-full left-0 z-50 mb-4 shadow-2xl">
-                        <EmojiPicker 
-                            onEmojiClick={onEmojiClick}
-                            theme={Theme.LIGHT}
-                            searchDisabled
-                            skinTonesDisabled
-                            width={300}
-                            height={400}
-                        />
+                        <Suspense fallback={<div className="w-[300px] h-[400px] bg-white rounded-2xl animate-pulse" />}>
+                          <LazyEmojiPicker 
+                              onEmojiClick={onEmojiClick}
+                              theme={'light' as any}
+                              searchDisabled
+                              skinTonesDisabled
+                              width={300}
+                              height={400}
+                          />
+                        </Suspense>
                     </div>
                 )}
             </div>
@@ -450,15 +506,16 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
           placeholder={t('chat.placeholder')}
-          className="flex-1 bg-white text-black border border-grey/10 shadow-sm rounded-full px-4 py-2 text-base focus:outline-none focus:ring-1 focus:ring-primary/20 "
+          className="flex-1 bg-white text-black border border-grey/10 shadow-sm rounded-full px-4 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary/30"
+          style={{ fontSize: '16px' }}
         />
         <button 
           type="submit"
           disabled={!newMessage.trim() || isSending}
-          className="w-10 h-10 bg-primary text-black rounded-full flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform cursor-pointer"
+          className="w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform cursor-pointer shrink-0"
         >
           {isSending ? (
-            <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
             <Send size={18} />
           )}

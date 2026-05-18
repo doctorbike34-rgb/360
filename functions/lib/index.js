@@ -25,7 +25,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createCheckoutSession = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
 const functions = __importStar(require("firebase-functions"));
@@ -35,15 +34,28 @@ const nodemailer = __importStar(require("nodemailer"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 admin.initializeApp();
 const db = admin.firestore();
-const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || ((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.secret) || 'sk_test_mock', {
-    apiVersion: '2023-10-16',
-});
-// Shared nodemailer transporter (created once, reused across invocations)
-const mailUser = process.env.MAIL_USER || ((_b = functions.config().mail) === null || _b === void 0 ? void 0 : _b.user);
-const mailPass = process.env.MAIL_PASS || ((_c = functions.config().mail) === null || _c === void 0 ? void 0 : _c.pass);
-const mailTransporter = (mailUser && mailPass)
-    ? nodemailer.createTransport({ service: 'gmail', auth: { user: mailUser, pass: mailPass } })
-    : null;
+// Lazy initialization to avoid crashes in v2 (Cloud Run) container.
+// functions.config() is NOT available in v2 functions.
+let _stripe = null;
+function getStripe() {
+    if (!_stripe) {
+        _stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || 'sk_test_mock', {
+            apiVersion: '2023-10-16',
+        });
+    }
+    return _stripe;
+}
+let _mailTransporter = null;
+function getMailTransporter() {
+    if (_mailTransporter !== null)
+        return _mailTransporter;
+    const mailUser = process.env.MAIL_USER;
+    const mailPass = process.env.MAIL_PASS;
+    if (mailUser && mailPass) {
+        _mailTransporter = nodemailer.createTransport({ service: 'gmail', auth: { user: mailUser, pass: mailPass } });
+    }
+    return _mailTransporter;
+}
 /**
  * Escrow Release & SOS Completion
  * Securely transfers funds from Cyclist to Mechanic minus Platform Fees.
@@ -78,8 +90,6 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 if (rating && !sosData.isReviewed) {
                     const mechanicId = sosData.mechanicId;
                     const mechanicRef = db.collection('users').doc(mechanicId);
-                    const mechanicSnap = await t.get(mechanicRef);
-                    const mechanicData = mechanicSnap.data() || {};
                     const reviewRef = db.collection('reviews').doc();
                     t.set(reviewRef, {
                         sosId: sosId,
@@ -89,13 +99,9 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                         text: text,
                         createdAt: admin.firestore.FieldValue.serverTimestamp()
                     });
-                    const oldRating = mechanicData.rating || 0;
-                    const oldReviews = mechanicData.reviews || 0;
-                    const newReviews = oldReviews + 1;
-                    const newRating = ((oldRating * oldReviews) + rating) / newReviews;
                     t.update(mechanicRef, {
-                        rating: newRating,
-                        reviews: newReviews
+                        ratingSum: admin.firestore.FieldValue.increment(rating),
+                        reviews: admin.firestore.FieldValue.increment(1)
                     });
                     t.update(sosRef, { isReviewed: true });
                 }
@@ -182,24 +188,6 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 status: 'completed',
                 review: { rating: rating || 0, comment: text || '' }
             });
-            // Add Review if provided
-            let newRating = mechanicData.rating || 5.0;
-            let newReviews = mechanicData.reviews || 0;
-            if (rating) {
-                const reviewRef = db.collection('reviews').doc();
-                t.set(reviewRef, {
-                    mechanicId: mechanicId,
-                    cyclistId: cyclistId,
-                    sosId: sosId,
-                    rating: rating,
-                    text: text || '',
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-                const oldRating = mechanicData.rating || 5.0;
-                const oldReviews = mechanicData.reviews || 0;
-                newReviews = oldReviews + 1;
-                newRating = ((oldRating * oldReviews) + rating) / newReviews;
-            }
             // Update Mechanic user balance & stats
             const mechanicUpdates = {
                 balance: admin.firestore.FieldValue.increment(netAmount),
@@ -212,33 +200,42 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 pointsToAward = 20;
             else if (rating === 4)
                 pointsToAward = 10;
-            const currentPoints = mechanicData.points || 0;
-            const currentWeekly = mechanicData.weeklyPoints || 0;
-            const currentCompletedJobs = mechanicData.completedJobs || 0;
             const mechanicBadges = mechanicData.badges || [];
-            const cyclistData2 = cyclistSnap.data() || {};
-            const cyclistPoints = cyclistData2.points || 0;
-            const cyclistWeekly = cyclistData2.weeklyPoints || 0;
-            // Update Mechanic Gamification
-            mechanicUpdates.points = currentPoints + pointsToAward;
-            mechanicUpdates.weeklyPoints = currentWeekly + pointsToAward;
+            // Update Mechanic Gamification (use atomic FieldValue.increment to prevent lost updates)
+            mechanicUpdates.points = admin.firestore.FieldValue.increment(pointsToAward);
+            mechanicUpdates.weeklyPoints = admin.firestore.FieldValue.increment(pointsToAward);
             // Basic Badge Check for Mechanic
-            if (mechanicUpdates.points >= 50 && !mechanicBadges.some((b) => b.id === 'first_sos')) {
+            const projectedPoints = (mechanicData.points || 0) + pointsToAward;
+            if (projectedPoints >= 50 && !mechanicBadges.some((b) => b.id === 'first_sos')) {
                 mechanicBadges.push({ id: 'first_sos', unlockedAt: Date.now() });
                 mechanicUpdates.badges = mechanicBadges;
             }
-            // Update completed jobs count (only for regular mechanics, peer mechanics track their own)
-            mechanicUpdates.completedJobs = currentCompletedJobs + 1;
-            // Update Cyclist Gamification
+            // Update completed jobs count
+            mechanicUpdates.completedJobs = admin.firestore.FieldValue.increment(1);
+            // Add Review if provided (use atomic FieldValue.increment for ratingSum + reviews)
+            if (rating) {
+                const reviewRef = db.collection('reviews').doc();
+                t.set(reviewRef, {
+                    mechanicId: mechanicId,
+                    cyclistId: cyclistId,
+                    sosId: sosId,
+                    rating: rating,
+                    text: text || '',
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                mechanicUpdates.ratingSum = admin.firestore.FieldValue.increment(rating);
+                mechanicUpdates.reviews = admin.firestore.FieldValue.increment(1);
+            }
+            // Update Cyclist Gamification (atomic increments)
             const cyclistUpdates = {
                 isSOSActive: false,
-                points: cyclistPoints + 10,
-                weeklyPoints: cyclistWeekly + 10,
+                points: admin.firestore.FieldValue.increment(10),
+                weeklyPoints: admin.firestore.FieldValue.increment(10),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             };
-            if (rating) {
-                mechanicUpdates.rating = newRating;
-                mechanicUpdates.reviews = newReviews;
+            // Reset first-intervention discount after first use (prevent repeated discount)
+            if (discountRate > 0) {
+                cyclistUpdates.firstInterventionDiscount = 0;
             }
             if (mechanicData.role === 'PEER_MECHANIC') {
                 mechanicUpdates.peerMechanicEarnings = admin.firestore.FieldValue.increment(netAmount);
@@ -279,7 +276,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 completedAt: admin.firestore.FieldValue.serverTimestamp(),
                 platformFee: feeAmount,
                 mechanicNet: netAmount,
-                finalPrice: netAmount,
+                finalPrice: amount,
                 releaseTxId: txRef.id,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -384,9 +381,14 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
     var _a, _b, _c, _d, _e, _f, _g;
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || ((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.webhook_secret);
+    if (!endpointSecret) {
+        console.error('Missing STRIPE_WEBHOOK_SECRET — set via .env or functions config.');
+        res.status(500).send('Webhook secret not configured.');
+        return;
+    }
     let event;
     try {
-        event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+        event = getStripe().webhooks.constructEvent(req.rawBody, sig, endpointSecret);
     }
     catch (err) {
         res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`);
@@ -401,6 +403,11 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
         const paymentIntentId = session.payment_intent;
         if (userId && amountStr && paymentIntentId) {
             const dbcAmount = parseFloat(amountStr);
+            if (isNaN(dbcAmount)) {
+                console.error(`Invalid dbcAmount: ${amountStr}`);
+                res.json({ received: true });
+                return;
+            }
             const txRef = db.collection('transactions').doc(paymentIntentId);
             try {
                 await db.runTransaction(async (t) => {
@@ -416,7 +423,7 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
                         stripePaymentId: paymentIntentId,
                         planId: planId || '',
                         createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true }); // use merge to avoid error if already exists from old test
+                    });
                 });
             }
             catch (e) {
@@ -453,6 +460,11 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
         const amountStr = (_g = paymentIntent.metadata) === null || _g === void 0 ? void 0 : _g.dbcAmount;
         if (userId && amountStr) {
             const dbcAmount = parseFloat(amountStr);
+            if (isNaN(dbcAmount)) {
+                console.error(`Invalid dbcAmount: ${amountStr}`);
+                res.json({ received: true });
+                return;
+            }
             const txRef = db.collection('transactions').doc(paymentIntent.id);
             try {
                 await db.runTransaction(async (t) => {
@@ -523,11 +535,24 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
 /**
  * Create Stripe Payment Intent (HTTP Request version to bypass CORS issues)
  */
-exports.createStripePayment = functions.region('europe-west1').https.onRequest(async (req, res) => {
-    // 1. Manual CORS Handling
-    res.set('Access-Control-Allow-Origin', '*');
+const ALLOWED_ORIGINS = [
+    'https://www.db360app.it',
+    'https://doctorbike-v2.web.app',
+    'https://doctorbike-v2.firebaseapp.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+];
+function setCorsHeaders(res, req) {
+    const origin = req.headers.origin;
+    const allowedOrigin = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+    res.set('Access-Control-Allow-Origin', allowedOrigin);
     res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Authorization');
+    res.set('Access-Control-Allow-Credentials', 'true');
+}
+exports.createStripePayment = functions.region('europe-west1').https.onRequest(async (req, res) => {
+    // 1. Manual CORS Handling
+    setCorsHeaders(res, req);
     if (req.method === 'OPTIONS') {
         res.status(204).send('');
         return;
@@ -561,7 +586,7 @@ exports.createStripePayment = functions.region('europe-west1').https.onRequest(a
             return;
         }
         // 4. Stripe Logic
-        const paymentIntent = await stripe.paymentIntents.create({
+        const paymentIntent = await getStripe().paymentIntents.create({
             amount: Math.round(amount * 100),
             currency,
             metadata: {
@@ -589,9 +614,7 @@ exports.createStripePayment = functions.region('europe-west1').https.onRequest(a
  */
 exports.createCheckoutSession = functions.region('europe-west1').https.onRequest(async (req, res) => {
     // 1. Manual CORS Handling
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Authorization');
+    setCorsHeaders(res, req);
     if (req.method === 'OPTIONS') {
         res.status(204).send('');
         return;
@@ -620,24 +643,44 @@ exports.createCheckoutSession = functions.region('europe-west1').https.onRequest
             return;
         }
         const appUrl = process.env.APP_URL || 'https://www.db360app.it';
-        // returnUrl already includes the full path (e.g. https://www.db360app.it/profile)
-        const successUrl = `${returnUrl || appUrl}?session_id={CHECKOUT_SESSION_ID}`;
-        const cancelUrl = `${returnUrl || appUrl}?session_id={CHECKOUT_SESSION_ID}`;
+        // Validate returnUrl to prevent open redirect vulnerability
+        let validatedReturnUrl = appUrl;
+        if (returnUrl) {
+            try {
+                const parsed = new URL(returnUrl);
+                const allowedOrigin = new URL(appUrl).origin;
+                if (parsed.origin === allowedOrigin) {
+                    validatedReturnUrl = returnUrl;
+                }
+                else {
+                    console.warn(`Blocked open redirect attempt: ${returnUrl}`);
+                }
+            }
+            catch (e) {
+                console.warn(`Invalid returnUrl: ${returnUrl}`);
+            }
+        }
+        // Handle existing query params in returnUrl
+        const separator = validatedReturnUrl.includes('?') ? '&' : '?';
+        const successUrl = `${validatedReturnUrl}${separator}session_id={CHECKOUT_SESSION_ID}`;
+        const cancelUrl = `${validatedReturnUrl}${separator}session_id={CHECKOUT_SESSION_ID}`;
         // 4. Create Checkout Session
-        const session = await stripe.checkout.sessions.create({
+        const isSubscription = type === 'SUBSCRIPTION';
+        const session = await getStripe().checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
                     price_data: {
                         currency: currency,
                         product_data: {
-                            name: type === 'SUBSCRIPTION' ? `Abbonamento ${planId || 'Pro'}` : 'Ricarica Saldo DoctorBike',
-                            description: type === 'SUBSCRIPTION' ? 'Abbonamento mensile DoctorBike 360' : `Ricarica di ${amount} EUR`,
+                            name: isSubscription ? `Abbonamento ${planId || 'Pro'}` : 'Ricarica Saldo DoctorBike',
+                            description: isSubscription ? 'Abbonamento mensile DoctorBike 360' : `Ricarica di ${amount} EUR`,
                         },
-                        unit_amount: Math.round(amount * 100), // convert to cents
+                        unit_amount: Math.round(amount * 100),
+                        recurring: isSubscription ? { interval: 'month' } : undefined,
                     },
                     quantity: 1,
                 }],
-            mode: 'payment',
+            mode: isSubscription ? 'subscription' : 'payment',
             success_url: successUrl,
             cancel_url: cancelUrl,
             client_reference_id: userId,
@@ -677,41 +720,62 @@ exports.refundPayment = functions.region('europe-west1').https.onCall(async (dat
         throw new functions.https.HttpsError('invalid-argument', 'Missing paymentIntentId.');
     }
     try {
-        const refund = await stripe.refunds.create({
+        // First: Find and validate the transaction in Firestore
+        const txQuery = await db.collection('transactions')
+            .where('stripePaymentIntentId', '==', paymentIntentId)
+            .limit(1)
+            .get();
+        if (txQuery.empty) {
+            throw new functions.https.HttpsError('not-found', 'Transaction not found for this payment intent.');
+        }
+        const txDoc = txQuery.docs[0];
+        const txData = txDoc.data();
+        if (txData.status === 'REFUNDED') {
+            throw new functions.https.HttpsError('failed-precondition', 'Transaction already refunded.');
+        }
+        // Second: Update Firestore BEFORE calling Stripe (reversing the original order)
+        // so that if Firestore fails, we never call Stripe
+        let userRef = null;
+        await db.runTransaction(async (t) => {
+            // 1. Mark transaction as refunded
+            t.update(txDoc.ref, {
+                status: 'REFUNDED',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            // 2. For TOPUP: decrement user balance (claw back the DBC)
+            if (txData.type === 'TOPUP' && txData.toId) {
+                userRef = db.collection('users').doc(txData.toId);
+                const userSnap = await t.get(userRef);
+                if (userSnap.exists) {
+                    t.update(userRef, {
+                        balance: admin.firestore.FieldValue.increment(-txData.amount),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
+            // 3. Decrement Platform Stats
+            const statsRef = db.collection('platformStats').doc('global');
+            const statsSnap = await t.get(statsRef);
+            if (statsSnap.exists) {
+                t.update(statsRef, {
+                    totalSubscriptionRevenue: txData.type === 'SUBSCRIPTION'
+                        ? admin.firestore.FieldValue.increment(-txData.amount)
+                        : admin.firestore.FieldValue.increment(0),
+                    completedJobs: txData.type === 'SOS_PAYMENT'
+                        ? admin.firestore.FieldValue.increment(-1)
+                        : admin.firestore.FieldValue.increment(0),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        });
+        // Third: Now call Stripe (Firestore already updated — if Stripe fails we have an audit log)
+        const refund = await getStripe().refunds.create({
             payment_intent: paymentIntentId,
             reason: reason,
         });
         console.log(`Refund issued for ${paymentIntentId}:`, refund.id);
-        // Update Firestore to reflect the refund
-        try {
-            const txQuery = await db.collection('transactions')
-                .where('stripePaymentIntentId', '==', paymentIntentId)
-                .limit(1)
-                .get();
-            if (!txQuery.empty) {
-                const txDoc = txQuery.docs[0];
-                const txData = txDoc.data();
-                await db.runTransaction(async (t) => {
-                    // 1. Mark transaction as refunded
-                    t.update(txDoc.ref, {
-                        status: 'REFUNDED',
-                        refundId: refund.id,
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    // 2. Decrement Platform Stats if it was a subscription
-                    if (txData.type === 'SUBSCRIPTION') {
-                        const statsRef = db.collection('platformStats').doc('global');
-                        t.update(statsRef, {
-                            totalSubscriptionRevenue: admin.firestore.FieldValue.increment(-txData.amount),
-                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                });
-            }
-        }
-        catch (fsErr) {
-            console.error('Error updating Firestore after refund:', fsErr);
-        }
+        // Fourth: Store the refund ID in the transaction document
+        await txDoc.ref.update({ refundId: refund.id });
         return { success: true, refundId: refund.id };
     }
     catch (error) {
@@ -734,10 +798,18 @@ exports.clearAllUsersAuth = functions.region('europe-west1').https.onCall(async 
         throw new functions.https.HttpsError('permission-denied', 'Only admins can clear authentication data.');
     }
     try {
-        const listUsersResult = await admin.auth().listUsers(1000);
+        // Paginate through all users (listUsers max 1000 per page)
         const usersToDelete = [];
+        let allUsers = [];
+        let nextPageToken = undefined;
+        let currentPage;
+        do {
+            currentPage = await admin.auth().listUsers(1000, nextPageToken);
+            allUsers = allUsers.concat(currentPage.users);
+            nextPageToken = currentPage.pageToken;
+        } while (nextPageToken);
         // Filter out the current admin who is performing the reset
-        const usersToCheck = listUsersResult.users.filter(u => { var _a; return u.uid !== ((_a = context.auth) === null || _a === void 0 ? void 0 : _a.uid); });
+        const usersToCheck = allUsers.filter(u => { var _a; return u.uid !== ((_a = context.auth) === null || _a === void 0 ? void 0 : _a.uid); });
         // Fetch user documents in chunks of 100 to avoid N+1 queries
         for (let i = 0; i < usersToCheck.length; i += 100) {
             const chunk = usersToCheck.slice(i, i + 100);
@@ -780,7 +852,7 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
     document: 'users/{userId}',
     region: 'europe-west1'
 }, async (event) => {
-    var _a, _b, _c, _d;
+    var _a, _b;
     const before = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const after = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     if (!before || !after)
@@ -797,16 +869,17 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
         return;
     }
     try {
-        const mailUser = (_c = functions.config().mail) === null || _c === void 0 ? void 0 : _c.user;
-        const mailPass = (_d = functions.config().mail) === null || _d === void 0 ? void 0 : _d.pass;
+        const mailUser = process.env.MAIL_USER;
+        const mailPass = process.env.MAIL_PASS;
         if (!mailUser || !mailPass) {
             console.warn('Mail configuration missing.');
             return;
         }
-        if (!mailTransporter) {
+        if (!getMailTransporter()) {
             console.warn('Mail transporter not configured.');
             return;
         }
+        const transporter = getMailTransporter();
         let subject = '';
         let text = '';
         if (newStatus === 'APPROVED') {
@@ -820,8 +893,8 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
         else {
             return;
         }
-        await mailTransporter.sendMail({
-            from: `"DoctorBike Support" <${mailUser}>`,
+        await transporter.sendMail({
+            from: `"DoctorBike Support" <${process.env.MAIL_USER}>`,
             to: userEmail,
             subject: subject,
             text: text,
@@ -851,10 +924,11 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
         const userEmail = userData.email;
         if (!userEmail)
             return { success: false, message: 'No email found' };
-        if (!mailTransporter) {
+        if (!getMailTransporter()) {
             console.warn('Mail transporter not configured.');
             return { success: false, message: 'Mail config missing' };
         }
+        const transporter = getMailTransporter();
         let subject = '';
         let text = '';
         if (status === 'APPROVED') {
@@ -865,8 +939,8 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
             subject = 'Aggiornamento Documenti DoctorBike ⚠️';
             text = `Ciao ${userData.name || 'Meccanico'},\n\nTi informiamo che i documenti caricati non hanno superato la verifica KYC.\n\nMotivo: ${reason || 'Documenti non conformi o illeggibili.'}\n\nAbbiamo provveduto a rimborsare la tua quota di iscrizione sul tuo saldo. Puoi caricare nuovi documenti dalla sezione profilo dell'app.\n\nSe hai domande, rispondi a questa email.\n\nIl Team DoctorBike`;
         }
-        await mailTransporter.sendMail({
-            from: `"DoctorBike Support" <${mailUser}>`,
+        await transporter.sendMail({
+            from: `"DoctorBike Support" <${process.env.MAIL_USER}>`,
             to: userEmail,
             subject: subject,
             text: text,

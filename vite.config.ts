@@ -17,13 +17,15 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         manifest: false, // Use public/manifest.json
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        navigateFallback: 'index.html',
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
-        // Avoid caching API calls, Firebase internals or internal preview paths
-        navigateFallbackDenylist: [/^\/api/, /^\/google\//, /^\/__\//, /cloudfunctions\.net/, /googleapis\.com/, /firebase\.io/, /mt1\.google\.com/],
-        runtimeCaching: [
+        injectRegister: 'auto',
+        includeManifestIcons: true,
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+          navigateFallback: 'index.html',
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
+          // Avoid caching API calls, Firebase internals or internal preview paths
+          navigateFallbackDenylist: [/^\/api/, /^\/google\//, /^\/__\//, /cloudfunctions\.net/, /googleapis\.com/, /firebase\.io/, /mt1\.google\.com/],
+          runtimeCaching: [
             {
               urlPattern: ({ url }) => {
                 return url.hostname.includes('cloudfunctions.net') || 
@@ -45,6 +47,8 @@ export default defineConfig(({mode}) => {
             }
           ]
         },
+        // Ensure old caches are cleaned up on update
+        selfDestroying: false,
         devOptions: {
           enabled: false // Disable SW in dev to avoid annoying fetch errors during rapid edits
         }
@@ -57,7 +61,7 @@ export default defineConfig(({mode}) => {
           manualChunks: {
             'react-vendor': ['react', 'react-dom', 'zustand'],
             'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage', 'firebase/functions'],
-            'ui-vendor': ['framer-motion', 'lucide-react', 'react-hot-toast'],
+            'ui-vendor': ['motion', 'lucide-react', 'react-hot-toast'],
             'map-vendor': ['leaflet', 'react-leaflet']
           }
         }

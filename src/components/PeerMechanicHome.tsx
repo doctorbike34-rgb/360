@@ -19,7 +19,7 @@ import {
   ArrowRight 
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, orderBy, limit, increment, GeoPoint } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, orderBy, limit, increment, GeoPoint } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { ProfileView } from './ProfileView';
 import { Map as BicycleMap } from './Map';
@@ -42,7 +42,7 @@ export function PeerMechanicHome() {
   
   const [showChat, setShowChat] = useState(false);
   const [viewProfileId, setViewProfileId] = useState<string | null>(null);
-  const [directChat, setDirectChat] = useState<{ id: string, name: string } | null>(null);
+  const [directChat, setDirectChat] = useState<{ id: string, name: string, isAdminSupport?: boolean } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
   const [newSOS, setNewSOS] = useState<any>(null);
@@ -60,6 +60,15 @@ export function PeerMechanicHome() {
     if (!user) return;
     const sortedIds = [user.uid, otherUserId].sort();
     const chatId = `direct_${sortedIds[0]}_${sortedIds[1]}`;
+    try {
+      await setDoc(doc(db, 'chats', chatId), {
+        participants: [user.uid, otherUserId],
+        type: 'DIRECT',
+        createdAt: serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      console.error('Error creating chat doc:', e);
+    }
     setDirectChat({ id: chatId, name: otherName });
     setShowChat(true);
     setActiveTab('CHAT');
@@ -347,7 +356,7 @@ export function PeerMechanicHome() {
         mechanicConfirmed: true,
         updatedAt: serverTimestamp()
       });
-      toast.success('Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.');
+      toast.success(t('mechanic.repairCompleted', { defaultValue: 'Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.' }));
     } catch (err) {
       console.error('Error completing job:', err);
       handleFirestoreError(err, OperationType.UPDATE, `sosRequests/${jobId}`);
@@ -355,7 +364,7 @@ export function PeerMechanicHome() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full bg-white text-black   transition-colors duration-500 pt-safe pb-safe">
+    <div className="flex flex-col w-full bg-white text-black transition-colors duration-500 pt-safe pb-safe" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
       <div className="flex-1 overflow-hidden relative">
         <AnimatePresence>
           {showNewSOSBanner && newSOS && (
@@ -547,7 +556,7 @@ export function PeerMechanicHome() {
                                     toast.success(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
                                 } catch(e: any) {
                                   if (e.message === 'SOS already accepted or invalid') {
-                                     toast.error("Questa richiesta SOS è già stata presa in carico da un altro utente.");
+                                     toast.error(t('peerMechanic.sosAlreadyAccepted', { defaultValue: "Questa richiesta SOS è già stata presa in carico da un altro utente." }));
                                   } else {
                                      handleFirestoreError(e, OperationType.UPDATE, `sosRequests/${job.id}`);
                                   }
@@ -633,11 +642,12 @@ export function PeerMechanicHome() {
                   <h3 className="font-bold text-black  transition-colors">{t('nav.chat')}</h3>
                 </div>
               )}
-              <div className="flex-1 overflow-hidden relative">
+      <div className="overflow-hidden relative" style={{ flex: '1 1 0%', minHeight: 0 }}>
                 {directChat ? (
                   <Chat
                     chatId={directChat.id}
                     otherPartyName={directChat.name}
+                    isAdminSupport={directChat.isAdminSupport}
                   />
                 ) : (
                   <div className="h-full overflow-y-auto">

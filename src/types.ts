@@ -1,3 +1,10 @@
+export interface Timestamp {
+  seconds: number;
+  nanoseconds: number;
+  toDate(): Date;
+  toMillis(): number;
+}
+
 export type UserRole = 'CYCLIST' | 'MECHANIC' | 'ADMIN' | 'PEER_MECHANIC';
 export type UserPlan = 'MECHANIC_FREE' | 'BASE' | 'CLUB' | 'PRO';
 export type PresenceStatus = 'ONLINE' | 'OFFLINE' | 'GHOST';
@@ -30,7 +37,9 @@ export interface UserProfile {
   phone?: string;
   bikeModel?: string;
   hasCompletedOnboarding?: boolean;
-  lastLoginDate?: any;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  lastLoginDate?: Timestamp;
   mechanicStatus?: string;
   
   kycStatus?: KYCStatus;
@@ -38,10 +47,12 @@ export interface UserProfile {
     idUrl?: string;
     businessUrl?: string;
     vatNumber?: string;
-    submittedAt?: any;
+    submittedAt?: Timestamp;
     rejectedReason?: string;
   };
 
+  subscriptionPaymentIntentId?: string;
+  isSOSActive?: boolean;
   notificationsEnabled?: boolean;
   notificationPreferences?: {
     sosAlerts: boolean;
@@ -95,6 +106,18 @@ export interface SOSRequest {
   paymentStatus?: 'HELD' | 'RELEASED' | 'REFUNDED' | 'DISPUTED';
   mechanicConfirmed?: boolean;
   cyclistConfirmed?: boolean;
+  cyclistName?: string;
+  mechanicName?: string;
+  mechanicPlan?: string;
+  agreedPrice?: number;
+  isReviewed?: boolean;
+  platformFee?: number;
+  mechanicNet?: number;
+  finalPrice?: number;
+  releaseTxId?: string;
+  completedAt?: Timestamp;
+  acceptedAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 export interface InterventionRecord {
@@ -126,23 +149,28 @@ export interface Transaction {
   toId: string;
   amount: number;
   currency: string;
-  type: 'TOPUP' | 'SUBSCRIPTION' | 'ADMIN_DISPUTE_RELEASE' | 'ADMIN_DISPUTE_REFUND' | 'SOS_PAYMENT' | 'TRANSFER';
+  type: 'TOPUP' | 'SUBSCRIPTION' | 'ADMIN_DISPUTE_RELEASE' | 'ADMIN_DISPUTE_REFUND' | 'SOS_PAYMENT' | 'P2P_TRANSFER';
   status?: 'PENDING' | 'COMPLETED' | 'FAILED';
   createdAt: any;
   stripePaymentId?: string;
   stripePaymentIntentId?: string;
   planId?: string;
   fee?: number;
+  userName?: string;
+  description?: string;
+  sosId?: string;
+  refundId?: string;
 }
 
 export interface Subscription {
   id: string;
   userId: string;
   userName: string;
+  userEmail?: string;
   planId: string;
   amount: number;
   currency: string;
-  status: 'PENDING' | 'PAID' | 'EXPIRED';
+  status: 'PENDING' | 'PAID' | 'EXPIRED' | 'REFUNDED';
   createdAt: any;
   expiresAt?: any;
   stripePaymentIntentId?: string;
@@ -162,6 +190,8 @@ export interface SupportTicket {
 export interface AIConversation {
   id: string;
   userId: string;
+  role?: string;
+  userName?: string;
   messages: AIMessage[];
   updatedAt: any;
 }
@@ -181,7 +211,7 @@ export interface PlatformStats {
   updatedAt?: any;
 }
 
-export type RoadReportCategory = 'pothole' | 'damaged_path' | 'obstacle' | 'missing_signage' | 'flooding' | 'other';
+export type RoadReportCategory = 'pothole' | 'damaged_path' | 'obstacle' | 'missing_signage' | 'flooding' | 'blocked_way' | 'accident' | 'bad_lighting' | 'vandalism' | 'other';
 export type RoadReportSeverity = 'low' | 'medium' | 'high';
 export type RoadReportStatus = 'open' | 'confirmed' | 'in_review' | 'resolved' | 'rejected';
 

@@ -36,7 +36,7 @@ import { Logo } from './Logo';
 
 const authSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
-  password: z.string().min(6).or(z.string().length(0)),
+  password: z.string(),
   name: z.string().optional(),
   role: z.enum(['CYCLIST', 'MECHANIC', 'PEER_MECHANIC']).optional(),
   isLogin: z.boolean().optional(),
@@ -50,6 +50,13 @@ const authSchema = z.object({
     });
   }
   if (!data.isLogin) {
+    if (!data.password || data.password.length < 6) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['password'],
+        message: 'Password must be at least 6 characters'
+      });
+    }
     if (!data.name || data.name.length < 2) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -453,7 +460,7 @@ export function Auth() {
               uid: finalUser.uid,
               email: finalUser.email,
               updatedAt: serverTimestamp()
-            }, { merge: true }).catch(() => {});
+            }, { merge: true }).catch((e) => console.warn('Profile init failed', e));
           }
           
           if (finalRole === 'MECHANIC') {
@@ -517,7 +524,7 @@ export function Auth() {
 
   return (
     <div className="flex flex-col h-[100dvh] w-full max-w-none shadow-[20px_0_50px_-15px_rgba(0,0,0,0.2)] relative overflow-hidden bg-primary transition-colors duration-500 pt-safe pb-safe">
-      <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto no-scrollbar">
+      <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto no-scrollbar">
         <div className="w-full max-w-sm flex justify-end mb-4 z-50 relative">
           {/* Selettore Lingua */}
           <button 
@@ -532,7 +539,7 @@ export function Auth() {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-[2.5rem] shadow-xl w-full max-w-sm p-6 sm:p-8 transition-colors flex flex-col border border-grey/5 relative max-h-full overflow-y-auto no-scrollbar"
+        className="bg-white rounded-[2.5rem] shadow-xl w-full max-w-sm p-4 sm:p-6 md:p-8 transition-colors flex flex-col border border-grey/5 relative max-h-full overflow-y-auto no-scrollbar"
       >
         {!isLogin && !isCompletingProfile && (
           <button 
