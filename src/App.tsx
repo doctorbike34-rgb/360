@@ -7,6 +7,7 @@ import { safeStorage } from './lib/storage';
 import { logger } from './lib/logger';
 import { useAuthStore } from './store/useAuthStore';
 import { useThemeStore } from './store/useThemeStore';
+import { gamificationService } from './services/gamificationService';
 import { AlertTriangle, Loader2, Navigation2, X } from 'lucide-react';
 import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -153,7 +154,7 @@ export default function App() {
         const adminSnap = await getDoc(doc(db, 'admins', fbUser.uid));
         const isAdmin = adminSnap.exists() || fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com';
         
-        const processProfileSnapshot = (snapshot: { exists: () => boolean; data: () => any }) => {
+        const processProfileSnapshot = async (snapshot: { exists: () => boolean; data: () => any }) => {
           if (snapshot.exists()) {
             const profileData = snapshot.data() as UserProfile;
             
@@ -196,8 +197,9 @@ export default function App() {
                     lastLoginDate: serverTimestamp()
                   }).catch(console.error);
                 }
-                if (!hasShownDailyToastRef.current) {
-                  toast.success('Accesso Giornaliero! +0.5 DBC (In arrivo con la prossima Cloud Function!)', { icon: '🎁', duration: 4000 });
+                const result = await gamificationService.claimDailyBonus(fbUser.uid);
+                if (result.success && !hasShownDailyToastRef.current) {
+                  toast.success(`Bonus giornaliero! +${result.amount.toFixed(2)} DBC 🎁 (Streak: ${result.streak} giorni)`, { duration: 4000 });
                   hasShownDailyToastRef.current = true;
                 }
               } catch (e) {

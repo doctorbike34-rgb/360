@@ -37,13 +37,16 @@ import {
   Download,
   MapPin as MapIcon,
   Navigation2,
-  ArrowLeft
+  ArrowLeft,
+  Gift,
+  CalendarCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { increment } from 'firebase/firestore';
 import { Chat } from './Chat';
 import { LeaderboardView } from './LeaderboardView';
 import { InterventionHistory } from './InterventionHistory';
+import { gamificationService } from '../services/gamificationService';
 
 import { P2PWalletModal } from './P2PWalletModal';
 import { TransactionsModal } from './TransactionsModal';
@@ -156,6 +159,16 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const [showInterventionHistory, setShowInterventionHistory] = useState(false);
   const [showPaymentMethods, setShowPaymentMethods] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [dailyStreak, setDailyStreak] = useState(profile?.dailyStreak || 0);
+  const [dailyReminderEnabled, setDailyReminderEnabled] = useState(profile?.dailyReminderEnabled || false);
+  const [isClaimingDaily, setIsClaimingDaily] = useState(false);
+
+  useEffect(() => {
+    if (profile) {
+      setDailyStreak(profile.dailyStreak || 0);
+      setDailyReminderEnabled(profile.dailyReminderEnabled || false);
+    }
+  }, [profile]);
 
   const sendVerification = async () => {
     if (!auth.currentUser) return;
@@ -183,6 +196,45 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     const plan = plans.find(p => p.id === planId);
     setSelectedPlanForUpgrade(plan);
     setPlanUpgradeStep('PAYMENT');
+  };
+
+  const claimDailyBonus = async () => {
+    if (!user || isClaimingDaily) return;
+    setIsClaimingDaily(true);
+    try {
+      const result = await gamificationService.claimDailyBonus(user.uid);
+      if (result.success) {
+        toast.success(`+${result.amount.toFixed(2)} DBC! Streak: ${result.streak} 🔥`, { duration: 3000 });
+        setDailyStreak(result.streak);
+      } else {
+        toast.error('Hai già riscosso il bonus oggi! Torna domani.', { duration: 3000 });
+      }
+    } catch (e) {
+      console.error("Claim daily bonus failed", e);
+      toast.error('Errore nel riscossione del bonus');
+    } finally {
+      setIsClaimingDaily(false);
+    }
+  };
+
+  const toggleDailyReminder = async () => {
+    if (!user) return;
+    try {
+      const newVal = !dailyReminderEnabled;
+      await updateDoc(doc(db, 'users', user.uid), {
+        dailyReminderEnabled: newVal,
+        updatedAt: serverTimestamp()
+      });
+      setDailyReminderEnabled(newVal);
+      if (newVal) {
+        toast.success('Promemoria giornaliero attivato! 🔔', { duration: 3000 });
+      } else {
+        toast('Promemoria disattivato', { duration: 2000 });
+      }
+    } catch (e) {
+      console.error("Toggle daily reminder failed", e);
+      toast.error('Errore nel salvataggio');
+    }
   };
 
   const initStripeUpgrade = async () => {
@@ -765,7 +817,39 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
               </button>
            </div>
 
-           {/* Badges Grid */}
+            {/* Daily Bonus */}
+            <div className="bg-gradient-to-r from-primary/5 to-accent/5 rounded-2xl p-4 mb-4 border border-primary/10">
+               <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                     <Gift size={18} className="text-primary" />
+                     <p className="text-[10px] font-black text-primary uppercase tracking-widest">Bonus Giornaliero</p>
+                  </div>
+                  {dailyStreak > 0 && (
+                     <span className="text-[10px] font-black text-accent bg-accent/10 px-2 py-1 rounded-full">🔥 {dailyStreak} giorni</span>
+                  )}
+               </div>
+               <div className="flex items-center gap-3">
+                  <button 
+                    onClick={claimDailyBonus}
+                    disabled={isClaimingDaily}
+                    className="flex-1 bg-primary text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isClaimingDaily ? <Loader2 className="animate-spin" size={14} /> : <CalendarCheck size={14} />}
+                    Riscuoti +0.01 DBC
+                  </button>
+                  <button 
+                    onClick={toggleDailyReminder}
+                    className={`p-3 rounded-xl border transition-all ${dailyReminderEnabled ? 'bg-accent/10 border-accent/30 text-accent' : 'bg-white border-grey/10 text-grey'}`}
+                  >
+                    <Bell size={16} />
+                  </button>
+               </div>
+               <p className="text-[9px] text-grey mt-2 font-bold">
+                  {dailyReminderEnabled ? '🔔 Promemoria attivo' : 'Attiva il promemoria per non perdere il bonus'}
+               </p>
+            </div>
+
+            {/* Badges Grid */}
            <div>
               <p className="text-[10px] font-black text-grey  uppercase tracking-widest mb-3">I Tuoi Badge</p>
               <div className="flex gap-2 overflow-x-auto no-scrollbar">

@@ -82,6 +82,9 @@ export interface UserProfile {
   points: number;
   badges: Badge[];
   weeklyPoints: number;
+  dailyStreak?: number;
+  dailyReminderEnabled?: boolean;
+  lastDailyClaim?: Timestamp;
 }
 
 export interface MechanicProfile {

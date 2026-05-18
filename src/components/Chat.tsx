@@ -458,7 +458,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
           padding: '12px 16px',
           paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
           position: 'relative',
-          zIndex: 20,
+          zIndex: isAdminSupport ? 300 : 20,
           minHeight: '56px'
         }}
       >

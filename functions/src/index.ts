@@ -1040,3 +1040,65 @@ export const sendKycEmail = functions.region('europe-west1').https.onCall(async 
     throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
   }
 });
+
+/**
+ * Scheduled function: sends daily reminder push notifications
+ * to users who have dailyReminderEnabled=true and haven't claimed today.
+ * Runs every day at 9:00 AM UTC.
+ */
+export const sendDailyBonusReminder = functions
+  .region('europe-west1')
+  .pubsub
+  .schedule('every day 09:00')
+  .timeZone('Europe/Rome')
+  .onRun(async (context) => {
+    console.log('Running daily bonus reminder job...');
+
+    try {
+      const usersSnapshot = await db
+        .collection('users')
+        .where('dailyReminderEnabled', '==', true)
+        .get();
+
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      let sentCount = 0;
+
+      for (const userDoc of usersSnapshot.docs) {
+        const userData = userDoc.data();
+        const lastClaim = userData.lastDailyClaim?.toDate?.();
+        
+        if (lastClaim && lastClaim >= todayStart) {
+          continue; // Already claimed today
+        }
+
+        const fcmTokens = userData.fcmTokens || [];
+        if (fcmTokens.length === 0) continue;
+
+        const message = {
+          notification: {
+            title: '🎁 Bonus giornaliero DB360!',
+            body: `Hai ${userData.dailyStreak || 1} giorni di streak! Riscuoti +0.01 DBC ora.`,
+          },
+          data: {
+            type: 'daily_bonus',
+            streak: String(userData.dailyStreak || 1),
+          },
+          tokens: fcmTokens,
+        };
+
+        try {
+          await admin.messaging().sendEachForMulticast(message);
+          sentCount++;
+        } catch (err) {
+          console.error(`Failed to send reminder to user ${userDoc.id}:`, err);
+        }
+      }
+
+      console.log(`Daily bonus reminder completed. Sent to ${sentCount} users.`);
+      return { success: true, sentCount };
+    } catch (error) {
+      console.error('Daily bonus reminder job failed:', error);
+      return { success: false, error };
+    }
+  });

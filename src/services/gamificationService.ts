@@ -1,5 +1,5 @@
 import { db } from '../lib/firebase';
-import { doc, getDoc, runTransaction, query, collection, orderBy, limit, getDocs, setDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, query, collection, orderBy, limit, getDocs, setDoc, serverTimestamp, increment, updateDoc } from 'firebase/firestore';
 import { BadgeId, Badge, UserProfile } from '../types';
 
 export const gamificationService = {
@@ -20,6 +20,46 @@ export const gamificationService = {
       await gamificationService.checkAndAwardBadges(userId);
     } catch (error) {
       console.error('Error awarding points:', error);
+    }
+  },
+
+  claimDailyBonus: async (userId: string): Promise<{ success: boolean; amount: number; streak: number }> => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return { success: false, amount: 0, streak: 0 };
+
+      const data = userSnap.data() as UserProfile & { lastDailyClaim?: any; dailyStreak?: number };
+      const now = new Date();
+      const lastClaim = (data.lastDailyClaim as any)?.toDate?.();
+      
+      if (lastClaim) {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const last = new Date(lastClaim.getFullYear(), lastClaim.getMonth(), lastClaim.getDate());
+        const diffDays = Math.floor((today.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 0) return { success: false, amount: 0, streak: data.dailyStreak || 0 };
+        if (diffDays > 1) {
+          await updateDoc(userRef, { dailyStreak: 1, lastDailyClaim: serverTimestamp() });
+        }
+      }
+
+      const newStreak = (data.dailyStreak || 0) + 1;
+      const bonusAmount = 0.01;
+
+      await updateDoc(userRef, {
+        points: increment(bonusAmount),
+        weeklyPoints: increment(bonusAmount),
+        lastDailyClaim: serverTimestamp(),
+        dailyStreak: newStreak,
+        updatedAt: serverTimestamp()
+      });
+
+      console.log(`Daily bonus claimed: ${bonusAmount} points, streak: ${newStreak}`);
+      return { success: true, amount: bonusAmount, streak: newStreak };
+    } catch (error) {
+      console.error('Error claiming daily bonus:', error);
+      return { success: false, amount: 0, streak: 0 };
     }
   },
 
