@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component, type ReactNode } from 'react';
 import { db, auth, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
@@ -47,6 +47,28 @@ import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
 import { ManualInvoiceModal } from './ManualInvoiceModal';
 import ReactMarkdown from 'react-markdown';
+
+class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: Error) { console.error('Map crashed:', error); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center bg-white">
+          <div className="text-center p-8">
+            <p className="font-black text-primary uppercase tracking-widest text-sm mb-4">Mappa non disponibile</p>
+            <button onClick={() => this.setState({ hasError: false })} className="bg-primary text-white px-6 py-3 rounded-xl text-xs font-black uppercase">Riprova</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE' | 'FINANCE';
 
@@ -922,28 +944,8 @@ export function AdminHome() {
               exit={{ opacity: 0 }}
               className="absolute inset-0 lg:rounded-[3rem] overflow-hidden border-0 lg:border-8 border-white shadow-2xl"
             >
-              <div className="absolute top-4 left-4 md:top-6 md:left-6 z-10 bg-white/90 backdrop-blur-md p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] shadow-xl border border-white/20 max-w-[calc(100%-2rem)]">
-                <h3 className="text-[10px] md:text-xs font-black text-primary uppercase tracking-[0.2em] mb-2 md:mb-4">Traffic Insights</h3>
-                <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-3">
-                   <div className="flex items-center gap-2 md:gap-3">
-                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-warning shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
-                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">Meccanici</span>
-                   </div>
-                   <div className="flex items-center gap-2 md:gap-3">
-                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-primary shadow-[0_0_10px_rgba(0,132,125,0.5)]" />
-                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">Ciclisti</span>
-                   </div>
-                   <div className="flex items-center gap-2 md:gap-3">
-                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-[#8B5CF6] shadow-[0_0_10px_rgba(139,92,246,0.5)]" />
-                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">Peer Mechanics</span>
-                   </div>
-                   <div className="flex items-center gap-2 md:gap-3 border-t border-grey/10 pt-2 md:pt-3">
-                     <span className="w-2 md:w-3 h-2 md:h-3 rounded-full bg-accent shadow-[0_0_10px_rgba(234,88,12,0.5)] animate-pulse" />
-                     <span className="text-[8px] md:text-[10px] font-bold text-black uppercase">SOS In Corso</span>
-                   </div>
-                </div>
-              </div>
-              <Map 
+              <MapErrorBoundary>
+              <Map
                 isAdmin={true} 
                 adminUsers={allUsers}
                 onViewReportDetails={(report) => setSelectedReport(report)}
@@ -982,6 +984,7 @@ export function AdminHome() {
                   }
                 }}
               />
+              </MapErrorBoundary>
             </motion.div>
           )}
 
