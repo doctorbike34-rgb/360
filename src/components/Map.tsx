@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -25,10 +25,6 @@ function escapeHtml(unsafe: string | number | null | undefined): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
-
-function getCachedDivIcon(options: L.DivIconOptions): L.DivIcon {
-  return L.divIcon(options);
 }
 
 interface MechanicPopupProps {
@@ -205,34 +201,7 @@ function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: 
   const lastFlyPosRef = useRef<string | null>(null);
   const initialCenterSet = useRef(false);
 
-  const isValidPosition = position && position.length === 2 && 
-                          Number.isFinite(position[0]) && 
-                          Number.isFinite(position[1]);
-
-    useEffect(() => {
-      // FIX: Invalidate size to handle persistent tab mounting (where map might start with 0 size)
-      map.invalidateSize();
-      
-      const flyToPos = forceFlyPosition || (isValidPosition ? position : null);
-      
-      if (flyToPos && flyToPos.length === 2 && Number.isFinite(flyToPos[0]) && Number.isFinite(flyToPos[1])) {
-         // Only fly if forceCenter is triggered or if forceFlyPosition changed
-         if (forceFlyPosition) {
-           const posKey = `${forceFlyPosition[0]},${forceFlyPosition[1]}`;
-           if (lastFlyPosRef.current !== posKey) {
-             map.flyTo(flyToPos, 16, { duration: 1.5 });
-             lastFlyPosRef.current = posKey;
-           }
-         } else if (forceCenter || !initialCenterSet.current) {
-           map.flyTo(flyToPos, 15, { duration: 1.5 });
-           initialCenterSet.current = true;
-         }
-      } else if (!forceFlyPosition) {
-         lastFlyPosRef.current = null;
-      }
-    }, [map, forceCenter, forceFlyPosition, isValidPosition, position]);
-
-  const customIcon = avatarUrl ? getCachedDivIcon({
+  const customIcon = useMemo(() => avatarUrl ? L.divIcon({
     className: 'self-marker',
     html: `<div class="relative flex items-center justify-center">
              <div class="absolute inset-0 bg-primary/20 rounded-full animate-ping"></div>
@@ -243,7 +212,11 @@ function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: 
            </div>`,
     iconSize: [40, 40],
     iconAnchor: [20, 20]
-  }) : undefined;
+  }) : undefined, [avatarUrl]);
+
+  const isValidPosition = position && position.length === 2 && 
+                           Number.isFinite(position[0]) && 
+                           Number.isFinite(position[1]);
 
   return !isValidPosition ? null : (
     <Marker position={position as [number, number]} icon={customIcon}>
@@ -715,18 +688,16 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         {/* Tracked Mechanic (Primary) */}
         {trackedMechanic?.lastLat && trackedMechanic?.lastLng && (
            <Marker 
-              {...({
-                position: [trackedMechanic.lastLat, trackedMechanic.lastLng],
-                icon: getCachedDivIcon({
-                  className: 'tracked-mechanic-marker',
-                  html: `<div class="marker-size-lg relative flex items-center justify-center bg-accent/30 p-1 rounded-full ring-2 ring-accent ${escapeHtml(trackedMechanic.mechanicStatus) === 'TRAVELING' ? 'pulse-accent' : 'pulse-warning'}">
-                           <img src="${escapeHtml(trackedMechanic.photoURL || trackedMechanic.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + trackedMechanic.id)}" class="avatar-size-md rounded-full border-2 border-accent object-cover shadow-sm" />
-                           ${trackedMechanic.isOnline ? '<div class="status-dot-lg absolute bottom-0 right-0 bg-green-500 border-2 border-white rounded-full"></div>' : ''}
-                         </div>`,
-                  iconSize: [28, 28],
-                  iconAnchor: [14, 14]
-                })
-              } as any)} 
+              position={[trackedMechanic.lastLat, trackedMechanic.lastLng]}
+              icon={useMemo(() => L.divIcon({
+                className: 'tracked-mechanic-marker',
+                html: `<div class="marker-size-lg relative flex items-center justify-center bg-accent/30 p-1 rounded-full ring-2 ring-accent ${escapeHtml(trackedMechanic.mechanicStatus) === 'TRAVELING' ? 'pulse-accent' : 'pulse-warning'}">
+                         <img src="${escapeHtml(trackedMechanic.photoURL || trackedMechanic.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + trackedMechanic.id)}" class="avatar-size-md rounded-full border-2 border-accent object-cover shadow-sm" />
+                         ${trackedMechanic.isOnline ? '<div class="status-dot-lg absolute bottom-0 right-0 bg-green-500 border-2 border-white rounded-full"></div>' : ''}
+                       </div>`,
+                iconSize: [28, 28],
+                iconAnchor: [14, 14]
+              }), [trackedMechanic.photoURL, trackedMechanic.avatarUrl, trackedMechanic.id, trackedMechanic.isOnline, trackedMechanic.mechanicStatus])}
             >
               <Popup>
                 <MechanicPopup mechanic={trackedMechanic} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
@@ -753,29 +724,27 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           if (u.role === 'MECHANIC') { roleColor = 'warning'; roleHex = '#F59E0B'; }
           else if (u.role === 'PEER_MECHANIC') { roleColor = '[#8B5CF6]'; roleHex = '#8B5CF6'; }
 
+          const markerIcon = useMemo(() => L.divIcon({
+            className: 'regular-user-marker',
+            html: `<div class="marker-size-md relative flex items-center justify-center bg-${roleColor}/30 p-1 rounded-full ring-2 ring-${roleColor}">
+                     <img src="${escapeHtml(u.photoURL || u.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + u.id)}" class="avatar-size-sm rounded-full border-2 border-${roleColor} object-cover shadow-sm" />
+                     ${u.isOnline ? `<div class="status-dot-sm absolute bottom-0 right-0 bg-green-500 border border-white rounded-full"></div>` : ''}
+                   </div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          }), [u.photoURL, u.avatarUrl, u.id, u.isOnline, roleColor]);
+
           return u.lastLat && u.lastLng && (
             <Marker 
               key={u.id}
+              position={[u.lastLat, u.lastLng]}
+              icon={markerIcon}
               eventHandlers={{
                 click: () => setSelectedObj(u)
               }}
-              {...({
-                position: [u.lastLat, u.lastLng],
-                icon: getCachedDivIcon({
-                  className: `custom-marker ${isSelected ? 'z-[1000]' : ''}`,
-                  html: `<div class="transition-all duration-300 ${isSelected ? 'scale-125 drop-shadow-2xl' : ''} ${hasSOS ? 'marker-size-lg' : 'marker-size-md'} relative flex items-center justify-center p-0.5 rounded-full transition-all duration-300 ${isSelected ? 'ring-4 ring-offset-2 animate-pulse' : ''} ${u.role === 'MECHANIC' ? 'bg-warning/20' : u.role === 'PEER_MECHANIC' ? 'bg-[#8B5CF6]/20' : 'bg-primary/20'}" ${isSelected && u.role === 'PEER_MECHANIC' ? 'style="box-shadow: 0 0 0 4px #8B5CF6;"' : ''} ${u.role === 'PEER_MECHANIC' ? 'style="background-color: rgba(139, 92, 246, 0.2);"' : ''}>
-                            <img src="${escapeHtml(u.photoURL || u.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + u.id)}" 
-                                 class="${hasSOS ? 'avatar-size-lg' : 'avatar-size-sm'} rounded-full object-cover border-2 shadow-sm" style="border-color: ${escapeHtml(roleHex)};" />
-                            ${u.isOnline ? `<div class="status-dot-md absolute bottom-0 right-0 ${['MECHANIC', 'PEER_MECHANIC'].includes(u.role) ? (u.mechanicStatus === 'BUSY' ? 'bg-red-500' : u.mechanicStatus === 'TRAVELING' ? 'bg-blue-500' : 'bg-green-500') : 'bg-green-500'} border border-white rounded-full shadow-sm"></div>` : `<div class="status-dot-md absolute bottom-0 right-0 bg-grey border border-white rounded-full shadow-sm"></div>`}
-                            ${hasSOS ? '<div class="absolute -top-3 -right-3 bg-danger text-white text-[8px] px-1.5 py-0.5 rounded-full font-black animate-bounce shadow-lg border-2 border-white">SOS</div>' : ''}
-                          </div>`,
-                  iconSize: [hasSOS ? 28 : 22, hasSOS ? 28 : 22],
-                  iconAnchor: [hasSOS ? 14 : 11, hasSOS ? 14 : 11]
-                })
-              } as any)} 
             >
-              <Popup eventHandlers={{ remove: () => setSelectedObj(null) }}>
-                <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} sos={hasSOS} currentUserRole={currentUserRole} currentUser={currentUser} getFaultTypeTranslation={getFaultTypeTranslation} />
+              <Popup>
+                <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
               </Popup>
             </Marker>
           );
@@ -796,21 +765,19 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           return (
             <Marker 
               key={report.id}
+              position={[lat, lng]}
+              icon={useMemo(() => L.divIcon({
+                className: `report-marker ${isSelected ? 'z-[1000]' : ''}`,
+                html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${escapeHtml(color)}">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                         <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
+                            <span class="text-[8px] font-black uppercase text-black">${escapeHtml(String(t(`reports.categories.${report.category}`, report.category.replace('_', ' '))))}</span>
+                         </div>
+                       </div>`,
+                iconSize: [28, 28],
+                iconAnchor: [14, 14]
+              }), [report.id, report.category, color, isSelected])}
               eventHandlers={{ click: () => setSelectedObj(report) }}
-              {...({
-                position: [lat, lng],
-                icon: getCachedDivIcon({
-                  className: `report-marker ${isSelected ? 'z-[1000]' : ''}`,
-                  html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-md relative flex items-center justify-center text-white p-1 rounded-2xl shadow-lg border-2 border-white" style="background-color: ${escapeHtml(color)}">
-                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-                           <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                              <span class="text-[8px] font-black uppercase text-black">${escapeHtml(String(t(`reports.categories.${report.category}`, report.category.replace('_', ' '))))}</span>
-                           </div>
-                         </div>`,
-                  iconSize: [28, 28],
-                  iconAnchor: [14, 14]
-                })
-              } as any)} 
             >
               <Popup eventHandlers={{ remove: () => setSelectedObj(null) }}>
                 <div className="p-1 min-w-[140px]">
@@ -843,26 +810,24 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           return (
           <Marker 
             key={event.id}
+            position={[lat, lng]}
+            icon={useMemo(() => L.divIcon({
+              className: `event-marker ${isSelected ? 'z-[1000]' : ''}`,
+              html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-xl relative flex items-center justify-center bg-accent text-white p-1 rounded-2xl shadow-accent-lg border-2 border-white ring-4 ring-accent/20 ${isSelected ? 'animate-bounce ring-accent ring-offset-2 border-4' : 'animate-pulse'}">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bike"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
+                       <div class="absolute -top-2 -right-2 bg-red-500 text-[8px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
+                         ${escapeHtml(event.participantCount || 0)}/${escapeHtml(event.maxParticipants)}
+                       </div>
+                       <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
+                          <span class="text-[8px] font-black text-primary uppercase italic">${escapeHtml(event.title)}</span>
+                       </div>
+                     </div>`,
+              iconSize: [38, 38],
+              iconAnchor: [19, 19]
+            }), [event.id, event.title, event.participantCount, event.maxParticipants, isSelected])}
             eventHandlers={{
                 click: () => setSelectedObj(event)
             }}
-            {...({
-              position: [lat, lng],
-              icon: getCachedDivIcon({
-                className: `event-marker ${isSelected ? 'z-[1000]' : ''}`,
-                html: `<div class="transition-all duration-300 ${isSelected ? 'scale-110' : ''} marker-size-xl relative flex items-center justify-center bg-accent text-white p-1 rounded-2xl shadow-accent-lg border-2 border-white ring-4 ring-accent/20 ${isSelected ? 'animate-bounce ring-accent ring-offset-2 border-4' : 'animate-pulse'}">
-                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bike"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
-                         <div class="absolute -top-2 -right-2 bg-red-500 text-[8px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
-                           ${escapeHtml(event.participantCount || 0)}/${escapeHtml(event.maxParticipants)}
-                         </div>
-                         <div class="absolute -bottom-6 bg-white px-1.5 py-0.5 rounded-lg border border-grey/10 shadow-sm whitespace-nowrap">
-                            <span class="text-[8px] font-black text-primary uppercase italic">${escapeHtml(event.title)}</span>
-                         </div>
-                       </div>`,
-                iconSize: [38, 38],
-                iconAnchor: [19, 19]
-              })
-            } as any)} 
           >
             <Popup eventHandlers={{ remove: () => setSelectedObj(null) }}>
               <div className="p-1">
