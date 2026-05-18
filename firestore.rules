@@ -14,7 +14,8 @@ service cloud.firestore {
     function isAdmin() { 
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN') ||
         (request.auth.token.email != null && (
           request.auth.token.email.lower() == 'doctorbike34@gmail.com' ||
           request.auth.token.email.lower() == 'doctorbike@gmail.com' ||
@@ -213,6 +214,11 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.auth.uid == adminId;
       allow create: if isSignedIn() && request.auth.token.email.lower() == 'doctorbike34@gmail.com';
       allow write: if isAdmin();
+    }
+
+    match /subscriptions/{subId} {
+      allow read, write: if isAdmin();
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
     }
   }
 }

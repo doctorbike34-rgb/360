@@ -154,7 +154,7 @@ export default function App() {
         const adminSnap = await getDoc(doc(db, 'admins', fbUser.uid));
         const isAdmin = adminSnap.exists() || fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com';
         
-        const processProfileSnapshot = async (snapshot: { exists: () => boolean; data: () => any }) => {
+        const processProfileSnapshot = (snapshot: { exists: () => boolean; data: () => any }) => {
           if (snapshot.exists()) {
             const profileData = snapshot.data() as UserProfile;
             
@@ -197,11 +197,12 @@ export default function App() {
                     lastLoginDate: serverTimestamp()
                   }).catch(console.error);
                 }
-                const result = await gamificationService.claimDailyBonus(fbUser.uid);
-                if (result.success && !hasShownDailyToastRef.current) {
-                  toast.success(`Bonus giornaliero! +${result.amount.toFixed(2)} DBC 🎁 (Streak: ${result.streak} giorni)`, { duration: 4000 });
-                  hasShownDailyToastRef.current = true;
-                }
+                gamificationService.claimDailyBonus(fbUser.uid).then(result => {
+                  if (result.success && !hasShownDailyToastRef.current) {
+                    toast.success(`Bonus giornaliero! +${result.amount.toFixed(2)} DBC 🎁 (Streak: ${result.streak} giorni)`, { duration: 4000 });
+                    hasShownDailyToastRef.current = true;
+                  }
+                }).catch(console.error);
               } catch (e) {
                 console.error("Daily reward failed", e);
               }
