@@ -65,27 +65,31 @@ service cloud.firestore {
       allow create: if isOwner(userId) || isAdmin();
       allow update: if isAdmin() || (
         isOwner(userId) && (
-          (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'balance', 'lastTxId', 'peerMechanicEarnings']) || (incoming().diff(existing()).affectedKeys().hasOnly(['role']) && incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC']))
-          ||
+          !incoming().diff(existing()).affectedKeys().hasAny(['role', 'balance', 'lastTxId', 'peerMechanicEarnings'])
+        )
+      ) || (
+        isOwner(userId) && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['role']) && incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC']
+        )
+      ) || (
+        isOwner(userId) && (
+          (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) ||
+           incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'firstInterventionDiscount'])) &&
+          incoming().lastTxId is string &&
+          existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)) &&
           (
-             (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) ||
-              incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'firstInterventionDiscount'])) &&
-             incoming().lastTxId is string &&
-             existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)) &&
-             (
-               (incoming().get('balance', 0) > existing().get('balance', 0) &&
-                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.toId == userId &&
-                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (incoming().get('balance', 0) - existing().get('balance', 0)))
-               ||
-               (incoming().get('balance', 0) < existing().get('balance', 0) &&
-                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.fromId == userId &&
-                getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (existing().get('balance', 0) - incoming().get('balance', 0)))
-             )
+            (incoming().get('balance', 0) > existing().get('balance', 0) &&
+             getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.toId == userId &&
+             getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (incoming().get('balance', 0) - existing().get('balance', 0)))
+            ||
+            (incoming().get('balance', 0) < existing().get('balance', 0) &&
+             getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.fromId == userId &&
+             getAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)).data.amount == (existing().get('balance', 0) - incoming().get('balance', 0)))
           )
         )
       ) || (
         isSignedIn() && (!isOwner(userId)) && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'peerMechanicEarnings', 'peerMechanicJobsCompleted', 'points', 'weeklyPoints', 'badges']) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'peerMechanicEarnings', 'peerMechanicJobsCompleted', 'points', 'weeklyPoints', 'badges', 'lastDailyClaim', 'dailyStreak']) &&
           (incoming().diff(existing()).affectedKeys().hasAny(['balance', 'lastTxId']) ? (
               incoming().get('balance', 0) >= existing().get('balance', 0) &&
               incoming().lastTxId is string &&

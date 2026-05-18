@@ -43,6 +43,7 @@ export default function App() {
   const { isDarkMode } = useThemeStore();
   const [showWelcome, setShowWelcome] = useState(false);
   const hasShownDailyToastRef = useRef(false);
+  const hasClaimedDailyBonusRef = useRef(false);
   const adminBootstrappedRef = useRef(false);
 
   useEffect(() => {
@@ -190,7 +191,8 @@ export default function App() {
             const lockState = safeStorage.getItem('fb_tx_lock');
             const isLocked = lockState && (Date.now() - parseInt(lockState) < 10000);
 
-            if (now.getDate() !== lastLogin.getDate() || now.getMonth() !== lastLogin.getMonth() || now.getFullYear() !== lastLogin.getFullYear()) {
+            if ((now.getDate() !== lastLogin.getDate() || now.getMonth() !== lastLogin.getMonth() || now.getFullYear() !== lastLogin.getFullYear()) && !hasClaimedDailyBonusRef.current) {
+              hasClaimedDailyBonusRef.current = true;
               try {
                 if (!isLocked) {
                   updateDoc(doc(db, 'users', fbUser.uid), {
