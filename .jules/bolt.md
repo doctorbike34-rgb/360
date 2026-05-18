@@ -1,0 +1,3 @@
+## 2026-05-18 - Memoize Map Markers
+**Learning:** Found that `MechanicPopup` component inside `Map.tsx` is un-memoized and re-renders frequently when location updates or bounds change. Given that `Map.tsx` contains many such markers and they do data fetching internally (reviews rating), this can cause significant performance bottlenecks when panning or receiving live updates.
+**Action:** When working on Leaflet/Map components with many popups or markers, ensure the complex React components rendered inside the map are wrapped in `React.memo` to avoid redundant evaluation and fetch calls on every map interaction.
