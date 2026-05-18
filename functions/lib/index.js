@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createCheckoutSession = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
+exports.sendDailyBonusReminder = exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createCheckoutSession = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
@@ -39,7 +39,11 @@ const db = admin.firestore();
 let _stripe = null;
 function getStripe() {
     if (!_stripe) {
-        _stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || 'sk_test_mock', {
+        const key = process.env.STRIPE_SECRET_KEY;
+        if (!key || key === 'sk_test_mock') {
+            throw new Error('STRIPE_SECRET_KEY is not configured. Set it in .env or functions config.');
+        }
+        _stripe = new stripe_1.default(key, {
             apiVersion: '2023-10-16',
         });
     }
@@ -642,7 +646,16 @@ exports.createCheckoutSession = functions.region('europe-west1').https.onRequest
             res.status(400).json({ error: 'Invalid amount' });
             return;
         }
-        const appUrl = process.env.APP_URL || 'https://www.db360app.it';
+        const rawAppUrl = process.env.APP_URL || 'https://www.db360app.it';
+        // Ensure appUrl has a valid scheme
+        let appUrl;
+        try {
+            const parsed = new URL(rawAppUrl);
+            appUrl = parsed.origin;
+        }
+        catch (_a) {
+            appUrl = 'https://www.db360app.it';
+        }
         // Validate returnUrl to prevent open redirect vulnerability
         let validatedReturnUrl = appUrl;
         if (returnUrl) {
@@ -650,7 +663,7 @@ exports.createCheckoutSession = functions.region('europe-west1').https.onRequest
                 const parsed = new URL(returnUrl);
                 const allowedOrigin = new URL(appUrl).origin;
                 if (parsed.origin === allowedOrigin) {
-                    validatedReturnUrl = returnUrl;
+                    validatedReturnUrl = parsed.origin + parsed.pathname;
                 }
                 else {
                     console.warn(`Blocked open redirect attempt: ${returnUrl}`);
@@ -950,6 +963,63 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
     catch (error) {
         console.error('Error sending KYC email:', error);
         throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
+    }
+});
+/**
+ * Scheduled function: sends daily reminder push notifications
+ * to users who have dailyReminderEnabled=true and haven't claimed today.
+ * Runs every day at 9:00 AM UTC.
+ */
+exports.sendDailyBonusReminder = functions
+    .region('europe-west1')
+    .pubsub
+    .schedule('every day 09:00')
+    .timeZone('Europe/Rome')
+    .onRun(async (context) => {
+    var _a, _b;
+    console.log('Running daily bonus reminder job...');
+    try {
+        const usersSnapshot = await db
+            .collection('users')
+            .where('dailyReminderEnabled', '==', true)
+            .get();
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        let sentCount = 0;
+        for (const userDoc of usersSnapshot.docs) {
+            const userData = userDoc.data();
+            const lastClaim = (_b = (_a = userData.lastDailyClaim) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a);
+            if (lastClaim && lastClaim >= todayStart) {
+                continue; // Already claimed today
+            }
+            const fcmTokens = userData.fcmTokens || [];
+            if (fcmTokens.length === 0)
+                continue;
+            const message = {
+                notification: {
+                    title: '🎁 Bonus giornaliero DB360!',
+                    body: `Hai ${userData.dailyStreak || 1} giorni di streak! Riscuoti +0.01 DBC ora.`,
+                },
+                data: {
+                    type: 'daily_bonus',
+                    streak: String(userData.dailyStreak || 1),
+                },
+                tokens: fcmTokens,
+            };
+            try {
+                await admin.messaging().sendEachForMulticast(message);
+                sentCount++;
+            }
+            catch (err) {
+                console.error(`Failed to send reminder to user ${userDoc.id}:`, err);
+            }
+        }
+        console.log(`Daily bonus reminder completed. Sent to ${sentCount} users.`);
+        return { success: true, sentCount };
+    }
+    catch (error) {
+        console.error('Daily bonus reminder job failed:', error);
+        return { success: false, error };
     }
 });
 //# sourceMappingURL=index.js.map

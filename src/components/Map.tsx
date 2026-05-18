@@ -326,6 +326,11 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     };
   }, [userPos]);
 
+  // Clear icon cache on unmount to prevent stale DOM references
+  useEffect(() => {
+    return () => { iconCache.clear(); };
+  }, []);
+
   const lastUpdateRef = useRef<{ time: number, pos: [number, number] | null }>({ time: 0, pos: null });
 
   const updateRealPosition = useCallback((centerMap = true) => {
