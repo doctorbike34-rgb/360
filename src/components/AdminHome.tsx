@@ -81,6 +81,16 @@ export function AdminHome() {
   const [showReportNoteModal, setShowReportNoteModal] = useState<string | null>(null);
   const [aiSearchQuery, setAiSearchQuery] = useState('');
 
+  const filteredAIConversations = React.useMemo(() => {
+    if (!aiSearchQuery) return aiConversations;
+    const q = aiSearchQuery.toLowerCase();
+    return aiConversations.filter(c =>
+      (c.userName || '').toLowerCase().includes(q) ||
+      (c.role || '').toLowerCase().includes(q) ||
+      (c.messages || []).some((m: any) => (m.text || '').toLowerCase().includes(q))
+    );
+  }, [aiConversations, aiSearchQuery]);
+
   const openSOSChat = async (sos: any) => {
     setSelectedChat(sos);
     try {
@@ -363,13 +373,23 @@ export function AdminHome() {
     }
   };
 
-  const filteredUsers = allUsers.filter(u => {
-    const matchesSearch = u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.id?.includes(searchQuery);
-    const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
-    return matchesSearch && matchesKyc;
-  });
+  const filteredUsers = React.useMemo(() => {
+    const lowerQuery = searchQuery.toLowerCase();
+    return allUsers.filter(u => {
+      const matchesSearch = (u.name && u.name.toLowerCase().includes(lowerQuery)) ||
+        (u.email && u.email.toLowerCase().includes(lowerQuery)) ||
+        (u.id && u.id.includes(searchQuery));
+      const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
+      return matchesSearch && matchesKyc;
+    });
+  }, [allUsers, searchQuery, kycFilter]);
+
+  const filteredRoadReports = React.useMemo(() => {
+    return roadReports.filter(r =>
+      (reportFilter === 'all' || r.status === reportFilter) &&
+      (reportSeverityFilter === 'all' || r.severity === reportSeverityFilter)
+    );
+  }, [roadReports, reportFilter, reportSeverityFilter]);
 
   const updateUserRole = async (userId: string, newRole: string) => {
     if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
@@ -1314,28 +1334,12 @@ export function AdminHome() {
                         />
                       </div>
                       <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
-                         {aiConversations
-                           .filter(c => {
-                             if (!aiSearchQuery) return true;
-                             const q = aiSearchQuery.toLowerCase();
-                             return (c.userName || '').toLowerCase().includes(q) ||
-                                    (c.role || '').toLowerCase().includes(q) ||
-                                    (c.messages || []).some((m: any) => (m.text || '').toLowerCase().includes(q));
-                           })
-                           .length === 0 ? (
+                         {filteredAIConversations.length === 0 ? (
                            <div className="p-8 text-center text-grey italic bg-white text-black rounded-[2rem] border border-grey/5 mx-4">
                              Nessuna conversazione trovata
                            </div>
                          ) : (
-                           aiConversations
-                           .filter(c => {
-                             if (!aiSearchQuery) return true;
-                             const q = aiSearchQuery.toLowerCase();
-                             return (c.userName || '').toLowerCase().includes(q) ||
-                                    (c.role || '').toLowerCase().includes(q) ||
-                                    (c.messages || []).some((m: any) => (m.text || '').toLowerCase().includes(q));
-                           })
-                           .map(conv => (
+                           filteredAIConversations.map(conv => (
                             <div key={conv.id} className="flex gap-2">
                               <button
                                 onClick={() => setSelectedAIConv(conv)}
@@ -1581,9 +1585,7 @@ export function AdminHome() {
                  </div>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {roadReports
-                   .filter(r => reportFilter === 'all' || r.status === reportFilter)
-                   .filter(r => reportSeverityFilter === 'all' || r.severity === reportSeverityFilter)
+                 {filteredRoadReports
                    .map((report) => (
                    <div key={report.id} className="bg-white text-black rounded-3xl p-6 border border-grey/10 shadow-sm relative overflow-hidden flex flex-col">
                       <div className="flex justify-between items-start mb-4">
