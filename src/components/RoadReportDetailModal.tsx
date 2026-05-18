@@ -56,7 +56,10 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
 
 
   const handleUpvote = async () => {
-    if (!user || !report?.id) {
+<<<<<<< HEAD
+    if (!report?.id) return;
+
+    if (!user) {
       addToast({ title: 'Errore', message: 'Devi aver effettuato l\'accesso per confermare.', type: 'error' });
       return;
     }
@@ -78,7 +81,7 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
 
   if (!report) return null;
 
-  const hasUpvoted = user && report.upvotes?.includes(user.uid);
+  const hasUpvoted = Boolean(user && report.upvotes?.includes(user.uid));
 
   const formatDate = (date: any) => {
     if (!date) return 'N/A';

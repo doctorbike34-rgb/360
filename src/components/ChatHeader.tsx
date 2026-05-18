@@ -10,9 +10,11 @@ interface ChatHeaderProps {
   defaultName?: string;
   onBack: () => void;
   onViewProfile?: (userId: string) => void;
+  isAdminSupport?: boolean;
+  targetUserId?: string;
 }
 
-export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onBack, onViewProfile }) => {
+export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onBack, onViewProfile, isAdminSupport, targetUserId }) => {
   const { user } = useAuthStore();
   const { t } = useTranslation();
   const [profile, setProfile] = useState<any>(null);
@@ -24,11 +26,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onB
       
       let otherId: string | undefined;
       
-      if (chatId.startsWith('direct_')) {
+      if (isAdminSupport && targetUserId) {
+        otherId = targetUserId;
+      } else if (chatId.startsWith('direct_')) {
         const parts = chatId.replace('direct_', '').split('_');
         otherId = parts.find(id => id !== user.uid);
-      } else {
-        // Find other participant in non-direct chats (like SOS chats)
+      } else if (!isAdminSupport) {
         try {
           const chatSnap = await getDoc(doc(db, 'chats', chatId));
           if (chatSnap.exists()) {
@@ -53,7 +56,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onB
     };
     fetchProfile();
     return () => unsubscribe();
-  }, [chatId, user]);
+  }, [chatId, user, isAdminSupport, targetUserId]);
 
   const name = profile?.name || profile?.displayName || defaultName || 'Utente';
   const avatar = profile?.photoURL || profile?.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.id || chatId}`;

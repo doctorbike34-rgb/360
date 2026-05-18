@@ -47,6 +47,7 @@ describe('roadReportService', () => {
         category: 'pothole',
         location: { lat: 40.7128, lng: -74.0060 },
         description: 'Large pothole on main street',
+        severity: 'medium',
         photoUrl: 'http://example.com/image.jpg',
         reporterId: 'user123',
         reporterName: 'Test User',

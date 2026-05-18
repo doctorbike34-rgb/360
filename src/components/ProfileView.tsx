@@ -35,7 +35,8 @@ import {
   Camera,
   QrCode,
   Download,
-  MapPin as MapIcon
+  MapPin as MapIcon,
+  Navigation2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { increment } from 'firebase/firestore';
@@ -969,11 +970,11 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         <div className="grid grid-cols-2 gap-4">
            <div className="bg-white text-black p-5 rounded-[2rem] shadow-sm border border-grey/5  text-center transition-colors">
               <p className="text-[10px] font-bold text-grey  uppercase tracking-tighter mb-1 transition-colors">{t('profile.interventions')}</p>
-              <p className="text-lg font-black text-primary  transition-colors">3</p>
+              <p className="text-lg font-black text-primary  transition-colors">{profile?.completedJobs || 0}</p>
            </div>
            <div className="bg-white text-black p-5 rounded-[2rem] shadow-sm border border-grey/5  text-center transition-colors">
               <p className="text-[10px] font-bold text-grey  uppercase tracking-tighter mb-1 transition-colors">{t('profile.points')}</p>
-              <p className="text-lg font-black text-primary  transition-colors">1,240</p>
+              <p className="text-lg font-black text-primary  transition-colors">{profile?.points || 0}</p>
            </div>
         </div>
 
@@ -1281,14 +1282,44 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   <button onClick={() => setShowSafety(false)} className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="w-20 h-20 bg-primary/10 rounded-[2.5rem] flex items-center justify-center text-primary mb-6">
-                    <Shield size={40}/>
+                <div className="space-y-6">
+                  <div className="bg-primary/5 border border-primary/10 rounded-2xl p-5">
+                    <h4 className="text-sm font-black text-primary uppercase mb-3 flex items-center gap-2">
+                      <Shield size={18} /> SOS Rapido
+                    </h4>
+                    <p className="text-xs text-grey  leading-relaxed">
+                      In caso di emergenza, premi il pulsante SOS sulla mappa per richiedere aiuto immediato. 
+                      Un meccanico nearby riceverà la tua posizione e ti contatterà.
+                    </p>
                   </div>
-                  <h4 className="text-xl font-black text-black  uppercase italic mb-2">Coming Soon</h4>
-                  <p className="text-xs text-grey font-bold uppercase tracking-widest max-w-[200px] leading-relaxed">
-                    Stiamo lavorando per portare l'assicurazione direttamente sulla tua bici.
-                  </p>
+                  <div className="bg-accent/5 border border-accent/10 rounded-2xl p-5">
+                    <h4 className="text-sm font-black text-accent uppercase mb-3 flex items-center gap-2">
+                      <Navigation2 size={18} /> Condivisione Posizione
+                    </h4>
+                    <p className="text-xs text-grey  leading-relaxed">
+                      Quando sei online, la tua posizione è visibile ai meccanici nearby per interventi rapidi. 
+                      Puoi nasconderti con il Ghost Mode (icona occhio sulla mappa).
+                    </p>
+                  </div>
+                  <div className="bg-warning/5 border border-warning/10 rounded-2xl p-5">
+                    <h4 className="text-sm font-black text-warning uppercase mb-3 flex items-center gap-2">
+                      <Star size={18} /> Verifica Meccanici
+                    </h4>
+                    <p className="text-xs text-grey  leading-relaxed">
+                      Tutti i meccanici sono verificati tramite KYC. Controlla recensioni e rating prima di accettare un intervento.
+                    </p>
+                  </div>
+                  <div className="bg-grey/5 border border-grey/10 rounded-2xl p-5">
+                    <h4 className="text-sm font-black text-grey uppercase mb-3 flex items-center gap-2">
+                      <Phone size={18} /> Numeri Emergenza
+                    </h4>
+                    <div className="space-y-2 text-xs">
+                      <p className="font-bold">🚑 Emergenza Sanitaria: <span className="text-primary">112</span></p>
+                      <p className="font-bold">🚔 Polizia: <span className="text-primary">113</span></p>
+                      <p className="font-bold">🚒 Vigili del Fuoco: <span className="text-primary">115</span></p>
+                      <p className="font-bold">🔧 Soccorso Stradale: <span className="text-primary">800-123456</span></p>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             </div>

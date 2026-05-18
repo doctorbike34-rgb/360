@@ -12,7 +12,7 @@ export const NotificationManager: React.FC = () => {
   const [showPermissionPrompt, setShowPermissionPrompt] = React.useState(false);
   const lastSOSRef = useRef<Record<string, string>>({});
   const lastUnreadRef = useRef<Record<string, number>>({});
-  const processedMechanicSOS = useRef<Set<string>>(new Set());
+  const processedMechanicSOS = useRef<Map<string, number>>(new Map());
   const hasRequestedPermission = useRef<string | null>(null);
 
   const playNotificationSound = (isSOS = false) => {
@@ -116,58 +116,49 @@ export const NotificationManager: React.FC = () => {
       cleanupSOS = poll();
     }
 
-    // 2. Mechanic: Watch for nearby PENDING SOS
+    // 2. Mechanic: Use onSnapshot for nearby PENDING SOS (more efficient than polling)
     let cleanupNearby: () => void = () => {};
     if (role === 'MECHANIC' || role === 'PEER_MECHANIC') {
-      const fetchNearbySOS = async () => {
-        // Only fetch if available
-        const isAvailable = role === 'MECHANIC' ? profile?.isOnline : profile?.peerMechanicEnabled;
-        if (!isAvailable) return;
+      const isAvailable = role === 'MECHANIC' ? profile?.isOnline : profile?.peerMechanicEnabled;
+      if (isAvailable) {
+        const q = query(
+          collection(db, 'sosRequests'),
+          where('status', '==', 'PENDING'),
+          orderBy('createdAt', 'desc'),
+          limit(10)
+        );
 
-        try {
-          const q = query(
-            collection(db, 'sosRequests'),
-            where('status', '==', 'PENDING'),
-            orderBy('createdAt', 'desc'),
-            limit(10)
-          );
-
-          const snapshot = await getDocs(q);
-          snapshot.docs.forEach(doc => {
-             const data = doc.data();
-             const id = doc.id;
-             
-             // Avoid duplicate notifications for sessions
-             if (!processedMechanicSOS.current.has(id)) {
-                processedMechanicSOS.current.add(id);
+        cleanupNearby = onSnapshot(q, (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const id = change.doc.id;
+              const data = change.doc.data();
+              
+              // Avoid duplicate notifications - use TTL-based Set
+              const now = Date.now();
+              // Clean up old entries (older than 1 hour)
+              for (const key of processedMechanicSOS.current) {
+                if (now - (processedMechanicSOS.current as any)[key] > 3600000) {
+                  (processedMechanicSOS.current as any).delete(key);
+                }
+              }
+              
+              if (!(processedMechanicSOS.current as any).has(id)) {
+                (processedMechanicSOS.current as any).set(id, now);
                 notify('Nuova Richiesta SOS!', {
                   body: `Tipo: ${data.faultType}. Un ciclista ha bisogno di aiuto nelle vicinanze.`,
                   tag: 'new-sos',
                   isSOS: true
                 });
-             }
+              }
+            }
           });
-        } catch (err: any) {
+        }, (err: any) => {
           if (!err.message?.includes('Quota') && !err.message?.includes('permissions')) {
-            console.error("Error polling nearby SOS", err);
+            console.error("Error listening to nearby SOS", err);
           }
-        }
-      };
-      
-      const poll = () => {
-        let timeoutId: NodeJS.Timeout | null = null;
-        const run = async () => {
-          if (document.visibilityState === 'visible') {
-            await fetchNearbySOS();
-          }
-          const nextInterval = 300000 + Math.random() * 60000;
-          timeoutId = setTimeout(run, nextInterval);
-        };
-        run();
-        return () => { if (timeoutId) clearTimeout(timeoutId); };
-      };
-      
-      cleanupNearby = poll();
+        });
+      }
     }
 
       // 3. All Users: Watch for Unread Chat Messages

@@ -55,22 +55,6 @@ import {
   Cell
 } from 'recharts';
 
-const MOCK_EARNINGS_DATA = [
-  { day: 'Mon', amount: 45 },
-  { day: 'Tue', amount: 80 },
-  { day: 'Wed', amount: 65 },
-  { day: 'Thu', amount: 120 },
-  { day: 'Fri', amount: 90 },
-  { day: 'Sat', amount: 150 },
-  { day: 'Sun', amount: 130 },
-];
-
-const MOCK_ACTIVITY_DATA = [
-  { name: 'SOS', value: 45, color: '#f59e0b' },
-  { name: 'Maint', value: 30, color: '#0ea5e9' },
-  { name: 'Check', value: 25, color: '#10b981' },
-];
-
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -107,6 +91,8 @@ export function MechanicHome() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showStats, setShowStats] = useState(false);
   const [userSupportTicket, setUserSupportTicket] = useState<any | null>(null);
+  const [earningsData, setEarningsData] = useState<any[]>([]);
+  const [activityData, setActivityData] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -122,6 +108,58 @@ export function MechanicHome() {
       } else {
         setUserSupportTicket(null);
       }
+    });
+    return unsub;
+  }, [user]);
+
+  // Listen for mechanic transactions to build real earnings chart
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'transactions'),
+      where('toId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // Build last 7 days earnings
+      const days = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+      const now = new Date();
+      const dailyEarnings: Record<string, number> = {};
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().split('T')[0];
+        dailyEarnings[key] = 0;
+      }
+      
+      txs.forEach(tx => {
+        if (tx.createdAt?.seconds) {
+          const date = new Date(tx.createdAt.seconds * 1000);
+          const key = date.toISOString().split('T')[0];
+          if (dailyEarnings[key] !== undefined) {
+            dailyEarnings[key] += tx.amount || 0;
+          }
+        }
+      });
+
+      const chartData = Object.entries(dailyEarnings).map(([date, amount]) => ({
+        day: days[new Date(date).getDay()],
+        amount: Math.round(amount)
+      }));
+      setEarningsData(chartData);
+
+      // Build activity breakdown from completed SOS
+      const sosCount = txs.filter(tx => tx.type === 'ADMIN_DISPUTE_RELEASE' || tx.type === 'SOS_RELEASE').length;
+      const refundCount = txs.filter(tx => tx.type?.includes('REFUND')).length;
+      const otherCount = txs.filter(tx => !tx.type?.includes('RELEASE') && !tx.type?.includes('REFUND')).length;
+      setActivityData([
+        { name: 'SOS', value: Math.max(sosCount, 1), color: '#f59e0b' },
+        { name: 'Rimborsi', value: Math.max(refundCount, 0), color: '#0ea5e9' },
+        { name: 'Altro', value: Math.max(otherCount, 0), color: '#10b981' },
+      ]);
     });
     return unsub;
   }, [user]);
@@ -161,14 +199,12 @@ export function MechanicHome() {
 
   const filteredJobs = React.useMemo(() => {
     let jobs = allPendingJobs;
-    // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
 
     if (effectiveLocation) {
       jobs = jobs.filter((job: { lat?: number; lng?: number; createdAt?: any; estimatedPrice?: number }) => {
         if (!job.lat || !job.lng || !job.createdAt) return true;
         
-        const dist = calculateDistance(effectiveLocation.lat, effectiveLocation.lng, job.lat, job.lng);
         const createdAt = job.createdAt?.toMillis?.() || job.createdAt?.seconds * 1000 || now;
         const plan = profile?.plan || 'BASE';
         const role = profile?.role || 'CYCLIST';
@@ -194,14 +230,7 @@ export function MechanicHome() {
       });
     }
     return jobs;
-  }, [allPendingJobs, effectiveLocation, profile?.plan]);
-
-  // Force re-filtering every minute to handle time-based escalation
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setTick(t => t + 1), 5000);
-    return () => clearInterval(timer);
-  }, []);
+  }, [allPendingJobs, effectiveLocation, profile?.plan, profile?.role]);
 
   const updateMechanicStatus = async (newStatus: string) => {
     if (!user) return;
@@ -898,37 +927,99 @@ export function MechanicHome() {
              </div>
              
              <AnimatePresence>
-               {showStats && (
-                 <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto pb-48">
-                    {/* Stats content remains same */}
-                    <div className="mb-8 flex items-start justify-between">
-                       <div>
-                         <h2 className="text-2xl font-black text-primary">{t('mechanic.stats')}</h2>
-                         <p className="text-xs font-bold text-grey italic">{t('mechanic.statsSubtitle')}</p>
-                       </div>
-                       <button onClick={() => setShowStats(false)} className="w-8 h-8 bg-grey/10 rounded-full flex items-center justify-center text-grey hover:text-black">
-                         <X size={16} />
-                       </button>
-                    </div>
-                    {/* ... (rest of stats) */}
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                        <div className="bg-primary text-white p-5 rounded-[2.5rem] shadow-xl shadow-primary/20">
-                          <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-accent mb-4">
-                             <Zap size={20} className="fill-accent"/>
-                          </div>
-                          <p className="text-[10px] font-black opacity-60 uppercase tracking-widest leading-none mb-1">Guadagni DBC</p>
-                          <p className="text-2xl font-black">⚡{(profile?.balance ?? mechanicData?.totalEarnings ?? 0).toFixed(0)}</p>
+                {showStats && (
+                  <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto pb-48">
+                     <div className="mb-8 flex items-start justify-between">
+                        <div>
+                          <h2 className="text-2xl font-black text-primary">{t('mechanic.stats')}</h2>
+                          <p className="text-xs font-bold text-grey italic">{t('mechanic.statsSubtitle')}</p>
                         </div>
-                        <div className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-grey/5">
-                           <div className="w-10 h-10 bg-accent/5 rounded-2xl flex items-center justify-center text-accent mb-4">
-                              <Star size={20}/>
+                        <button onClick={() => setShowStats(false)} className="w-8 h-8 bg-grey/10 rounded-full flex items-center justify-center text-grey hover:text-black">
+                          <X size={16} />
+                        </button>
+                     </div>
+                     <div className="grid grid-cols-2 gap-4 mb-6">
+                         <div className="bg-primary text-white p-5 rounded-[2.5rem] shadow-xl shadow-primary/20">
+                           <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-accent mb-4">
+                              <Zap size={20} className="fill-accent"/>
                            </div>
-                           <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">{t('mechanic.rating')}</p>
-                           <p className="text-2xl font-black text-primary">{avgRating.toFixed(2)}</p>
-                        </div>
-                    </div>
-                 </motion.div>
-               )}
+                           <p className="text-[10px] font-black opacity-60 uppercase tracking-widest leading-none mb-1">Guadagni DBC</p>
+                           <p className="text-2xl font-black">{(profile?.balance ?? mechanicData?.totalEarnings ?? 0).toFixed(0)}</p>
+                         </div>
+                         <div className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-grey/5">
+                            <div className="w-10 h-10 bg-accent/5 rounded-2xl flex items-center justify-center text-accent mb-4">
+                               <Star size={20}/>
+                            </div>
+                            <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">{t('mechanic.rating')}</p>
+                            <p className="text-2xl font-black text-primary">{avgRating.toFixed(2)}</p>
+                         </div>
+                         <div className="bg-accent/10 p-5 rounded-[2.5rem] shadow-sm border border-accent/10">
+                            <div className="w-10 h-10 bg-accent/20 rounded-2xl flex items-center justify-center text-accent mb-4">
+                               <CheckCircle2 size={20}/>
+                            </div>
+                            <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">Job Completati</p>
+                            <p className="text-2xl font-black text-accent">{mechanicData?.completedJobs || 0}</p>
+                         </div>
+                         <div className="bg-warning/10 p-5 rounded-[2.5rem] shadow-sm border border-warning/10">
+                            <div className="w-10 h-10 bg-warning/20 rounded-2xl flex items-center justify-center text-warning mb-4">
+                               <Clock size={20}/>
+                            </div>
+                            <p className="text-[10px] font-black text-grey uppercase tracking-widest leading-none mb-1">In Attesa</p>
+                            <p className="text-2xl font-black text-warning">{activeJobs.length}</p>
+                         </div>
+                     </div>
+                     {earningsData.length > 0 && (
+                       <div className="mb-6">
+                         <h3 className="text-sm font-black text-grey uppercase mb-3">Guadagni Ultimi 7 Giorni</h3>
+                         <div className="h-40 bg-grey/5 rounded-2xl p-3">
+                           <BarChart width={300} height={140} data={earningsData}>
+                             <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+                               {earningsData.map((_, i) => <Cell key={i} fill={i === earningsData.length - 1 ? '#f59e0b' : '#f59e0b40'} />)}
+                             </Bar>
+                           </BarChart>
+                         </div>
+                       </div>
+                     )}
+                     {activityData.length > 0 && (
+                       <div>
+                         <h3 className="text-sm font-black text-grey uppercase mb-3">Attivita</h3>
+                         <div className="flex gap-3">
+                           {activityData.map((a, i) => (
+                             <div key={i} className="flex-1 bg-grey/5 rounded-xl p-3 text-center">
+                               <div className="w-3 h-3 rounded-full mx-auto mb-2" style={{ backgroundColor: a.color }} />
+                               <p className="text-[10px] font-black text-grey uppercase">{a.name}</p>
+                               <p className="text-lg font-black">{a.value}</p>
+                             </div>
+                 ))}
+
+                 {completedJobsList.length > 0 && (
+                   <div className="mt-8">
+                     <h3 className="text-xs font-black text-grey uppercase tracking-widest mb-3 px-1">Job Completati Recenti</h3>
+                     <div className="space-y-3">
+                       {completedJobsList.map(job => (
+                         <div key={job.id} className="bg-success/5 border border-success/10 p-4 rounded-3xl flex justify-between items-center opacity-70">
+                            <div className="flex gap-3">
+                               <div className="w-10 h-10 bg-success/20 text-success rounded-xl flex items-center justify-center">
+                                  <CheckCircle2 size={20} />
+                               </div>
+                               <div>
+                                  <h4 className="font-bold text-black text-xs uppercase">{getFaultTypeTranslation(job.faultType)}</h4>
+                                  <p className="text-[9px] font-bold text-grey uppercase">{job.cyclistName || 'Ciclista'} · {job.completedAt ? new Date(job.completedAt.seconds * 1000).toLocaleDateString() : ''}</p>
+                               </div>
+                            </div>
+                            <div className="bg-success/10 text-success px-3 py-1.5 rounded-lg text-[9px] font-black uppercase">
+                              +{job.estimatedPrice || 0} DBC
+                            </div>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+                 )}
+              </div>
+                       </div>
+                     )}
+                  </motion.div>
+                )}
              </AnimatePresence>
           </div>
 
