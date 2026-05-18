@@ -213,11 +213,12 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
 
       const currentPoints = mechanicData.points || 0;
       const currentWeekly = mechanicData.weeklyPoints || 0;
+      const currentCompletedJobs = mechanicData.completedJobs || 0;
       const mechanicBadges = mechanicData.badges || [];
       
-      const cyclistData = cyclistSnap.data() || {};
-      const cyclistPoints = cyclistData.points || 0;
-      const cyclistWeekly = cyclistData.weeklyPoints || 0;
+      const cyclistData2 = cyclistSnap.data() || {};
+      const cyclistPoints = cyclistData2.points || 0;
+      const cyclistWeekly = cyclistData2.weeklyPoints || 0;
 
       // Update Mechanic Gamification
       mechanicUpdates.points = currentPoints + pointsToAward;
@@ -228,6 +229,9 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
           mechanicBadges.push({ id: 'first_sos', unlockedAt: Date.now() });
           mechanicUpdates.badges = mechanicBadges;
       }
+      
+      // Update completed jobs count (only for regular mechanics, peer mechanics track their own)
+      mechanicUpdates.completedJobs = currentCompletedJobs + 1;
 
       // Update Cyclist Gamification
       const cyclistUpdates: any = {
@@ -410,6 +414,66 @@ export const stripeWebhook = functions.region('europe-west1').https.onRequest(as
     return;
   }
 
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const userId = session.metadata?.userId || session.client_reference_id;
+    const amountStr = session.metadata?.dbcAmount;
+    const sessionType = session.metadata?.type || 'TOPUP';
+    const planId = session.metadata?.planId;
+    const paymentIntentId = session.payment_intent as string;
+
+    if (userId && amountStr && paymentIntentId) {
+      const dbcAmount = parseFloat(amountStr);
+      const txRef = db.collection('transactions').doc(paymentIntentId);
+      
+      try {
+        await db.runTransaction(async (t) => {
+          const userRef = db.collection('users').doc(userId);
+          
+          // ALWAYS create transaction and increment balance (new Checkout Sessions flow)
+          t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
+          t.set(txRef, {
+            fromId: 'STRIPE_TOPUP',
+            toId: userId,
+            amount: dbcAmount,
+            type: sessionType === 'SUBSCRIPTION' ? 'SUBSCRIPTION' : 'TOPUP',
+            status: 'COMPLETED',
+            stripePaymentId: paymentIntentId,
+            planId: planId || '',
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }); // use merge to avoid error if already exists from old test
+        });
+      } catch (e) {
+        console.error("Checkout session transaction failed:", e);
+      }
+
+      // Handle subscription payments
+      if (sessionType === 'SUBSCRIPTION') {
+        try {
+          const subsQuery = await db.collection('subscriptions')
+            .where('stripePaymentIntentId', '==', paymentIntentId)
+            .where('status', '==', 'PENDING')
+            .limit(1)
+            .get();
+          
+          if (!subsQuery.empty) {
+            const subDoc = subsQuery.docs[0];
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 30);
+            
+            await subDoc.ref.update({
+              status: 'PAID',
+              expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        } catch (e) {
+          console.error("Subscription confirmation failed:", e);
+        }
+      }
+    }
+  }
+
   if (event.type === 'payment_intent.succeeded') {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const userId = paymentIntent.metadata?.userId;
@@ -422,19 +486,28 @@ export const stripeWebhook = functions.region('europe-west1').https.onRequest(as
       try {
         await db.runTransaction(async (t) => {
           const txSnap = await t.get(txRef);
-          if (txSnap.exists) return;
-
           const userRef = db.collection('users').doc(userId);
-          t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
-          t.set(txRef, {
-            fromId: 'STRIPE_TOPUP',
-            toId: userId,
-            amount: dbcAmount,
-            type: 'TOPUP',
-            status: 'COMPLETED',
-            stripePaymentId: paymentIntent.id,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-          });
+          
+          if (txSnap.exists) {
+            // Client already created PENDING transaction and incremented balance — just update status
+            const txData = txSnap.data();
+            if (txData && txData.status !== 'COMPLETED') {
+              t.update(txRef, { status: 'COMPLETED', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+            }
+            // Do NOT increment balance again — client already did it in their runTransaction
+          } else {
+            // Webhook creates transaction from scratch
+            t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
+            t.set(txRef, {
+              fromId: 'STRIPE_TOPUP',
+              toId: userId,
+              amount: dbcAmount,
+              type: 'TOPUP',
+              status: 'COMPLETED',
+              stripePaymentId: paymentIntent.id,
+              createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+          }
         });
       } catch (e) {
         console.error("Topup transaction failed:", e);
@@ -488,7 +561,7 @@ export const createStripePayment = functions.region('europe-west1').https.onRequ
   // 1. Manual CORS Handling
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Authorization');
 
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -548,6 +621,90 @@ export const createStripePayment = functions.region('europe-west1').https.onRequ
     });
   } catch (error) {
     console.error('Stripe Payment Error:', error);
+    res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
+  }
+});
+
+/**
+ * Create Stripe Checkout Session (migrated from Payment Elements)
+ * User is redirected to Stripe-hosted checkout page for better security and less code.
+ */
+export const createCheckoutSession = functions.region('europe-west1').https.onRequest(async (req, res) => {
+  // 1. Manual CORS Handling
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Authorization');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  try {
+    // 2. Auth Verification (Manual)
+    const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-authorization'];
+    const bodyToken = req.body.token;
+    
+    let idToken = '';
+    if (authHeader && (authHeader as string).startsWith('Bearer ')) {
+      idToken = (authHeader as string).split('Bearer ')[1];
+    } else if (bodyToken) {
+      idToken = bodyToken;
+    }
+
+    if (!idToken) {
+      res.status(401).json({ error: 'Unauthorized: Missing token in headers or body' });
+      return;
+    }
+
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
+
+    // 3. Payload Validation
+    const { amount, currency = 'eur', type = 'TOPUP', planId, returnUrl } = req.body;
+    if (!amount || amount <= 0) {
+      res.status(400).json({ error: 'Invalid amount' });
+      return;
+    }
+
+    const appUrl = process.env.APP_URL || 'https://www.db360app.it';
+    // returnUrl already includes the full path (e.g. https://www.db360app.it/profile)
+    const successUrl = `${returnUrl || appUrl}?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${returnUrl || appUrl}?session_id={CHECKOUT_SESSION_ID}`;
+
+    // 4. Create Checkout Session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: currency,
+          product_data: {
+            name: type === 'SUBSCRIPTION' ? `Abbonamento ${planId || 'Pro'}` : 'Ricarica Saldo DoctorBike',
+            description: type === 'SUBSCRIPTION' ? 'Abbonamento mensile DoctorBike 360' : `Ricarica di ${amount} EUR`,
+          },
+          unit_amount: Math.round(amount * 100), // convert to cents
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: userId,
+      metadata: {
+        userId: userId,
+        dbcAmount: amount.toString(),
+        type: type,
+        planId: planId || '',
+        platform: 'DoctorBikeV2'
+      },
+    });
+
+    res.json({ 
+      sessionId: session.id,
+      url: session.url 
+    });
+  } catch (error) {
+    console.error('Checkout Session Error:', error);
     res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
   }
 });

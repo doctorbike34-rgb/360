@@ -1,11 +1,11 @@
 import toast from 'react-hot-toast';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { signOut, sendEmailVerification, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db, functions, handleFirestoreError, OperationType } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, onSnapshot, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, getDoc, onSnapshot, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
 import { 
@@ -40,18 +40,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { increment } from 'firebase/firestore';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements } from '@stripe/react-stripe-js';
-import { StripePaymentForm } from './StripePaymentForm';
 import { Chat } from './Chat';
 import { LeaderboardView } from './LeaderboardView';
 import { InterventionHistory } from './InterventionHistory';
 
 import { P2PWalletModal } from './P2PWalletModal';
 import { TransactionsModal } from './TransactionsModal';
-import { STRIPE_PUBLISHABLE_KEY } from '../config/env';
-
-const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 export interface ProfileViewProps {
   isAvailable?: boolean;
@@ -98,7 +92,44 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [paymentStep, setPaymentStep] = useState<'SELECT_AMOUNT' | 'SELECT_METHOD' | 'STRIPE' | 'PROCESSING' | 'SUCCESS'>('SELECT_AMOUNT');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  
+  // Handle return from Stripe Checkout
+  const processedRef = useRef(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    if (sessionId && !processedRef.current) {
+      processedRef.current = true;
+      setPaymentStep('PROCESSING');
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      // Listen for balance changes via onSnapshot
+      const unsub = onSnapshot(doc(db, 'users', user!.uid), (snap) => {
+        if (snap.exists()) {
+          const balance = snap.data().balance || 0;
+          // If balance changed from what we know, payment went through
+          if (balance > 0) {
+            setPaymentStep('SUCCESS');
+            unsub();
+          }
+        }
+      });
+
+      // Timeout after 15s if no webhook
+      const timeout = setTimeout(() => {
+        unsub();
+        if (paymentStep === 'PROCESSING') {
+          setPaymentStep('SELECT_AMOUNT');
+          toast('Il pagamento è ancora in elaborazione. Ricarica la pagina tra qualche istante per vedere il saldo aggiornato.', { icon: '⏳' });
+        }
+      }, 15000);
+
+      return () => {
+        clearTimeout(timeout);
+        unsub();
+      };
+    }
+  }, [user]);
 
   // Profile edit state
   const [editName, setEditName] = useState(profile?.name || '');
@@ -161,7 +192,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     try {
       const idToken = await user.getIdToken();
       console.log('Generated ID Token (exists):', !!idToken);
-      const response = await fetch('/api/createStripePayment', {
+      const returnUrl = `${window.location.origin}/profile`;
+      const response = await fetch('https://europe-west1-doctorbike-v2.cloudfunctions.net/createCheckoutSession', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,6 +203,9 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         body: JSON.stringify({
           amount: selectedPlanForUpgrade.price,
           currency: 'eur',
+          type: 'SUBSCRIPTION',
+          planId: selectedPlanForUpgrade.id,
+          returnUrl,
           token: idToken
         })
       });
@@ -182,11 +217,10 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
       const data = await response.json();
       
-      if (data.clientSecret) {
-        setClientSecret(data.clientSecret);
-        setPlanUpgradeStep('STRIPE');
+      if (data.url) {
+        window.location.href = data.url;
       } else {
-        throw new Error('Failed to create payment intent: No clientSecret received');
+        throw new Error('Failed to create checkout session');
       }
     } catch (err: any) {
       console.error(err);
@@ -201,74 +235,14 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     if (!user || !selectedPlanForUpgrade) return;
     setPlanUpgradeStep('PROCESSING');
     try {
-      const stripePaymentIntentId = clientSecret?.split('_secret')[0];
-      const txRef = doc(db, 'transactions', stripePaymentIntentId || `SUB_${Date.now()}`);
-      const subRef = doc(collection(db, 'subscriptions'));
-      
-      await runTransaction(db, async (transaction) => {
-        // Check if already processed by webhook
-        const txSnap = await transaction.get(txRef);
-        if (txSnap.exists()) return;
-        
-        // 1. Update User Plan (webhook will also do this, but client-side for immediate UX)
-        transaction.update(doc(db, 'users', user.uid), { 
-          plan: selectedPlanForUpgrade.id as UserPlan, 
-          updatedAt: serverTimestamp() 
-        });
-
-        // 2. Record Subscription with PENDING status — webhook will confirm to PAID
-        transaction.set(subRef, {
-          userId: user.uid,
-          userName: profile?.name || user.displayName || 'Meccanico',
-          planId: selectedPlanForUpgrade.id,
-          amount: selectedPlanForUpgrade.price,
-          currency: 'EUR',
-          status: 'PENDING',
-          createdAt: serverTimestamp(),
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-          stripePaymentIntentId: stripePaymentIntentId || 'SIMULATED'
-        });
-
-        // 3. Record Transaction with PENDING status — webhook will confirm to COMPLETED
-        transaction.set(txRef, {
-          fromId: user.uid,
-          toId: 'PLATFORM',
-          amount: selectedPlanForUpgrade.price,
-          currency: 'EUR',
-          type: 'SUBSCRIPTION',
-          createdAt: serverTimestamp(),
-          planId: selectedPlanForUpgrade.id,
-          status: 'PENDING'
-        });
-
-        // 4. Update Platform Stats
-        transaction.update(doc(db, 'platformStats', 'global'), {
-          totalSubscriptionRevenue: increment(selectedPlanForUpgrade.price),
-          updatedAt: serverTimestamp()
-        });
-      });
-
-      // Poll for webhook confirmation
-      const checkWebhook = setInterval(async () => {
-        const txSnap = await getDoc(txRef);
-        if (txSnap.exists() && txSnap.data()?.status === 'COMPLETED') {
-          clearInterval(checkWebhook);
-          setPlanUpgradeStep('SUCCESS');
-        }
-      }, 2000);
-      
-      // Timeout after 30s
-      setTimeout(() => {
-        clearInterval(checkWebhook);
-        if (planUpgradeStep === 'PROCESSING') {
-          toast.error('Timeout: il webhook non ha confermato il pagamento. Contatta il supporto.');
-          setPlanUpgradeStep('STRIPE');
-        }
-      }, 30000);
+      // Webhook handles everything server-side now.
+      // Just poll briefly and show success.
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      setPlanUpgradeStep('SUCCESS');
     } catch (err) {
       console.error(err);
       toast.error("Errore durante il salvataggio del piano");
-      setPlanUpgradeStep('STRIPE');
+      setPlanUpgradeStep('PAYMENT');
     } finally {
       setIsUpgrading(null);
     }
@@ -386,51 +360,11 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
   const handleTopUpSuccess = async () => {
     if (!user || !selectedAmount) return;
-    
     setPaymentStep('PROCESSING');
     try {
-      const stripePaymentIntentId = clientSecret?.split('_secret')[0];
-      const txRef = doc(db, 'transactions', stripePaymentIntentId || `TOP_${Date.now()}`);
-      
-      await runTransaction(db, async (transaction) => {
-          // Check if already processed by webhook
-          const txSnap = await transaction.get(txRef);
-          if (txSnap.exists()) return;
-
-          const userRef = doc(db, 'users', user.uid);
-          transaction.update(userRef, {
-              balance: increment(selectedAmount),
-              updatedAt: serverTimestamp(),
-              lastTxId: txRef.id
-          });
-          transaction.set(txRef, {
-              fromId: 'STRIPE_TOPUP',
-              toId: user.uid,
-              amount: selectedAmount,
-              currency: 'EUR',
-              createdAt: serverTimestamp(),
-              type: 'TOPUP',
-              status: 'PENDING'
-          });
-      });
-      
-      // Poll for webhook confirmation
-      const checkWebhook = setInterval(async () => {
-        const txSnap = await getDoc(txRef);
-        if (txSnap.exists() && txSnap.data()?.status === 'COMPLETED') {
-          clearInterval(checkWebhook);
-          setPaymentStep('SUCCESS');
-        }
-      }, 2000);
-      
-      // Timeout after 30s
-      setTimeout(() => {
-        clearInterval(checkWebhook);
-        if (paymentStep === 'PROCESSING') {
-          toast.error('Timeout: il webhook non ha confermato il pagamento. Contatta il supporto.');
-          setPaymentStep('SELECT_AMOUNT');
-        }
-      }, 30000);
+      // Webhook handles everything server-side now.
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      setPaymentStep('SUCCESS');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `users/${user?.uid}`);
       setPaymentStep('SELECT_AMOUNT');
@@ -443,12 +377,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     if (!selectedAmount) return;
     
     // Simulation mode ONLY in development
-    if (!stripePromise) {
-      if (!import.meta.env.DEV) {
-        toast.error('Stripe non è configurato correttamente. Contatta il supporto.');
-        setPaymentStep('SELECT_AMOUNT');
-        return;
-      }
+    if (import.meta.env.DEV) {
       console.log('DEV Mode: Simulating payment...');
       setPaymentStep('PROCESSING');
       setTimeout(() => {
@@ -460,8 +389,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setIsProcessing(true);
     try {
       const idToken = await user.getIdToken();
-      console.log('Generated ID Token (exists):', !!idToken);
-      const response = await fetch('/api/createStripePayment', {
+      const returnUrl = `${window.location.origin}/profile`;
+      const response = await fetch('https://europe-west1-doctorbike-v2.cloudfunctions.net/createCheckoutSession', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -471,6 +400,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         body: JSON.stringify({
           amount: selectedAmount,
           currency: 'eur',
+          type: 'TOPUP',
+          returnUrl,
           token: idToken
         })
       });
@@ -482,14 +413,13 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
       const data = await response.json();
       
-      if (data.clientSecret) {
-        setClientSecret(data.clientSecret);
-        setPaymentStep('STRIPE');
+      if (data.url) {
+        window.location.href = data.url;
       } else {
-        throw new Error('Failed to create payment intent: No clientSecret received');
+        throw new Error('Failed to create checkout session');
       }
     } catch (err) {
-      console.error('Stripe Flow Error:', err);
+      console.error('Checkout Session Error:', err);
       toast.error('Errore durante il pagamento. Riprova più tardi.');
       setPaymentStep('SELECT_AMOUNT');
     } finally {
@@ -659,7 +589,6 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setTimeout(() => {
       setPaymentStep('SELECT_AMOUNT');
       setSelectedAmount(null);
-      setClientSecret(null);
     }, 300);
   };
 
@@ -913,28 +842,13 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                                <span className="font-bold text-black ">{t('profile.creditCard')}</span>
                             </div>
                             <ChevronRight size={20} className="text-grey group-hover:translate-x-1 transition-transform"/>
-                         </button>
-                         {!stripePromise && (
-                            <div className="bg-warning/10 p-4 rounded-xl flex items-center gap-3 text-warning text-[10px] font-bold transition-all">
-                               <AlertCircle size={16}/>
-                               <span>{t('profile.simulationMode')}</span>
-                            </div>
-                         )}
-                      </div>
+                          </button>
+                       </div>
                       <button onClick={() => setPaymentStep('SELECT_AMOUNT')}
                         className="w-full py-4 text-grey font-bold uppercase tracking-widest text-[10px] hover:underline"
                       >
                         {t('profile.back')}
                       </button>
-                    </motion.div>
-                  )}
-
-                  {paymentStep === 'STRIPE' && clientSecret && (
-                    <motion.div key="stripe-step" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                      <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
-                        <StripePaymentForm amount={selectedAmount || 0} onSuccess={handleTopUpSuccess} onCancel={() => setPaymentStep('SELECT_METHOD')}
-                        />
-                      </Elements>
                     </motion.div>
                   )}
 
@@ -944,7 +858,10 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                           <Loader2 size={40} className="animate-spin"/>
                        </div>
                        <h4 className="text-xl font-black text-primary  uppercase italic mb-2">{t('profile.processing')}</h4>
-                       <p className="text-xs text-grey">{t('profile.processingDesc')}</p>
+                       <p className="text-xs text-grey mb-6">{t('profile.processingDesc')}</p>
+                       <button onClick={() => setPaymentStep('SELECT_AMOUNT')} className="text-grey font-bold uppercase tracking-widest text-[10px] hover:underline">
+                          Annulla / Torna indietro
+                       </button>
                     </motion.div>
                   )}
 
@@ -1252,7 +1169,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                         )}
                         <div className="mt-4 flex items-center gap-2">
                            <div className="w-5 h-5 rounded-full overflow-hidden bg-white">
-                              <img src="{`https://api.dicebear.com/7.x/avataaars/svg?seed=${review.cyclistId}`}" alt="User"/>
+                              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${review.cyclistId}`} alt="User"/>
                            </div>
                            <span className="text-[10px] font-bold text-black/40  uppercase">Ciclista</span>
                         </div>
@@ -1434,20 +1351,14 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   </div>
                 )}
 
-                {planUpgradeStep === 'STRIPE' && clientSecret && (
-                  <div className="py-8 space-y-6">
-                    <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
-                        <StripePaymentForm amount={selectedPlanForUpgrade.price} onSuccess={finalizeUpgrade} onCancel={() => setPlanUpgradeStep('PAYMENT')}
-                        />
-                    </Elements>
-                  </div>
-                )}
-
                 {planUpgradeStep === 'PROCESSING' && (
                   <div className="py-20 flex flex-col items-center text-center">
                     <Loader2 className="w-12 h-12 text-primary animate-spin mb-4"/>
                     <h4 className="text-xl font-black text-primary uppercase italic">Elaborazione...</h4>
-                    <p className="text-xs text-grey italic">{t('profile.processingPlan')}</p>
+                    <p className="text-xs text-grey italic mb-6">{t('profile.processingPlan')}</p>
+                    <button onClick={() => setPlanUpgradeStep('SELECT')} className="text-grey font-bold uppercase tracking-widest text-[10px] hover:underline">
+                      Annulla / Torna indietro
+                    </button>
                   </div>
                 )}
 

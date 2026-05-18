@@ -1111,7 +1111,7 @@ export function MechanicHome() {
                       <div className="text-lg font-black text-primary">⚡{job.estimatedPrice || 45}</div>
                     </div>
                     <div className="flex gap-2 mt-6">
-                      <button onClick={() => { setDirectChat({ id: job.id, name: job.cyclistName || 'Ciclista' }); setShowChat(true); }} className="flex-1 bg-white border-2 border-warning/20 py-3 rounded-xl text-[10px] font-black uppercase">Chat</button>
+                      <button onClick={() => { const ids = [job.cyclistId, job.mechanicId].sort(); setDirectChat({ id: `direct_${ids[0]}_${ids[1]}`, name: job.cyclistName || 'Ciclista' }); setShowChat(true); }} className="flex-1 bg-white border-2 border-warning/20 py-3 rounded-xl text-[10px] font-black uppercase">Chat</button>
                       {!job.mechanicConfirmed && (
                         <button onClick={() => completeJob(job.id)} className="flex-[1.5] bg-warning text-primary py-3 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-warning/20">Concludi</button>
                       )}

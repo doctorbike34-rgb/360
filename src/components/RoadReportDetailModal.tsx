@@ -56,7 +56,6 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
 
 
   const handleUpvote = async () => {
-<<<<<<< HEAD
     if (!report?.id) return;
 
     if (!user) {

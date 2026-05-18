@@ -90,13 +90,13 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
            const nestedUnread = data.unreadCount?.[user.uid] || 0;
            const flatUnread = data[`unreadCount.${user.uid}`] || undefined;
            
-           if (flatUnread !== undefined) {
-              // Delete the incorrectly created flat field
-              updateDoc(
-                chatDocRef, 
-                new FieldPath(`unreadCount.${user.uid}`), deleteField()
-              ).catch((e) => console.error('Failed to delete flat unread count', e));
-           }
+            if (flatUnread !== undefined) {
+               // Delete the incorrectly created flat field
+               updateDoc(
+                 chatDocRef, 
+                 { [`unreadCount.${user.uid}`]: deleteField() }
+               ).catch((e) => console.error('Failed to delete flat unread count', e));
+            }
 
            if (nestedUnread > 0) {
               updateDoc(chatDocRef, {
@@ -217,8 +217,14 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       // Increment unread count for the other party
       if (isAdminSupport && targetUserId) {
         parentUpdates[`unreadCount.${targetUserId}`] = increment(1);
+      } else if (!isAdminSupport && chatId.startsWith('direct_')) {
+        const parts = chatId.replace('direct_', '').split('_');
+        const otherUserId = parts.find(id => id !== user.uid);
+        if (otherUserId) {
+          parentUpdates[`unreadCount.${otherUserId}`] = increment(1);
+        }
       } else if (!isAdminSupport) {
-        // For regular chats, we'd need participants array - handled elsewhere
+        // For group chats, handled via setDoc merge with participants
       }
 
       // Use setDoc with merge: true to avoid getDoc check
@@ -294,7 +300,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
             
             const otherUserId = parts.find(id => id !== user?.uid);
             if (otherUserId) {
-              updates.unreadCount = { [otherUserId]: 1 };
+              updates[`unreadCount.${otherUserId}`] = 1;
             }
           } else if (!isAdminSupport) {
             updates.participants = [user.uid];

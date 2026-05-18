@@ -96,7 +96,7 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
       clearInterval(interval);
       clearTimeout(timeout);
     };
-  }, [map, userLoc, init]);
+  }, [map, userLoc]);
 
   useMapEvents({
     moveend() {
@@ -1566,10 +1566,11 @@ export function CyclistHome() {
                       )}
                       <button 
                         onClick={() => { 
-                          setShowSOSDetails(false); 
-                          setDirectChat({ id: activeSOS.id, name: trackedMechanic?.name || t('auth.mechanic') });
-                          setShowChat(true); 
-                        }}
+                           setShowSOSDetails(false);
+                           const sosChatIds2 = [activeSOS.cyclistId, activeSOS.mechanicId].sort();
+                           setDirectChat({ id: `direct_${sosChatIds2[0]}_${sosChatIds2[1]}`, name: trackedMechanic?.name || t('auth.mechanic') });
+                           setShowChat(true);
+                         }}
                         className="text-accent text-[10px] font-black uppercase tracking-widest hover:underline"
                       >
                         Apri Chat
@@ -1590,9 +1591,10 @@ export function CyclistHome() {
                       </div>
                       <button 
                          onClick={() => { 
-                           setShowSOSDetails(false); 
-                           setDirectChat({ id: activeSOS.id, name: trackedMechanic?.name || t('auth.mechanic') });
-                           setShowChat(true); 
+                           setShowSOSDetails(false);
+                           const sosChatIds = [activeSOS.cyclistId, activeSOS.mechanicId].sort();
+                           setDirectChat({ id: `direct_${sosChatIds[0]}_${sosChatIds[1]}`, name: trackedMechanic?.name || t('auth.mechanic') });
+                           setShowChat(true);
                          }}
                          className="bg-accent text-white p-4 rounded-2xl shadow-lg shadow-accent/20 hover:scale-105 active:scale-95 transition-transform"
                       >

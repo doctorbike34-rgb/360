@@ -436,7 +436,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     }
 
     return () => unsubs.forEach(u => u());
-  }, [currentUser, isAdmin, userPos, syncUsers]);
+  }, [currentUser, isAdmin, debouncedUserPos, syncUsers]);
 
   // 3. ADMIN USER SYNC
   useEffect(() => {

@@ -22,12 +22,6 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from '../store/useAuthStore';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements } from '@stripe/react-stripe-js';
-import { StripePaymentForm } from './StripePaymentForm';
-import { STRIPE_PUBLISHABLE_KEY } from '../config/env';
-
-const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -208,10 +202,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
     }
   ];
 
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-
   const [confirmingPlan, setConfirmingPlan] = useState<string | null>(null);
-  const [lastPaymentIntentId, setLastPaymentIntentId] = useState<string | null>(null);
 
   const initStripeUpgrade = async (planId: string) => {
     if (!user) return false;
@@ -222,8 +213,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       console.log('Initializing Stripe payment for plan:', planId, 'Amount:', plan.priceValue);
       
       const idToken = await user.getIdToken();
-      console.log('Generated ID Token (exists):', !!idToken);
-      const response = await fetch('/api/createStripePayment', {
+      const returnUrl = `${window.location.origin}/onboarding`;
+      const response = await fetch('https://europe-west1-doctorbike-v2.cloudfunctions.net/createCheckoutSession', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,6 +224,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
         body: JSON.stringify({
           amount: plan.priceValue,
           currency: 'eur',
+          type: 'SUBSCRIPTION',
+          planId: plan.id,
+          returnUrl,
           token: idToken
         })
       });
@@ -243,16 +237,11 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       }
 
       const data = await response.json();
-      console.log('Payment intent result:', data);
       
-      if (data.clientSecret) {
-        setClientSecret(data.clientSecret);
-        setLastPaymentIntentId(data.paymentIntentId || null);
-        setConfirmingPlan(null);
-        setIsFinishing(false);
-        return false; 
+      if (data.url) {
+        window.location.href = data.url;
       } else {
-        throw new Error('Failed to create payment intent: No clientSecret received');
+        throw new Error('Failed to create checkout session');
       }
     } catch (err: any) {
       console.error('Error creating payment intent (DETAILED):', err);
@@ -313,9 +302,6 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
           };
           if (profile?.role === 'MECHANIC' && selectedPlan) {
             updateData.plan = selectedPlan;
-            if (lastPaymentIntentId) {
-              updateData.subscriptionPaymentIntentId = lastPaymentIntentId;
-            }
           }
           if (email) {
             updateData.email = email;
@@ -337,14 +323,12 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   return (
     <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-center overflow-hidden">
       
-      {!clientSecret && (
-        <button 
-          onClick={onComplete} 
-          className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] right-6 z-[250] p-2 bg-black/10 text-black rounded-full hover:bg-black/20 transition-colors backdrop-blur-md"
-        >
-          <X size={20} />
-        </button>
-      )}
+      <button 
+        onClick={onComplete} 
+        className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] right-6 z-[250] p-2 bg-black/10 text-black rounded-full hover:bg-black/20 transition-colors backdrop-blur-md"
+      >
+        <X size={20} />
+      </button>
 
       <AnimatePresence mode="wait">
         <motion.img 
@@ -402,29 +386,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
                    </button>
                 </div>
              </div>
-          </motion.div>
-        ) : clientSecret && stripePromise ? (
-          <motion.div
-            key="stripe"
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 1.1, y: -20 }}
-            className="relative z-10 w-full max-w-sm flex-1 flex flex-col justify-center overflow-y-auto no-scrollbar py-4"
-          >
-             <div className="bg-white p-6 rounded-3xl border border-white/20 mb-6 text-left shrink-0 backdrop-blur-md">
-                <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
-                    <StripePaymentForm 
-                        amount={plans.find(p => p.id === selectedPlan)?.priceValue || 0} 
-                        onSuccess={() => {
-                          setClientSecret(null);
-                          setStep(step + 1);
-                        }}
-                        onCancel={() => setClientSecret(null)}
-                    />
-                </Elements>
-             </div>
-          </motion.div>
-        ) : (
+           </motion.div>
+         ) : (
           <motion.div
             key={step}
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -672,7 +635,6 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
         )}
       </AnimatePresence>
 
-      {!clientSecret && (
       <div className="mt-2 w-full max-w-sm relative z-10 shrink-0">
         <div className="flex justify-center gap-2 mb-6">
           {activeSteps.map((_, i) => (
@@ -716,7 +678,6 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
           {t('auth.onboardingSkip')}
         </button>
       </div>
-      )}
     </div>
   );
 };

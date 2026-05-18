@@ -25,9 +25,9 @@ var __importStar = (this && this.__importStar) || function (mod) {
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-var _a;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createSOS = exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
+exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createCheckoutSession = exports.createStripePayment = exports.stripeWebhook = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
@@ -38,6 +38,12 @@ const db = admin.firestore();
 const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY || ((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.secret) || 'sk_test_mock', {
     apiVersion: '2023-10-16',
 });
+// Shared nodemailer transporter (created once, reused across invocations)
+const mailUser = process.env.MAIL_USER || ((_b = functions.config().mail) === null || _b === void 0 ? void 0 : _b.user);
+const mailPass = process.env.MAIL_PASS || ((_c = functions.config().mail) === null || _c === void 0 ? void 0 : _c.pass);
+const mailTransporter = (mailUser && mailPass)
+    ? nodemailer.createTransport({ service: 'gmail', auth: { user: mailUser, pass: mailPass } })
+    : null;
 /**
  * Escrow Release & SOS Completion
  * Securely transfers funds from Cyclist to Mechanic minus Platform Fees.
@@ -83,7 +89,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                         text: text,
                         createdAt: admin.firestore.FieldValue.serverTimestamp()
                     });
-                    const oldRating = mechanicData.rating || 5.0;
+                    const oldRating = mechanicData.rating || 0;
                     const oldReviews = mechanicData.reviews || 0;
                     const newReviews = oldReviews + 1;
                     const newRating = ((oldRating * oldReviews) + rating) / newReviews;
@@ -102,7 +108,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 throw new functions.https.HttpsError('failed-precondition', `I fondi non sono in Escrow (Stato attuale: ${(sosData === null || sosData === void 0 ? void 0 : sosData.paymentStatus) || 'null'}).`);
             }
             const mechanicId = sosData.mechanicId;
-            const amount = sosData.agreedPrice || sosData.estimatedPrice;
+            let amount = sosData.agreedPrice || sosData.estimatedPrice;
             if (!mechanicId || !amount) {
                 throw new functions.https.HttpsError('failed-precondition', 'Dati SOS incompleti.');
             }
@@ -118,37 +124,31 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
             ]);
             console.log('User and stats snapshots fetched');
             const mechanicData = mechanicSnap.data() || {};
-            // Use mechanic's actual plan from their user doc
-            const mechanicPlan = mechanicData.plan || 'BASE';
-            const mechanicRole = mechanicData.role || 'MECHANIC';
-            // Calculate Fee based on mechanic role and plan
-            // PEER_MECHANIC: 5% fixed fee
-            // PRO: 5%, CLUB: 10%, BASE: 15%
-            let feePercent = 0.15; // default 15% for BASE
-            if (mechanicRole === 'PEER_MECHANIC') {
-                feePercent = 0.05; // 5% fixed for peer mechanics
+            const cyclistData = cyclistSnap.data() || {};
+            // Server-side price verification: recalculate base price and discount
+            const basePrice = mechanicData.sosPrice || amount; // fallback to existing amount
+            let discountRate = cyclistData.firstInterventionDiscount;
+            if (discountRate === undefined || discountRate === null) {
+                discountRate = (cyclistData.completedJobs === 0) ? 0.5 : 0;
+            }
+            const serverCalculatedPrice = Math.max(0, basePrice - (basePrice * (discountRate || 0)));
+            // Use server-calculated price if client price is suspiciously different (>1% variance)
+            if (Math.abs(amount - serverCalculatedPrice) > 0.01) {
+                console.warn(`Price mismatch: client=${amount}, server=${serverCalculatedPrice}. Using server-calculated price.`);
+                amount = serverCalculatedPrice;
+            }
+            const plan = sosData.mechanicPlan || 'BASE';
+            // Calculate Fee
+            let feePercent = 0.15; // default 15%
+            if (mechanicData.role === 'PEER_MECHANIC') {
+                feePercent = 0.05; // 5% for expert cyclists
             }
             else {
                 const feeMultipliers = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
-                feePercent = feeMultipliers[mechanicPlan] !== undefined ? feeMultipliers[mechanicPlan] : 0.15;
+                feePercent = feeMultipliers[plan] !== undefined ? feeMultipliers[plan] : 0.15;
             }
             const feeAmount = amount * feePercent;
             const netAmount = amount - feeAmount;
-            console.log(`Fee calculation: plan=${mechanicPlan}, role=${mechanicRole}, feePercent=${feePercent}, amount=${amount}, fee=${feeAmount}, net=${netAmount}`);
-            // Create fee transaction record (mechanic -> platform)
-            const feeTxRef = db.collection('transactions').doc();
-            t.set(feeTxRef, {
-                fromId: mechanicId,
-                toId: 'PLATFORM',
-                amount: feeAmount,
-                fee: 0,
-                type: 'PLATFORM_FEE',
-                status: 'COMPLETED',
-                sosId: sosId,
-                mechanicPlan: mechanicPlan,
-                feePercent: feePercent,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-            });
             const txRef = db.collection('transactions').doc();
             const txData = {
                 fromId: cyclistId,
@@ -169,7 +169,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 cyclistName: sosData.cyclistName || 'Cyclist',
                 mechanicId: mechanicId,
                 mechanicName: mechanicData.name || 'Mechanic',
-                mechanicType: mechanicRole,
+                mechanicType: plan,
                 problemDescription: sosData.description || sosData.faultType || 'Intervento',
                 problemSeverity: 'medium',
                 location: {
@@ -214,10 +214,11 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 pointsToAward = 10;
             const currentPoints = mechanicData.points || 0;
             const currentWeekly = mechanicData.weeklyPoints || 0;
+            const currentCompletedJobs = mechanicData.completedJobs || 0;
             const mechanicBadges = mechanicData.badges || [];
-            const cyclistData = cyclistSnap.data() || {};
-            const cyclistPoints = cyclistData.points || 0;
-            const cyclistWeekly = cyclistData.weeklyPoints || 0;
+            const cyclistData2 = cyclistSnap.data() || {};
+            const cyclistPoints = cyclistData2.points || 0;
+            const cyclistWeekly = cyclistData2.weeklyPoints || 0;
             // Update Mechanic Gamification
             mechanicUpdates.points = currentPoints + pointsToAward;
             mechanicUpdates.weeklyPoints = currentWeekly + pointsToAward;
@@ -226,6 +227,8 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 mechanicBadges.push({ id: 'first_sos', unlockedAt: Date.now() });
                 mechanicUpdates.badges = mechanicBadges;
             }
+            // Update completed jobs count (only for regular mechanics, peer mechanics track their own)
+            mechanicUpdates.completedJobs = currentCompletedJobs + 1;
             // Update Cyclist Gamification
             const cyclistUpdates = {
                 isSOSActive: false,
@@ -250,11 +253,10 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
-            // Platform Stats (Admin Wallet) - Fee is credited to platform balance
+            // Platform Stats (Admin Wallet)
             if (platformSnap.exists) {
                 t.update(platformStatsRef, {
                     totalFees: admin.firestore.FieldValue.increment(feeAmount),
-                    platformBalance: admin.firestore.FieldValue.increment(feeAmount),
                     totalTransactions: admin.firestore.FieldValue.increment(amount),
                     completedJobs: admin.firestore.FieldValue.increment(1),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -263,7 +265,6 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
             else {
                 t.set(platformStatsRef, {
                     totalFees: feeAmount,
-                    platformBalance: feeAmount,
                     totalTransactions: amount,
                     completedJobs: 1,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -279,10 +280,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 platformFee: feeAmount,
                 mechanicNet: netAmount,
                 finalPrice: netAmount,
-                mechanicPlan: mechanicPlan,
-                feePercent: feePercent,
                 releaseTxId: txRef.id,
-                feeTxId: feeTxRef.id,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
             // Finalize Cyclist Profile & Award Points (Balance already deducted during HELD phase)
@@ -383,7 +381,7 @@ exports.rewardRoadReport = (0, firestore_1.onDocumentUpdated)({
     }
 });
 exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e, _f, _g;
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || ((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.webhook_secret);
     let event;
@@ -394,34 +392,130 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
         res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`);
         return;
     }
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        const userId = ((_b = session.metadata) === null || _b === void 0 ? void 0 : _b.userId) || session.client_reference_id;
+        const amountStr = (_c = session.metadata) === null || _c === void 0 ? void 0 : _c.dbcAmount;
+        const sessionType = ((_d = session.metadata) === null || _d === void 0 ? void 0 : _d.type) || 'TOPUP';
+        const planId = (_e = session.metadata) === null || _e === void 0 ? void 0 : _e.planId;
+        const paymentIntentId = session.payment_intent;
+        if (userId && amountStr && paymentIntentId) {
+            const dbcAmount = parseFloat(amountStr);
+            const txRef = db.collection('transactions').doc(paymentIntentId);
+            try {
+                await db.runTransaction(async (t) => {
+                    const userRef = db.collection('users').doc(userId);
+                    // ALWAYS create transaction and increment balance (new Checkout Sessions flow)
+                    t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
+                    t.set(txRef, {
+                        fromId: 'STRIPE_TOPUP',
+                        toId: userId,
+                        amount: dbcAmount,
+                        type: sessionType === 'SUBSCRIPTION' ? 'SUBSCRIPTION' : 'TOPUP',
+                        status: 'COMPLETED',
+                        stripePaymentId: paymentIntentId,
+                        planId: planId || '',
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true }); // use merge to avoid error if already exists from old test
+                });
+            }
+            catch (e) {
+                console.error("Checkout session transaction failed:", e);
+            }
+            // Handle subscription payments
+            if (sessionType === 'SUBSCRIPTION') {
+                try {
+                    const subsQuery = await db.collection('subscriptions')
+                        .where('stripePaymentIntentId', '==', paymentIntentId)
+                        .where('status', '==', 'PENDING')
+                        .limit(1)
+                        .get();
+                    if (!subsQuery.empty) {
+                        const subDoc = subsQuery.docs[0];
+                        const expiresAt = new Date();
+                        expiresAt.setDate(expiresAt.getDate() + 30);
+                        await subDoc.ref.update({
+                            status: 'PAID',
+                            expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                }
+                catch (e) {
+                    console.error("Subscription confirmation failed:", e);
+                }
+            }
+        }
+    }
     if (event.type === 'payment_intent.succeeded') {
         const paymentIntent = event.data.object;
-        const userId = (_b = paymentIntent.metadata) === null || _b === void 0 ? void 0 : _b.userId;
-        const amountStr = (_c = paymentIntent.metadata) === null || _c === void 0 ? void 0 : _c.dbcAmount;
+        const userId = (_f = paymentIntent.metadata) === null || _f === void 0 ? void 0 : _f.userId;
+        const amountStr = (_g = paymentIntent.metadata) === null || _g === void 0 ? void 0 : _g.dbcAmount;
         if (userId && amountStr) {
             const dbcAmount = parseFloat(amountStr);
             const txRef = db.collection('transactions').doc(paymentIntent.id);
             try {
                 await db.runTransaction(async (t) => {
                     const txSnap = await t.get(txRef);
-                    if (txSnap.exists)
-                        return;
                     const userRef = db.collection('users').doc(userId);
-                    t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
-                    t.set(txRef, {
-                        fromId: 'STRIPE_TOPUP',
-                        toId: userId,
-                        amount: dbcAmount,
-                        type: 'TOPUP',
-                        status: 'COMPLETED',
-                        stripePaymentId: paymentIntent.id,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
+                    if (txSnap.exists) {
+                        // Client already created PENDING transaction and incremented balance — just update status
+                        const txData = txSnap.data();
+                        if (txData && txData.status !== 'COMPLETED') {
+                            t.update(txRef, { status: 'COMPLETED', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                        }
+                        // Do NOT increment balance again — client already did it in their runTransaction
+                    }
+                    else {
+                        // Webhook creates transaction from scratch
+                        t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
+                        t.set(txRef, {
+                            fromId: 'STRIPE_TOPUP',
+                            toId: userId,
+                            amount: dbcAmount,
+                            type: 'TOPUP',
+                            status: 'COMPLETED',
+                            stripePaymentId: paymentIntent.id,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
                 });
             }
             catch (e) {
                 console.error("Topup transaction failed:", e);
             }
+        }
+        // Handle subscription payments: update subscription and transaction status
+        try {
+            const subsQuery = await db.collection('subscriptions')
+                .where('stripePaymentIntentId', '==', paymentIntent.id)
+                .where('status', '==', 'PENDING')
+                .limit(1)
+                .get();
+            if (!subsQuery.empty) {
+                const subDoc = subsQuery.docs[0];
+                const expiresAt = new Date();
+                expiresAt.setDate(expiresAt.getDate() + 30); // 30 days from now
+                await subDoc.ref.update({
+                    status: 'PAID',
+                    expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            const txQuery = await db.collection('transactions')
+                .where('stripePaymentIntentId', '==', paymentIntent.id)
+                .where('status', '==', 'PENDING')
+                .limit(1)
+                .get();
+            if (!txQuery.empty) {
+                await txQuery.docs[0].ref.update({
+                    status: 'COMPLETED',
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (e) {
+            console.error("Subscription confirmation failed:", e);
         }
     }
     res.json({ received: true });
@@ -433,7 +527,7 @@ exports.createStripePayment = functions.region('europe-west1').https.onRequest(a
     // 1. Manual CORS Handling
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Authorization');
     if (req.method === 'OPTIONS') {
         res.status(204).send('');
         return;
@@ -486,6 +580,82 @@ exports.createStripePayment = functions.region('europe-west1').https.onRequest(a
     }
     catch (error) {
         console.error('Stripe Payment Error:', error);
+        res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
+    }
+});
+/**
+ * Create Stripe Checkout Session (migrated from Payment Elements)
+ * User is redirected to Stripe-hosted checkout page for better security and less code.
+ */
+exports.createCheckoutSession = functions.region('europe-west1').https.onRequest(async (req, res) => {
+    // 1. Manual CORS Handling
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Authorization');
+    if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+    }
+    try {
+        // 2. Auth Verification (Manual)
+        const authHeader = req.headers.authorization || req.headers.Authorization || req.headers['x-authorization'];
+        const bodyToken = req.body.token;
+        let idToken = '';
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            idToken = authHeader.split('Bearer ')[1];
+        }
+        else if (bodyToken) {
+            idToken = bodyToken;
+        }
+        if (!idToken) {
+            res.status(401).json({ error: 'Unauthorized: Missing token in headers or body' });
+            return;
+        }
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const userId = decodedToken.uid;
+        // 3. Payload Validation
+        const { amount, currency = 'eur', type = 'TOPUP', planId, returnUrl } = req.body;
+        if (!amount || amount <= 0) {
+            res.status(400).json({ error: 'Invalid amount' });
+            return;
+        }
+        const appUrl = process.env.APP_URL || 'https://www.db360app.it';
+        // returnUrl already includes the full path (e.g. https://www.db360app.it/profile)
+        const successUrl = `${returnUrl || appUrl}?session_id={CHECKOUT_SESSION_ID}`;
+        const cancelUrl = `${returnUrl || appUrl}?session_id={CHECKOUT_SESSION_ID}`;
+        // 4. Create Checkout Session
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                    price_data: {
+                        currency: currency,
+                        product_data: {
+                            name: type === 'SUBSCRIPTION' ? `Abbonamento ${planId || 'Pro'}` : 'Ricarica Saldo DoctorBike',
+                            description: type === 'SUBSCRIPTION' ? 'Abbonamento mensile DoctorBike 360' : `Ricarica di ${amount} EUR`,
+                        },
+                        unit_amount: Math.round(amount * 100), // convert to cents
+                    },
+                    quantity: 1,
+                }],
+            mode: 'payment',
+            success_url: successUrl,
+            cancel_url: cancelUrl,
+            client_reference_id: userId,
+            metadata: {
+                userId: userId,
+                dbcAmount: amount.toString(),
+                type: type,
+                planId: planId || '',
+                platform: 'DoctorBikeV2'
+            },
+        });
+        res.json({
+            sessionId: session.id,
+            url: session.url
+        });
+    }
+    catch (error) {
+        console.error('Checkout Session Error:', error);
         res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
     }
 });
@@ -633,10 +803,10 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
             console.warn('Mail configuration missing.');
             return;
         }
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: mailUser, pass: mailPass }
-        });
+        if (!mailTransporter) {
+            console.warn('Mail transporter not configured.');
+            return;
+        }
         let subject = '';
         let text = '';
         if (newStatus === 'APPROVED') {
@@ -650,7 +820,7 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
         else {
             return;
         }
-        await transporter.sendMail({
+        await mailTransporter.sendMail({
             from: `"DoctorBike Support" <${mailUser}>`,
             to: userEmail,
             subject: subject,
@@ -666,15 +836,8 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
  * Send KYC Notification Email (Manual Trigger)
  */
 exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data, context) => {
-    var _a, _b, _c, _d;
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
-    }
-    const adminEmails = ['doctorbike34@gmail.com', 'doctorbike@gmail.com', 'doctorbike@email.it'];
-    const userDoc = await db.collection('users').doc(context.auth.uid).get();
-    const isAdmin = userDoc.exists && ((_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.role) === 'ADMIN' || adminEmails.includes(((_b = context.auth.token) === null || _b === void 0 ? void 0 : _b.email) || '');
-    if (!isAdmin) {
-        throw new functions.https.HttpsError('permission-denied', 'Only admins can send KYC emails.');
     }
     const { userId, status, reason } = data;
     if (!userId || !status) {
@@ -688,16 +851,10 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
         const userEmail = userData.email;
         if (!userEmail)
             return { success: false, message: 'No email found' };
-        const mailUser = (_c = functions.config().mail) === null || _c === void 0 ? void 0 : _c.user;
-        const mailPass = (_d = functions.config().mail) === null || _d === void 0 ? void 0 : _d.pass;
-        if (!mailUser || !mailPass) {
-            console.warn('Mail configuration missing.');
+        if (!mailTransporter) {
+            console.warn('Mail transporter not configured.');
             return { success: false, message: 'Mail config missing' };
         }
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: mailUser, pass: mailPass }
-        });
         let subject = '';
         let text = '';
         if (status === 'APPROVED') {
@@ -708,7 +865,7 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
             subject = 'Aggiornamento Documenti DoctorBike ⚠️';
             text = `Ciao ${userData.name || 'Meccanico'},\n\nTi informiamo che i documenti caricati non hanno superato la verifica KYC.\n\nMotivo: ${reason || 'Documenti non conformi o illeggibili.'}\n\nAbbiamo provveduto a rimborsare la tua quota di iscrizione sul tuo saldo. Puoi caricare nuovi documenti dalla sezione profilo dell'app.\n\nSe hai domande, rispondi a questa email.\n\nIl Team DoctorBike`;
         }
-        await transporter.sendMail({
+        await mailTransporter.sendMail({
             from: `"DoctorBike Support" <${mailUser}>`,
             to: userEmail,
             subject: subject,
@@ -719,85 +876,6 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
     catch (error) {
         console.error('Error sending KYC email:', error);
         throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
-    }
-});
-/**
- * Create SOS Request - Server-side transaction to avoid client-side race conditions
- * with location tracker updates on the user document.
- */
-exports.createSOS = functions.region('europe-west1').https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
-    }
-    const { faultType, description, photos, lat, lng, price, basePrice, hasDiscount, sosId, txId, } = data;
-    if (!faultType || !lat || !lng || !price || !sosId || !txId) {
-        throw new functions.https.HttpsError('invalid-argument', 'Missing required fields.');
-    }
-    const cyclistId = context.auth.uid;
-    const sosRef = db.collection('sosRequests').doc(sosId);
-    const userRef = db.collection('users').doc(cyclistId);
-    const txRef = db.collection('transactions').doc(txId);
-    try {
-        await db.runTransaction(async (t) => {
-            const userSnap = await t.get(userRef);
-            if (!userSnap.exists) {
-                throw new functions.https.HttpsError('not-found', 'User not found.');
-            }
-            const userData = userSnap.data();
-            // Idempotency check
-            if (userData.lastTxId === txId) {
-                console.log('Transaction already processed, skipping.');
-                return { sosId, txId, alreadyProcessed: true };
-            }
-            const currentBalance = userData.balance || 0;
-            if (currentBalance < price) {
-                throw new functions.https.HttpsError('resource-exhausted', 'Insufficient balance');
-            }
-            const updateData = {
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastTxId: txId,
-                balance: admin.firestore.FieldValue.increment(-price),
-            };
-            if (hasDiscount) {
-                updateData.firstInterventionDiscount = 0;
-            }
-            t.update(userRef, updateData);
-            t.set(txRef, {
-                fromId: cyclistId,
-                toId: 'ESCROW',
-                amount: price,
-                currency: 'DoctorBike Coin',
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                type: 'SOS_PAYMENT',
-                sosId,
-            });
-            t.set(sosRef, {
-                cyclistId,
-                cyclistName: userData.name || userData.displayName || 'Cyclist',
-                description: description || '',
-                photos: photos || [],
-                status: 'PENDING',
-                mechanicId: null,
-                faultType,
-                lat,
-                lng,
-                estimatedPrice: price,
-                originalPrice: basePrice,
-                hasDiscount,
-                paymentStatus: 'ESCROW',
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            return { success: true };
-        });
-        console.log(`SOS ${sosId} created successfully for user ${cyclistId}`);
-        return { success: true, sosId };
-    }
-    catch (error) {
-        console.error('Error creating SOS:', error);
-        if (error instanceof functions.https.HttpsError) {
-            throw error;
-        }
-        throw new functions.https.HttpsError('internal', error.message || 'Failed to create SOS');
     }
 });
 //# sourceMappingURL=index.js.map

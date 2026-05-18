@@ -260,21 +260,23 @@ export function AdminHome() {
           }
         } else {
           // Refund to cyclist
+          if (!jobData.cyclistId) {
+            toast.error('Ciclista non trovato per il rimborso');
+            return;
+          }
           const txRef = doc(collection(db, 'transactions'));
-          if (jobData.cyclistId) {
-            const cyclistRef = doc(db, 'users', jobData.cyclistId);
-            const cyclistSnap = await transaction.get(cyclistRef);
-            if (cyclistSnap.exists()) {
-              transaction.update(cyclistRef, { 
-                  balance: increment(price),
-                  lastTxId: txRef.id
-              });
-            }
+          const cyclistRef = doc(db, 'users', jobData.cyclistId);
+          const cyclistSnap = await transaction.get(cyclistRef);
+          if (cyclistSnap.exists()) {
+            transaction.update(cyclistRef, { 
+                balance: increment(price),
+                lastTxId: txRef.id
+            });
           }
           
           transaction.set(txRef, {
               fromId: 'ESCROW',
-              toId: jobData.cyclistId || 'UNKNOWN',
+              toId: jobData.cyclistId,
               amount: price,
               currency: 'DoctorBike Coin',
               createdAt: serverTimestamp(),
