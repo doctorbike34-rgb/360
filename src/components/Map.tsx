@@ -171,6 +171,8 @@ function MechanicPopup({
   );
 }
 
+const MemoizedMechanicPopup = React.memo(MechanicPopup);
+
 // Use CDN for icons to avoid build issues with static assets
 const icon = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';
 const iconShadow = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
@@ -668,7 +670,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               } as any)} 
             >
               <Popup>
-                <MechanicPopup mechanic={trackedMechanic} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
+                <MemoizedMechanicPopup mechanic={trackedMechanic} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
               </Popup>
             </Marker>
         )}
@@ -714,7 +716,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               } as any)} 
             >
               <Popup eventHandlers={{ remove: () => setSelectedObj(null) }}>
-                <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} sos={hasSOS} currentUserRole={currentUserRole} currentUser={currentUser} getFaultTypeTranslation={getFaultTypeTranslation} />
+                <MemoizedMechanicPopup mechanic={u} onStartChat={onStartChat} t={t} sos={hasSOS} currentUserRole={currentUserRole} currentUser={currentUser} getFaultTypeTranslation={getFaultTypeTranslation} />
               </Popup>
             </Marker>
           );
