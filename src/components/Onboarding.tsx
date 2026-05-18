@@ -25,11 +25,9 @@ import { useAuthStore } from '../store/useAuthStore';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 import { StripePaymentForm } from './StripePaymentForm';
+import { STRIPE_PUBLISHABLE_KEY } from '../config/env';
 
-const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripeKey && stripeKey.startsWith('pk_') 
-  ? loadStripe(stripeKey) 
-  : null;
+const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 interface OnboardingProps {
   onComplete: () => void;

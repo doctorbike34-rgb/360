@@ -10,6 +10,7 @@ import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
 import { getFunctions } from 'firebase/functions';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { useAuthStore } from '../store/useAuthStore';
+import { RECAPTCHA_SITE_KEY } from '../config/env';
 
 if (!firebaseConfig || !firebaseConfig.apiKey) {
   console.error("Firebase configuration is missing or invalid in firebase-applet-config.json");
@@ -22,12 +23,15 @@ import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-ch
 
 if (typeof window !== 'undefined') {
   if (import.meta.env?.DEV) (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-  initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider('6LfLZ-ssAAAAABx6hxt1JaD8d7iN5y4QMMN2LYWP'),
-    isTokenAutoRefreshEnabled: true
-  });
+  if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY === 'your_recaptcha_site_key') {
+    console.warn('RECAPTCHA_SITE_KEY is not configured. App Check will not be initialized.');
+  } else {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
+      isTokenAutoRefreshEnabled: true
+    });
+  }
 }
-
 
 export const storage = getStorage(app);
 
@@ -36,9 +40,11 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()
   })
-}, firebaseConfig.firestoreDatabaseId);
+}, firebaseConfig.firestoreDatabaseId || undefined);
 
 export const auth = getAuth(app);
+// Firebase Functions are deployed to europe-west1.
+// Ensure all callable functions match this region.
 export const functions = getFunctions(app, 'europe-west1');
 
 export enum OperationType {

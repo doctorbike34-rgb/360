@@ -1,6 +1,7 @@
 import { getToken, onMessage } from 'firebase/messaging';
 import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, getFCM } from './firebase';
+import { FIREBASE_VAPID_KEY } from '../config/env';
 
 let lastRequestTime = 0;
 
@@ -22,7 +23,7 @@ export const requestNotificationPermission = async () => {
       if (!messaging) return null;
 
       const token = await getToken(messaging, {
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY 
+        vapidKey: FIREBASE_VAPID_KEY 
       });
       
       if (token && auth.currentUser) {

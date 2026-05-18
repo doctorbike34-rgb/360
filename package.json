@@ -48,7 +48,7 @@
     "react-markdown": "^10.1.0",
     "react-phone-number-input": "^3.4.16",
     "recharts": "^3.8.1",
-    "stripe": "^22.1.0",
+
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",

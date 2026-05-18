@@ -6,6 +6,7 @@ import { collection, query, where, onSnapshot, doc, runTransaction, increment, s
 import { 
   ShieldAlert, 
   CheckCircle, 
+  CheckCircle2,
   XCircle, 
   Clock, 
   Users, 
@@ -37,6 +38,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { signOut } from 'firebase/auth';
+import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../store/useAuthStore';
+import { Transaction, Subscription, SupportTicket, AIConversation, PlatformStats, UserProfile, SOSRequest, RoadReport } from '../types';
 import { Map } from './Map';
 import { RoadReportDetailModal } from './RoadReportDetailModal';
 import { Chat } from './Chat';
@@ -47,35 +51,37 @@ import ReactMarkdown from 'react-markdown';
 type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE' | 'FINANCE';
 
 export function AdminHome() {
-  const [disputedJobs, setDisputedJobs] = useState<any[]>([]);
-  const [roadReports, setRoadReports] = useState<any[]>([]);
-  const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [platformStats, setPlatformStats] = useState<any>(null);
-  const [activeSupportChats, setActiveSupportChats] = useState<any[]>([]);
-  const [supportTickets, setSupportTickets] = useState<any[]>([]);
-  const [aiConversations, setAiConversations] = useState<any[]>([]);
+  const { t } = useTranslation();
+  const { user } = useAuthStore();
+  const [disputedJobs, setDisputedJobs] = useState<SOSRequest[]>([]);
+  const [roadReports, setRoadReports] = useState<RoadReport[]>([]);
+  const [allUsers, setAllUsers] = useState<(UserProfile & { id: string })[]>([]);
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
+  const [activeSupportChats, setActiveSupportChats] = useState<SOSRequest[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [aiConversations, setAiConversations] = useState<AIConversation[]>([]);
   const [aiGuidelines, setAiGuidelines] = useState('');
   const [isSavingAI, setIsSavingAI] = useState(false);
-  const [subscriptions, setSubscriptions] = useState<any[]>([]);
-  const [financialTransactions, setFinancialTransactions] = useState<any[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [financialTransactions, setFinancialTransactions] = useState<Transaction[]>([]);
   const [isRefunding, setIsRefunding] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandedSupportId, setExpandedSupportId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<AdminTab>('STATS');
   const [supportMode, setSupportMode] = useState<'SOS' | 'DIRECT'>('SOS');
-  const [selectedChat, setSelectedChat] = useState<any | null>(null);
-  const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
-  const [selectedAIConv, setSelectedAIConv] = useState<any | null>(null);
+  const [selectedChat, setSelectedChat] = useState<SOSRequest | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
+  const [selectedAIConv, setSelectedAIConv] = useState<AIConversation | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [kycFilter, setKycFilter] = useState<'ALL' | 'PENDING'>('ALL');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [selectedReport, setSelectedReport] = useState<RoadReport | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [selectedUserForInvoice, setSelectedUserForInvoice] = useState<any | null>(null);
 
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!user) return;
 
     // 1. Listen for platform stats
     const unsubStats = onSnapshot(doc(db, 'platformStats', 'global'), (snap) => {
@@ -140,7 +146,7 @@ export function AdminHome() {
       unsubSubs();
       unsubFinTx();
     };
-  }, []);
+  }, [user?.uid]);
 
   const saveAIGuidelines = async () => {
     setIsSavingAI(true);
@@ -149,10 +155,10 @@ export function AdminHome() {
         guidelines: aiGuidelines,
         updatedAt: serverTimestamp()
       });
-      toast.success('Linee guida AI salvate con successo!');
+      toast.success(t('admin.guidelinesSaved'));
     } catch (err) {
       console.error(err);
-      toast.error('Errore durante il salvataggio');
+      toast.error(t('admin.saveError'));
     } finally {
       setIsSavingAI(false);
     }
@@ -254,25 +260,27 @@ export function AdminHome() {
           }
         } else {
           // Refund to cyclist
+          const txRef = doc(collection(db, 'transactions'));
           if (jobData.cyclistId) {
             const cyclistRef = doc(db, 'users', jobData.cyclistId);
             const cyclistSnap = await transaction.get(cyclistRef);
             if (cyclistSnap.exists()) {
-              const txRef = doc(collection(db, 'transactions'));
               transaction.update(cyclistRef, { 
                   balance: increment(price),
                   lastTxId: txRef.id
               });
-              transaction.set(txRef, {
-                  fromId: 'ESCROW',
-                  toId: jobData.cyclistId,
-                  amount: price,
-                  currency: 'DoctorBike Coin',
-                  createdAt: serverTimestamp(),
-                  type: 'ADMIN_DISPUTE_REFUND'
-              });
             }
           }
+          
+          transaction.set(txRef, {
+              fromId: 'ESCROW',
+              toId: jobData.cyclistId || 'UNKNOWN',
+              amount: price,
+              currency: 'DoctorBike Coin',
+              createdAt: serverTimestamp(),
+              type: 'ADMIN_DISPUTE_REFUND',
+              status: 'COMPLETED'
+          });
           
           transaction.update(sosRef, {
             status: 'CANCELLED',
@@ -283,11 +291,11 @@ export function AdminHome() {
           });
         }
       });
-      toast.success('Contestazione risolta con successo.');
+      toast.success(t('admin.disputeResolved'));
       setDisputedJobs(prev => prev.filter(job => job.id !== jobId));
     } catch (err) {
       console.error(err);
-      toast.error('Errore durante la risoluzione. Controlla i permessi o la connessione.');
+      toast.error(t('admin.disputeError'));
     }
   };
 
@@ -303,10 +311,10 @@ export function AdminHome() {
     if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
     try {
       await updateDoc(doc(db, 'users', userId), { role: newRole, updatedAt: serverTimestamp() });
-      toast.success('Ruolo aggiornato con successo');
+      toast.success(t('admin.roleUpdated'));
     } catch (err) {
       console.error(err);
-      toast.error('Errore durante l\'aggiornamento');
+      toast.error(t('admin.updateError'));
     }
   };
 
@@ -314,10 +322,10 @@ export function AdminHome() {
     if (!window.confirm(`Assegnare piano ${newPlan}?`)) return;
     try {
       await updateDoc(doc(db, 'users', userId), { plan: newPlan, updatedAt: serverTimestamp() });
-      toast.success('Piano aggiornato con successo');
+      toast.success(t('admin.planUpdated'));
     } catch (err) {
       console.error(err);
-      toast.error('Errore durante l\'aggiornamento');
+      toast.error(t('admin.updateError'));
     }
   };
 
@@ -366,10 +374,10 @@ export function AdminHome() {
         console.warn("Email function not deployed yet");
       }
 
-      toast.success(paymentIntentId ? "Utente rifiutato e rimborsato." : "Utente rifiutato.");
+      toast.success(paymentIntentId ? t('admin.userRejectedAndRefunded') : t('admin.userRejected'));
     } catch (err: any) {
       console.error("Error rejecting KYC:", err);
-      toast.error("Errore durante il rifiuto: " + (err.message || String(err)));
+      toast.error(t('admin.rejectError') + (err.message || String(err)));
     }
   };
 
@@ -421,9 +429,9 @@ export function AdminHome() {
         <div className="mt-6 pt-6 border-t border-grey/10">
           <button 
             onClick={async () => {
-              if (auth.currentUser) {
+              if (user) {
                   try {
-                    await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                    await updateDoc(doc(db, 'users', user.uid), {
                       isOnline: false,
                       lastLat: null,
                       lastLng: null,
@@ -492,9 +500,9 @@ export function AdminHome() {
 
               <button 
                 onClick={async () => {
-                  if (auth.currentUser) {
+                  if (user) {
                       try {
-                        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                        await updateDoc(doc(db, 'users', user.uid), {
                           isOnline: false,
                           lastLat: null,
                           lastLng: null,
@@ -837,9 +845,9 @@ export function AdminHome() {
                                           const sendKycEmail = httpsCallable(functions, 'sendKycEmail');
                                           await sendKycEmail({ userId: u.id, status: 'APPROVED' });
                                         } catch (e) { /* silent fail */ }
-                                        toast.success("Meccanico approvato!");
+                                        toast.success(t('admin.mechanicApproved'));
                                       } catch (e) {
-                                        toast.error("Errore nell'approvazione");
+                                        toast.error(t('admin.approveError'));
                                       }
                                     }} 
                                     className="flex-1 bg-primary text-white text-[10px] font-black py-2 rounded-xl uppercase shadow-sm hover:bg-black transition-colors"
@@ -958,7 +966,7 @@ export function AdminHome() {
                     setActiveTab('SUPPORT');
                   } catch (e) {
                     console.error(e);
-                    toast.error("Errore all'avvio della chat");
+                    toast.error(t('admin.chatStartError'));
                   }
                 }}
               />
@@ -1279,7 +1287,7 @@ export function AdminHome() {
                         </div>
                         <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-white text-black border border-grey/10 shadow-sm/50">
                           {selectedAIConv.messages.map((m: any, idx: number) => (
-                            <div key={idx} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                             <div key={m.id || `msg-${idx}`} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                                <div className={`max-w-[85%] p-5 rounded-[2rem] text-sm leading-relaxed ${m.sender === 'user' ? 'bg-primary text-white rounded-tr-none' : 'bg-white  text-black  rounded-tl-none shadow-sm border border-grey/10'}`}>
                                   <div className="prose prose-sm prose-invert max-w-none">
                                     <ReactMarkdown>{m.text}</ReactMarkdown>
@@ -1450,11 +1458,11 @@ export function AdminHome() {
                             {report.status}
                         </span>
                      </div>
-                     <h3 className="font-black text-lg mb-2 uppercase">{report.category}</h3>
-                     <p className="text-sm text-grey mb-4 flex-1">{report.description}</p>
+                     <h3 className="font-black text-lg mb-2 uppercase">{report?.category}</h3>
+                     <p className="text-sm text-grey mb-4 flex-1">{report?.description}</p>
                      <div className="flex items-center justify-between text-[10px] font-bold text-grey uppercase tracking-widest mb-4">
-                        <span>Upvotes: {report.upvotes?.length || 0}</span>
-                        <span>{report.createdAt ? new Date(report.createdAt.seconds ? report.createdAt.seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
+                        <span>Upvotes: {report?.upvotes?.length || 0}</span>
+                        <span>{report?.createdAt ? new Date(report.createdAt.seconds ? report.createdAt.seconds * 1000 : report.createdAt).toLocaleDateString() : ''}</span>
                      </div>
                      <div className="flex gap-2">
                         {report.status !== 'resolved' && (
@@ -1637,10 +1645,10 @@ export function AdminHome() {
                                           await updateDoc(doc(db, 'subscriptions', sub.id), { status: 'REFUNDED', updatedAt: serverTimestamp() });
                                           await updateDoc(doc(db, 'platformStats', 'global'), { totalSubscriptionRevenue: increment(-sub.amount) });
                                         }
-                                        toast.success("Abbonamento rimborsato.");
+                                        toast.success(t('admin.subscriptionRefunded'));
                                       } catch (e) {
                                         console.error("Refund error:", e);
-                                        toast.error("Errore nel rimborso.");
+                                        toast.error(t('admin.refundError'));
                                       } finally {
                                         setIsRefunding(null);
                                       }

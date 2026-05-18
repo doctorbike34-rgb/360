@@ -48,15 +48,18 @@ import { InterventionHistory } from './InterventionHistory';
 
 import { P2PWalletModal } from './P2PWalletModal';
 import { TransactionsModal } from './TransactionsModal';
+import { STRIPE_PUBLISHABLE_KEY } from '../config/env';
 
-const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripeKey && stripeKey.startsWith('pk_') 
-  ? loadStripe(stripeKey) 
-  : null;
+const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 export interface ProfileViewProps {
   isAvailable?: boolean;
   onToggleAvailability?: () => void;
+}
+
+function isValidPhotoURL(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.startsWith('data:image/') || url.startsWith('https://') || url.startsWith('http://');
 }
 
 export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewProps) {
@@ -202,30 +205,30 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       const subRef = doc(collection(db, 'subscriptions'));
       
       await runTransaction(db, async (transaction) => {
-        // Check if already processed
+        // Check if already processed by webhook
         const txSnap = await transaction.get(txRef);
         if (txSnap.exists()) return;
         
-        // 1. Update User Plan
+        // 1. Update User Plan (webhook will also do this, but client-side for immediate UX)
         transaction.update(doc(db, 'users', user.uid), { 
           plan: selectedPlanForUpgrade.id as UserPlan, 
           updatedAt: serverTimestamp() 
         });
 
-        // 2. Record Subscription
+        // 2. Record Subscription with PENDING status — webhook will confirm to PAID
         transaction.set(subRef, {
           userId: user.uid,
           userName: profile?.name || user.displayName || 'Meccanico',
           planId: selectedPlanForUpgrade.id,
           amount: selectedPlanForUpgrade.price,
           currency: 'EUR',
-          status: 'PAID',
+          status: 'PENDING',
           createdAt: serverTimestamp(),
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
           stripePaymentIntentId: stripePaymentIntentId || 'SIMULATED'
         });
 
-        // 3. Record Transaction
+        // 3. Record Transaction with PENDING status — webhook will confirm to COMPLETED
         transaction.set(txRef, {
           fromId: user.uid,
           toId: 'PLATFORM',
@@ -234,7 +237,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           type: 'SUBSCRIPTION',
           createdAt: serverTimestamp(),
           planId: selectedPlanForUpgrade.id,
-          status: 'COMPLETED'
+          status: 'PENDING'
         });
 
         // 4. Update Platform Stats
@@ -244,7 +247,23 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         });
       });
 
-      setPlanUpgradeStep('SUCCESS');
+      // Poll for webhook confirmation
+      const checkWebhook = setInterval(async () => {
+        const txSnap = await getDoc(txRef);
+        if (txSnap.exists() && txSnap.data()?.status === 'COMPLETED') {
+          clearInterval(checkWebhook);
+          setPlanUpgradeStep('SUCCESS');
+        }
+      }, 2000);
+      
+      // Timeout after 30s
+      setTimeout(() => {
+        clearInterval(checkWebhook);
+        if (planUpgradeStep === 'PROCESSING') {
+          toast.error('Timeout: il webhook non ha confermato il pagamento. Contatta il supporto.');
+          setPlanUpgradeStep('STRIPE');
+        }
+      }, 30000);
     } catch (err) {
       console.error(err);
       toast.error("Errore durante il salvataggio del piano");
@@ -268,6 +287,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         } else {
           setUserSupportTicket(null);
         }
+      }, (error) => {
+        console.error('Support ticket listener error:', error);
       });
       return unsub;
     }
@@ -387,11 +408,28 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
               amount: selectedAmount,
               currency: 'EUR',
               createdAt: serverTimestamp(),
-              type: 'TOPUP'
+              type: 'TOPUP',
+              status: 'PENDING'
           });
       });
       
-      setPaymentStep('SUCCESS');
+      // Poll for webhook confirmation
+      const checkWebhook = setInterval(async () => {
+        const txSnap = await getDoc(txRef);
+        if (txSnap.exists() && txSnap.data()?.status === 'COMPLETED') {
+          clearInterval(checkWebhook);
+          setPaymentStep('SUCCESS');
+        }
+      }, 2000);
+      
+      // Timeout after 30s
+      setTimeout(() => {
+        clearInterval(checkWebhook);
+        if (paymentStep === 'PROCESSING') {
+          toast.error('Timeout: il webhook non ha confermato il pagamento. Contatta il supporto.');
+          setPaymentStep('SELECT_AMOUNT');
+        }
+      }, 30000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `users/${user?.uid}`);
       setPaymentStep('SELECT_AMOUNT');
@@ -403,11 +441,15 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const startStripeFlow = async () => {
     if (!selectedAmount) return;
     
-    // Explicit simulation check: if key is invalid or missing
+    // Simulation mode ONLY in development
     if (!stripePromise) {
-      console.log('Simulating payment (Sandbox Mode)...');
+      if (!import.meta.env.DEV) {
+        toast.error('Stripe non è configurato correttamente. Contatta il supporto.');
+        setPaymentStep('SELECT_AMOUNT');
+        return;
+      }
+      console.log('DEV Mode: Simulating payment...');
       setPaymentStep('PROCESSING');
-      // Use a shorter timeout for better UX in simulation
       setTimeout(() => {
         handleTopUpSuccess();
       }, 1500);
@@ -447,12 +489,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       }
     } catch (err) {
       console.error('Stripe Flow Error:', err);
-      // Fallback to simulation for demo purposes if backend fails
-      console.log('Falling back to simulation mode due to error');
-      setPaymentStep('PROCESSING');
-      setTimeout(() => {
-        handleTopUpSuccess();
-      }, 1500);
+      toast.error('Errore durante il pagamento. Riprova più tardi.');
+      setPaymentStep('SELECT_AMOUNT');
     } finally {
       setIsProcessing(false);
     }
@@ -606,7 +644,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setIsResettingPassword(true);
     try {
       await sendPasswordResetEmail(auth, auth.currentUser.email);
-      toast.error("Email di ripristino password inviata a " + auth.currentUser.email);
+      toast.success("Email di ripristino password inviata a " + auth.currentUser.email);
     } catch (err) {
       console.error(err);
       toast.error("Errore nell'invio dell'email di ripristino.");
@@ -659,7 +697,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         </div>
         <div className="relative inline-block mb-4">
            <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-[1.5rem] sm:rounded-[2rem] border-4 border-white/50 overflow-hidden bg-white shadow-xl relative group">
-              <img src={profile?.photoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt={t('common.avatar')} className="w-full h-full object-cover transition-opacity group-hover:opacity-80"/>
+               <img src={isValidPhotoURL(profile?.photoURL || user?.photoURL) ? (profile?.photoURL || user?.photoURL) : `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid}`} alt={t('common.avatar')} className="w-full h-full object-cover transition-opacity group-hover:opacity-80"/>
               <button 
                 onClick={() => setShowAvatarPicker(true)}
                 className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
@@ -694,7 +732,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
               <Mail size={24}/>
             </div>
             <div>
-              <p className="text-sm font-black text-danger uppercase italic">Email non verificata</p>
+              <p className="text-sm font-black text-danger uppercase italic">{t('profile.emailNotVerified')}</p>
               <p className="text-[10px] text-danger/60 font-bold uppercase tracking-widest mt-1 leading-relaxed">
                 Verifica l'email per poter inviare SOS e recensioni. Controlla anche lo spam!
               </p>
@@ -1378,7 +1416,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   <div className="py-20 flex flex-col items-center text-center">
                     <Loader2 className="w-12 h-12 text-primary animate-spin mb-4"/>
                     <h4 className="text-xl font-black text-primary uppercase italic">Elaborazione...</h4>
-                    <p className="text-xs text-grey italic">Stiamo configurando i tuoi super-poteri da meccanico.</p>
+                    <p className="text-xs text-grey italic">{t('profile.processingPlan')}</p>
                   </div>
                 )}
 
@@ -1388,7 +1426,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                        <CheckCircle2 size={40}/>
                     </div>
                     <h4 className="text-2xl font-black text-accent uppercase italic mb-2">Benvenuto nel Club!</h4>
-                    <p className="text-sm text-grey font-bold italic mb-8 px-8">Il tuo piano è stato attivato con successo. Tutte le funzionalità sono ora disponibili.</p>
+                    <p className="text-sm text-grey font-bold italic mb-8 px-8">{t('profile.planSuccess')}</p>
                     <button onClick={() => {
                         setShowPlans(false);
                         setTimeout(() => setPlanUpgradeStep('SELECT'), 500);
@@ -1567,7 +1605,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         <button onClick={async () => {
              try {
                await signOut(auth);
-               toast.success(t('auth.signedOut') || 'Disconnesso con successo');
+                toast.success(t('profile.signedOut'));
                setTimeout(() => window.location.reload(), 300);
              } catch (err) {
                console.error("Logout error", err);

@@ -56,7 +56,7 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
 
 
   const handleUpvote = async () => {
-    if (!user) {
+    if (!user || !report?.id) {
       addToast({ title: 'Errore', message: 'Devi aver effettuato l\'accesso per confermare.', type: 'error' });
       return;
     }
@@ -75,6 +75,8 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
       setIsUpvoting(false);
     }
   };
+
+  if (!report) return null;
 
   const hasUpvoted = user && report.upvotes?.includes(user.uid);
 
@@ -102,8 +104,7 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
 
   return (
     <AnimatePresence>
-      {report && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 pointer-events-none">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -132,11 +133,11 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                  <X size={24} />
                </button>
                <div className="absolute top-6 left-6 flex gap-2">
-                 <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${getSeverityColor(report.severity)}`}>
-                   {t(`reports.severities.${report.severity}`)} Priority
+                 <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${getSeverityColor(report?.severity || 'low')}`}>
+                   {t(`reports.severities.${report?.severity || 'low'}`)} Priority
                  </span>
                  <span className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-white/90 backdrop-blur-sm text-primary">
-                   {report.status}
+                   {report?.status}
                  </span>
                </div>
             </div>
@@ -145,27 +146,27 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h3 className="text-2xl font-black text-black uppercase italic mb-1">
-                    {t(`reports.categories.${report.category}`, report.category.replace('_', ' '))}
+                    {t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '')}
                   </h3>
                   <div className="flex items-center gap-2 text-xs font-bold text-grey uppercase">
-                    <User size={14} /> {t('reports.reporter')} {report.reporterName}
+                    <User size={14} /> {t('reports.reporter')} {report?.reporterName}
                   </div>
                 </div>
                 <div className="text-right">
                    <p className="text-[10px] font-black text-grey uppercase tracking-widest">{t('reports.date')}</p>
                    <p className="text-xs font-bold text-black ">
-                     {formatDate(report.createdAt)}
+                     {formatDate(report?.createdAt)}
                    </p>
                 </div>
               </div>
 
               <div className="bg-grey/5 p-6 rounded-3xl mb-4 border border-grey/5">
                 <p className="text-sm font-bold text-black/80 leading-relaxed italic">
-                  "{report.description}"
+                  "{report?.description}"
                 </p>
               </div>
 
-              {report.location && (
+              {report?.location && (
                 <div className="h-32 w-full rounded-2xl overflow-hidden mb-6 border border-grey/10 shadow-inner">
                   <MapContainer 
                     center={[report.location.lat, report.location.lng]} 
@@ -185,7 +186,7 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-1.5 text-xs font-black text-primary uppercase">
                     <ThumbsUp size={16} />
-                    {report.upvotes?.length || 0} {t('reports.confirms')}
+                    {report?.upvotes?.length || 0} {t('reports.confirms')}
                   </div>
                 </div>
                 
@@ -216,7 +217,6 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
             </div>
           </motion.div>
         </div>
-      )}
     </AnimatePresence>
   );
 }

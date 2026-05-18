@@ -11,6 +11,13 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || functions.config().st
   apiVersion: '2023-10-16',
 });
 
+// Shared nodemailer transporter (created once, reused across invocations)
+const mailUser = process.env.MAIL_USER || functions.config().mail?.user;
+const mailPass = process.env.MAIL_PASS || functions.config().mail?.pass;
+const mailTransporter = (mailUser && mailPass)
+  ? nodemailer.createTransport({ service: 'gmail', auth: { user: mailUser, pass: mailPass } })
+  : null;
+
 /**
  * Escrow Release & SOS Completion
  * Securely transfers funds from Cyclist to Mechanic minus Platform Fees.
@@ -64,7 +71,7 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
              createdAt: admin.firestore.FieldValue.serverTimestamp()
            });
 
-           const oldRating = mechanicData.rating || 5.0;
+            const oldRating = mechanicData.rating || 0;
            const oldReviews = mechanicData.reviews || 0;
            const newReviews = oldReviews + 1;
            const newRating = ((oldRating * oldReviews) + rating) / newReviews;
@@ -86,7 +93,7 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
       }
 
       const mechanicId = sosData.mechanicId;
-      const amount = sosData.agreedPrice || sosData.estimatedPrice;
+      let amount = sosData.agreedPrice || sosData.estimatedPrice;
 
       if (!mechanicId || !amount) {
         throw new functions.https.HttpsError('failed-precondition', 'Dati SOS incompleti.');
@@ -106,6 +113,22 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
       console.log('User and stats snapshots fetched');
 
       const mechanicData = mechanicSnap.data() || {};
+      const cyclistData = cyclistSnap.data() || {};
+      
+      // Server-side price verification: recalculate base price and discount
+      const basePrice = mechanicData.sosPrice || amount; // fallback to existing amount
+      let discountRate = cyclistData.firstInterventionDiscount;
+      if (discountRate === undefined || discountRate === null) {
+        discountRate = (cyclistData.completedJobs === 0) ? 0.5 : 0;
+      }
+      const serverCalculatedPrice = Math.max(0, basePrice - (basePrice * (discountRate || 0)));
+      
+      // Use server-calculated price if client price is suspiciously different (>1% variance)
+      if (Math.abs(amount - serverCalculatedPrice) > 0.01) {
+        console.warn(`Price mismatch: client=${amount}, server=${serverCalculatedPrice}. Using server-calculated price.`);
+        amount = serverCalculatedPrice;
+      }
+
       const plan = sosData.mechanicPlan || 'BASE';
       
       // Calculate Fee
@@ -417,6 +440,42 @@ export const stripeWebhook = functions.region('europe-west1').https.onRequest(as
         console.error("Topup transaction failed:", e);
       }
     }
+
+    // Handle subscription payments: update subscription and transaction status
+    try {
+      const subsQuery = await db.collection('subscriptions')
+        .where('stripePaymentIntentId', '==', paymentIntent.id)
+        .where('status', '==', 'PENDING')
+        .limit(1)
+        .get();
+      
+      if (!subsQuery.empty) {
+        const subDoc = subsQuery.docs[0];
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30); // 30 days from now
+        
+        await subDoc.ref.update({
+          status: 'PAID',
+          expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      const txQuery = await db.collection('transactions')
+        .where('stripePaymentIntentId', '==', paymentIntent.id)
+        .where('status', '==', 'PENDING')
+        .limit(1)
+        .get();
+      
+      if (!txQuery.empty) {
+        await txQuery.docs[0].ref.update({
+          status: 'COMPLETED',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    } catch (e) {
+      console.error("Subscription confirmation failed:", e);
+    }
   }
 
   res.json({received: true});
@@ -657,10 +716,10 @@ export const notifyUserKycStatus = onDocumentUpdated({
       return;
     }
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: mailUser, pass: mailPass }
-    });
+    if (!mailTransporter) {
+      console.warn('Mail transporter not configured.');
+      return;
+    }
 
     let subject = '';
     let text = '';
@@ -675,7 +734,7 @@ export const notifyUserKycStatus = onDocumentUpdated({
       return;
     }
 
-    await transporter.sendMail({
+    await mailTransporter.sendMail({
       from: `"DoctorBike Support" <${mailUser}>`,
       to: userEmail,
       subject: subject,
@@ -709,17 +768,10 @@ export const sendKycEmail = functions.region('europe-west1').https.onCall(async 
     const userEmail = userData.email;
     if (!userEmail) return { success: false, message: 'No email found' };
 
-    const mailUser = functions.config().mail?.user;
-    const mailPass = functions.config().mail?.pass;
-    if (!mailUser || !mailPass) {
-       console.warn('Mail configuration missing.');
+    if (!mailTransporter) {
+       console.warn('Mail transporter not configured.');
        return { success: false, message: 'Mail config missing' };
     }
-
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: mailUser, pass: mailPass }
-    });
 
     let subject = '';
     let text = '';
@@ -732,7 +784,7 @@ export const sendKycEmail = functions.region('europe-west1').https.onCall(async 
       text = `Ciao ${userData.name || 'Meccanico'},\n\nTi informiamo che i documenti caricati non hanno superato la verifica KYC.\n\nMotivo: ${reason || 'Documenti non conformi o illeggibili.'}\n\nAbbiamo provveduto a rimborsare la tua quota di iscrizione sul tuo saldo. Puoi caricare nuovi documenti dalla sezione profilo dell'app.\n\nSe hai domande, rispondi a questa email.\n\nIl Team DoctorBike`;
     }
 
-    await transporter.sendMail({
+    await mailTransporter.sendMail({
       from: `"DoctorBike Support" <${mailUser}>`,
       to: userEmail,
       subject: subject,

@@ -21,7 +21,6 @@ import {
   Sparkles,
   Sun,
   Moon,
-  Image as ImageIcon,
   AlertTriangle,
   X,
   Zap
@@ -166,7 +165,7 @@ export function MechanicHome() {
     const now = Date.now();
 
     if (effectiveLocation) {
-      jobs = jobs.filter((job: any) => {
+      jobs = jobs.filter((job: { lat?: number; lng?: number; createdAt?: any; estimatedPrice?: number }) => {
         if (!job.lat || !job.lng || !job.createdAt) return true;
         
         const dist = calculateDistance(effectiveLocation.lat, effectiveLocation.lng, job.lat, job.lng);
@@ -188,7 +187,7 @@ export function MechanicHome() {
         if (elapsedSec < 15) return false;
         
         return true;
-      }).sort((a: any, b: any) => {
+      }).sort((a: { lat?: number; lng?: number }, b: { lat?: number; lng?: number }) => {
         const distA = calculateDistance(effectiveLocation.lat, effectiveLocation.lng, a.lat, a.lng);
         const distB = calculateDistance(effectiveLocation.lat, effectiveLocation.lng, b.lat, b.lng);
         return distA - distB;
@@ -349,7 +348,7 @@ export function MechanicHome() {
       setDirectChat({ id: chatId, name: otherName });
       setActiveTab('CHAT');
       setShowChat(true);
-    } catch (e: any) { 
+    } catch (e) { 
       console.error('Error starting direct chat:', e);
       toast.error('Errore durante l\'apertura della chat: ' + (e.message || 'Riprova più tardi'));
     }
@@ -390,12 +389,15 @@ export function MechanicHome() {
   const mechanicStatusRef = useRef(mechanicStatus);
   const activeJobsCountRef = useRef(activeJobs.length);
   const notificationsEnabledRef = useRef(profile?.notificationsEnabled);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
     isAvailableRef.current = isAvailable;
     mechanicStatusRef.current = mechanicStatus;
     activeJobsCountRef.current = activeJobs.length;
     notificationsEnabledRef.current = profile?.notificationsEnabled;
+    return () => { isMountedRef.current = false; };
   }, [isAvailable, mechanicStatus, activeJobs.length, profile?.notificationsEnabled]);
 
   // 2. Listen for pending SOS requests (Dispatcher) - STABILIZED
@@ -430,8 +432,10 @@ export function MechanicHome() {
               }
             }
             
-            setNewSOS({ id: change.doc.id, ...data });
-            setShowNewSOSBanner(true);
+            if (isMountedRef.current) {
+              setNewSOS({ id: change.doc.id, ...data });
+              setShowNewSOSBanner(true);
+            }
           }
         }
       });
@@ -484,8 +488,8 @@ export function MechanicHome() {
       const jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       // Separate active from recently completed and reviewed
-      const current = jobs.filter((j: any) => j.status !== 'COMPLETED' || !j.isReviewed);
-      const finished = jobs.filter((j: any) => j.status === 'COMPLETED' && j.isReviewed).slice(0, 5);
+      const current = jobs.filter((j: { status: string; isReviewed?: boolean }) => j.status !== 'COMPLETED' || !j.isReviewed);
+      const finished = jobs.filter((j: { status: string; isReviewed?: boolean }) => j.status === 'COMPLETED' && j.isReviewed).slice(0, 5);
       
       setActiveJobs(current);
       setCompletedJobsList(finished);
@@ -606,7 +610,7 @@ export function MechanicHome() {
       setRecentChats(chats);
       
       // Calculate total unread count
-      const totalUnread = chats.reduce((acc: number, chat: any) => {
+      const totalUnread = chats.reduce((acc: number, chat: { unreadCount?: Record<string, number> }) => {
         const nestedUnread = chat.unreadCount?.[user?.uid || ''] || 0;
         const flatUnread = chat[`unreadCount.${user?.uid || ''}`] || 0;
         return acc + nestedUnread + flatUnread;
@@ -665,7 +669,7 @@ export function MechanicHome() {
       const userRef = doc(db, 'users', user?.uid);
       const mechanicRef = doc(db, 'mechanics', user?.uid);
       
-      const userUpdate: any = {
+      const userUpdate: Record<string, unknown> = {
         isOnline: newStatus,
         presenceStatus: newStatus ? 'ONLINE' : 'OFFLINE',
         lastSeenAt: serverTimestamp(),
@@ -725,7 +729,9 @@ export function MechanicHome() {
           }, { merge: true });
       });
 
-      const sortedIds = [user?.uid, activeJobs.length > 0 ? activeJobs[0].cyclistId : (await (await getDoc(doc(db, 'sosRequests', jobId))).data()?.cyclistId)].sort();
+      const sosSnap = await getDoc(doc(db, 'sosRequests', jobId));
+      const cyclistId = sosSnap.exists() ? sosSnap.data()?.cyclistId : null;
+      const sortedIds = [user?.uid, cyclistId].sort();
       const actualChatId = `direct_${sortedIds[0]}_${sortedIds[1]}`;
 
       await addDoc(collection(db, 'chats', actualChatId, 'messages'), {
@@ -736,7 +742,7 @@ export function MechanicHome() {
       });
 
       toast.success(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
-    } catch (error: any) {
+    } catch (error) {
       if (error.message === 'SOS already accepted or invalid') {
          toast.error("Questa richiesta SOS è già stata presa in carico da un altro meccanico.");
       } else {
@@ -868,7 +874,7 @@ export function MechanicHome() {
                   </div>
                   <ChatListView 
                     chats={displayChats} 
-                    onSelectChat={(chat: any) => {
+                    onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
                       setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
                     }}
                     currentUserId={user?.uid || ''}

@@ -34,7 +34,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
-import { auth, db, handleFirestoreError, OperationType, functions } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType, functions, storage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { 
   collection, 
@@ -74,7 +75,7 @@ import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 
 function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, number]) => void, userLoc: [number, number] | null }) {
   const map = useMap();
-  const [init, setInit] = useState(false);
+  const initRef = useRef(false);
   
   useEffect(() => {
     // Recalculate size when component mounts, continuously during animation
@@ -82,10 +83,9 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
       map.invalidateSize();
     }, 100);
     
-    if (userLoc && !init) {
+    if (userLoc && !initRef.current) {
       map.setView(userLoc, 17);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setInit(true);
+      initRef.current = true;
     }
     
     const timeout = setTimeout(() => {
@@ -125,8 +125,7 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
                 return true;
              }
           }
-       // eslint-disable-next-line no-empty
-       } catch (e) {}
+        } catch (e) { /* ignore parse error */ }
        return false;
     };
 
@@ -141,7 +140,7 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
         async () => {
            const ipSuccess = await tryIPFallback();
            if (!ipSuccess) {
-              toast.error("Impossibile ottenere la posizione esatta. Trascina la mappa manualmente.");
+              toast.error(t('cyclist.locationError'));
               if (userLoc) map.setView(userLoc, 17);
               setIsLocating(false);
            }
@@ -161,7 +160,7 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
         onClick={handleLocate}
         disabled={isLocating}
         className="bg-white p-3 rounded-full shadow-lg border-2 border-primary text-primary hover:bg-primary/10 active:scale-90 transition-all font-bold text-xs flex items-center justify-center gap-2"
-        title="La mia posizione"
+        title={t('map.locate')}
       >
         {isLocating ? <Loader2 size={24} className="animate-spin text-primary" /> : <Navigation2 size={24} className="fill-primary" />}
       </button>
@@ -216,23 +215,26 @@ export function CyclistHome() {
   const [sosTimeoutSeconds, setSosTimeoutSeconds] = useState<number | null>(null);
   const hasAutoLocatedSOS = useRef(false);
 
+  // Separate effect for cleanup when form closes
   useEffect(() => {
     if (!showSOSForm) {
       hasAutoLocatedSOS.current = false;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSosLocation(null);
-      return;
     }
+  }, [showSOSForm]);
+
+  // Effect for auto-locating SOS when form opens
+  useEffect(() => {
+    if (!showSOSForm || hasAutoLocatedSOS.current) return;
     
-    if (!hasAutoLocatedSOS.current) {
-      if (userLocation) {
-        setSosLocation([userLocation.lat, userLocation.lng]);
-        hasAutoLocatedSOS.current = true;
-      } else if (!sosLocation) {
-        setSosLocation([45.4642, 9.1900]); // Default Milan
-      }
+    if (userLocation) {
+      setSosLocation([userLocation.lat, userLocation.lng]);
+      hasAutoLocatedSOS.current = true;
+    } else {
+      setSosLocation([45.4642, 9.1900]); // Default Milan
+      hasAutoLocatedSOS.current = true;
     }
-  }, [showSOSForm, userLocation, sosLocation]);
+  }, [showSOSForm, userLocation]);
 
   const [showRoadReportModal, setShowRoadReportModal] = useState(false);
   const [activeTab, setActiveTab] = useState('MAP');
@@ -296,8 +298,8 @@ export function CyclistHome() {
                id: chatId,
                type: 'DIRECT',
                participants: [user?.uid, activeSOS.mechanicId],
-               otherPartyName: activeSOS.mechanicName || 'Meccanico',
-               title: activeSOS.mechanicName || 'Meccanico',
+                otherPartyName: activeSOS.mechanicName || t('common.mechanic'),
+                title: activeSOS.mechanicName || t('common.mechanic'),
                lastMessage: 'SOS Accettato. Entra in chat.',
                // eslint-disable-next-line react-hooks/purity
                lastMessageAt: activeSOS.updatedAt || activeSOS.createdAt || { seconds: Date.now()/1000 },
@@ -323,7 +325,7 @@ export function CyclistHome() {
       const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRecentChats(chats);
       
-      const totalUnread = chats.reduce((acc, chat: any) => {
+      const totalUnread = chats.reduce((acc, chat: { id: string; unreadCount?: Record<string, number> }) => {
         const nestedUnread = chat.unreadCount?.[user?.uid] || 0;
         const flatUnread = chat[`unreadCount.${user?.uid}`] || 0;
         return acc + nestedUnread + flatUnread;
@@ -358,7 +360,7 @@ export function CyclistHome() {
     
     const radiusInM = 20000;
     const bounds = geohashQueryBounds([userLocation.lat, userLocation.lng], radiusInM);
-    const unsubs: any[] = [];
+    const unsubs: (() => void)[] = [];
     
     const localMechanics: Record<string, any> = {};
     let localCyclistsCount = 0;
@@ -435,7 +437,7 @@ export function CyclistHome() {
     if (!user) return;
     const now = Date.now();
     let activeCount = 0;
-    let minDoc: any = null;
+    let minDoc: { id: string; distance: number; [key: string]: unknown } | null = null;
     let minDistance = Infinity;
 
     rawMechanics.forEach(data => {
@@ -480,28 +482,28 @@ export function CyclistHome() {
       
       const compressedFile = await imageCompression(file, options);
       
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = reader.result as string;
-        try {
-          if (isForNewSOS) {
-            setSosPhotos(prev => [...prev, base64String]);
-          } else if (activeSOS) {
-            await updateDoc(doc(db, 'sosRequests', activeSOS.id), {
-              photos: arrayUnion(base64String),
-              updatedAt: serverTimestamp()
-            });
-          }
-        } catch (err) {
-          console.error(err);
-        } finally {
-          setIsUploading(false);
+      // Upload to Firebase Storage instead of base64 in Firestore
+      const storageRef = ref(storage, `sos-photos/${user?.uid || 'anonymous'}/${Date.now()}-${file.name}`);
+      await uploadBytes(storageRef, compressedFile);
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      try {
+        if (isForNewSOS) {
+          setSosPhotos(prev => [...prev, downloadURL]);
+        } else if (activeSOS) {
+          await updateDoc(doc(db, 'sosRequests', activeSOS.id), {
+            photos: arrayUnion(downloadURL),
+            updatedAt: serverTimestamp()
+          });
         }
-      };
-      reader.readAsDataURL(compressedFile);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsUploading(false);
+      }
     } catch (error) {
-      console.error('Error compressing image:', error);
-      toast.error("Errore durante la compressione dell'immagine");
+      console.error('Error uploading image:', error);
+      toast.error(t('cyclist.imageUploadError'));
       setIsUploading(false);
     }
   };
@@ -523,9 +525,10 @@ export function CyclistHome() {
       
       setDirectChat({ id: chatId, name: otherName });
       setShowChat(true);
-    } catch (e: any) {
+    } catch (e) {
       console.error('Error starting direct chat:', e);
-      toast.error('Errore durante l\'apertura della chat: ' + (e.message || 'Riprova più tardi'));
+      const msg = e instanceof Error ? e.message : t('cyclist.tryAgainLater');
+      toast.error(t('cyclist.chatOpenError', { error: msg }));
     }
   };
 
@@ -545,17 +548,18 @@ export function CyclistHome() {
       await completeSOS({ sosId: activeSOS.id });
       
       console.log('Cloud Function success, showing review modal...');
-      toast.success('Riparazione confermata! Grazie per aver usato DoctorBike.');
+      toast.success(t('cyclist.repairConfirmed'));
       setCompletedJobToReview(activeSOS);
       setShowReviewModal(true);
       setShowCompletionOverlay(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error finalizing job:', error);
       // Extra check for known status error
-      if (error.message?.includes("L'SOS non è in uno stato valido")) {
-         toast.error("Attendi che il meccanico sia arrivato o abbia iniziato l'intervento.");
+      const errMsg = error instanceof Error ? error.message : '';
+      if (errMsg?.includes("L'SOS non è in uno stato valido")) {
+         toast.error(t('cyclist.waitForMechanic'));
       } else {
-         toast.error('Errore durante la conferma: ' + (error.message || String(error)));
+         toast.error(t('cyclist.confirmationError', { error: error.message || String(error) }));
       }
     } finally {
       setIsFinishing(false);
@@ -674,11 +678,11 @@ export function CyclistHome() {
   const handleSOSRequest = async (faultType: string) => {
     if (isCreatingSOS) return;
     if (!user) {
-      toast.error("Devi effettuare l'accesso per richiedere un SOS.");
+      toast.error(t('cyclist.loginRequiredSos'));
       return;
     }
     if (!profile) {
-      toast.error("Profilo non caricato. Ricarica l'app o verifica la tua connessione.");
+      toast.error(t('cyclist.profileNotLoaded'));
       return;
     }
     
@@ -739,7 +743,7 @@ export function CyclistHome() {
         const currentBalance = userData.balance || 0;
         
         // 1. Deduct balance from cyclist
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           updatedAt: serverTimestamp(),
           lastTxId: txRef.id
         };
@@ -922,10 +926,11 @@ export function CyclistHome() {
 
       setShowSOSDetails(false);
       setActiveSOS(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error cancelling SOS:', err);
-      if (err.message === 'Cannot cancel an accepted request') {
-        toast.error('Non puoi annullare una richiesta già presa in carico da un meccanico.');
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'Cannot cancel an accepted request') {
+         toast.error(t('cyclist.cannotCancelAccepted'));
       }
     } finally {
       setIsCancelling(false);
@@ -936,7 +941,7 @@ export function CyclistHome() {
 
   const [isJoiningEventId, setIsJoiningEventId] = useState<string | null>(null);
 
-  const toggleJoin = async (event: any) => {
+  const toggleJoin = async (event: { id: string; participantCount: number; maxParticipants: number; participants?: string[] }) => {
     if (!user) return;
     const isJoined = event.participants?.includes(user?.uid);
     setIsJoiningEventId(event.id);
@@ -961,7 +966,7 @@ export function CyclistHome() {
         }
       } else {
         if (event.participantCount >= event.maxParticipants) {
-          toast.error('Gruppo Pieno');
+          toast.error(t('social.groupFullAlert'));
           setIsJoiningEventId(null);
           return;
         }
@@ -1004,7 +1009,7 @@ export function CyclistHome() {
       setOnlineMsg({text: newStatus ? 'ONLINE' : 'OFFLINE', isOnline: newStatus});
       setTimeout(() => setOnlineMsg(null), 3000);
 
-      const updateData: any = {
+      const updateData: Record<string, unknown> = {
         isOnline: newStatus,
         updatedAt: serverTimestamp()
       };
@@ -1059,7 +1064,7 @@ export function CyclistHome() {
                 </button>
                 <div className="min-w-0 pr-2 hidden sm:block">
                   <h4 className="text-[9px] font-black uppercase text-grey  leading-none mb-0.5">{t('nav.profile')}</h4>
-                  <p className="text-xs font-bold text-black  truncate max-w-[80px]">{user?.displayName || 'Cyclist'}</p>
+                  <p className="text-xs font-bold text-black  truncate max-w-[80px]">{user?.displayName || t('profile.user')}</p>
                 </div>
               </div>
 
@@ -1077,7 +1082,7 @@ export function CyclistHome() {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" title="Ghost Mode">
+                    <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" title={t('profile.ghostMode', { defaultValue: 'Ghost Mode' })}>
                       {!profile?.isOnline ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                     <div className="w-8 h-px bg-grey/20 " />
@@ -1208,7 +1213,7 @@ export function CyclistHome() {
                   </div>
                   <ChatListView 
                     chats={displayChats} 
-                    onSelectChat={(chat: any) => {
+                    onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
                       setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
                     }}
                     currentUserId={user?.uid || ''}
@@ -1237,7 +1242,7 @@ export function CyclistHome() {
             >
               <button 
                 onClick={() => setSelectedEventDetails(null)}
-                className="absolute top-6 right-6 text-grey hover:text-black :text-white transition-colors"
+                className="absolute top-6 right-6 text-grey hover:text-black dark:text-white transition-colors"
               >
                 <X size={24} />
               </button>
@@ -1248,7 +1253,7 @@ export function CyclistHome() {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black text-black  transition-colors uppercase tracking-tight">{selectedEventDetails.title}</h3>
-                  <p className="text-xs text-grey italic">{selectedEventDetails.organizerName ? `Organizzato da ${selectedEventDetails.organizerName}` : 'Evento di gruppo'}</p>
+                  <p className="text-xs text-grey italic">{selectedEventDetails.organizerName ? t('cyclist.organizedBy', { organizerName: selectedEventDetails.organizerName }) : t('cyclist.groupEvent')}</p>
                 </div>
               </div>
 
@@ -1259,7 +1264,7 @@ export function CyclistHome() {
                 </div>
                 <div className="flex items-center gap-3 text-sm text-black  font-bold transition-colors">
                   <MapPin size={18} className="text-primary" />
-                  {selectedEventDetails.address || 'Posizione non specificata'}
+                  {selectedEventDetails.address || t('cyclist.locationNotSpecified')}
                 </div>
                 <div className="flex items-center gap-3 text-sm text-black  font-bold transition-colors">
                   <Users size={18} className="text-primary" />
@@ -1347,9 +1352,9 @@ export function CyclistHome() {
                         {activeSOS.status === 'PENDING' 
                           ? (nearbyCount > 0 ? t('cyclist.searching') : t('cyclist.noMechanics')) 
                           : activeSOS.status === 'COMPLETED'
-                          ? 'Intervento Completato'
+                           ? t('cyclist.interventionCompleted')
                           : activeSOS.status === 'DISPUTED'
-                          ? 'In Contestazione'
+                           ? t('cyclist.inDispute')
                           : (trackedMechanic?.name || t('cyclist.mechanicComing'))}
                       </h4>
                       <p className="text-[9px] text-black/70  uppercase font-black tracking-widest">{getFaultTypeTranslation(activeSOS.faultType)}</p>
@@ -1361,7 +1366,7 @@ export function CyclistHome() {
                     <button 
                       onClick={(e) => { e.stopPropagation(); setIsSOSMinimized(true); }}
                       className="p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
-                      title="Riduci icona"
+                       title={t('cyclist.minimizeIcon')}
                     >
                       <X size={18} />
                     </button>
@@ -1475,7 +1480,7 @@ export function CyclistHome() {
                   </div>
                   <div>
                     <h3 className="text-lg font-black text-primary  uppercase leading-tight transition-colors">
-                       {activeSOS.status === 'PENDING' ? t('cyclist.searching') : activeSOS.status === 'DISPUTED' ? 'In Contestazione' : t('cyclist.mechanicComing')}
+                       {activeSOS.status === 'PENDING' ? t('cyclist.searching') : activeSOS.status === 'DISPUTED' ? t('cyclist.inDispute') : t('cyclist.mechanicComing')}
                     </h3>
                     <p className="text-sm text-grey  font-medium uppercase tracking-wide transition-colors">{getFaultTypeTranslation(activeSOS.faultType)}</p>
                   </div>
@@ -1533,7 +1538,7 @@ export function CyclistHome() {
                       onClick={() => {
                         setDirectChat({ 
                           id: userSupportTicket.id, 
-                          name: 'Doctorbike Admin',
+                           name: t('admin.doctorbikeAdmin', { defaultValue: 'Doctorbike Admin' }),
                           isAdminSupport: true 
                         } as any);
                         setShowChat(true);
@@ -1695,7 +1700,7 @@ export function CyclistHome() {
                       disabled={isCancelling}
                       className="w-full py-4 bg-danger/10 text-danger rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-danger hover:text-white active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
                    >
-                     {isCancelling ? 'Annullamento...' : 'Annulla Richiesta SOS'}
+                      {isCancelling ? t('cyclist.cancelling') : t('cyclist.cancelSosRequest')}
                    </button>
                    <button 
                      onClick={() => setShowSOSDetails(false)}
@@ -2068,7 +2073,7 @@ export function CyclistHome() {
                 className={`w-full ${isFinishing ? 'bg-grey opacity-50 cursor-not-allowed' : 'bg-accent'} text-white py-5 rounded-3xl font-black uppercase tracking-widest text-sm shadow-xl shadow-accent/40 mb-4 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2`}
               >
                 {isFinishing && <Loader2 className="animate-spin" size={20} />}
-                {isFinishing ? 'Elaborazione...' : 'Conferma e Paga'}
+                 {isFinishing ? t('profile.processing') : t('cyclist.confirmAndPay')}
               </button>
 
               <p className="text-[10px] text-grey font-black uppercase tracking-widest italic opacity-50">
@@ -2088,7 +2093,7 @@ export function CyclistHome() {
           // but our listener takes care of it if isReviewed is true
         }}
         sosRequest={completedJobToReview}
-        mechanicName={trackedMechanic?.name || 'Meccanico'}
+        mechanicName={trackedMechanic?.name || t('common.mechanic')}
         mechanicId={completedJobToReview?.mechanicId}
         userId={user?.uid || ''}
       />

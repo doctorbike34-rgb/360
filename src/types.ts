@@ -120,6 +120,67 @@ export interface InterventionRecord {
   aiDiagnosis?: string;
 }
 
+export interface Transaction {
+  id: string;
+  fromId: string;
+  toId: string;
+  amount: number;
+  currency: string;
+  type: 'TOPUP' | 'SUBSCRIPTION' | 'ADMIN_DISPUTE_RELEASE' | 'ADMIN_DISPUTE_REFUND' | 'SOS_PAYMENT' | 'TRANSFER';
+  status?: 'PENDING' | 'COMPLETED' | 'FAILED';
+  createdAt: any;
+  stripePaymentId?: string;
+  stripePaymentIntentId?: string;
+  planId?: string;
+  fee?: number;
+}
+
+export interface Subscription {
+  id: string;
+  userId: string;
+  userName: string;
+  planId: string;
+  amount: number;
+  currency: string;
+  status: 'PENDING' | 'PAID' | 'EXPIRED';
+  createdAt: any;
+  expiresAt?: any;
+  stripePaymentIntentId?: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  status: 'OPEN' | 'CLOSED';
+  createdAt: any;
+  updatedAt: any;
+  lastMessage: string;
+}
+
+export interface AIConversation {
+  id: string;
+  userId: string;
+  messages: AIMessage[];
+  updatedAt: any;
+}
+
+export interface AIMessage {
+  id?: string;
+  sender: 'user' | 'ai';
+  text: string;
+  timestamp?: any;
+}
+
+export interface PlatformStats {
+  totalSubscriptionRevenue: number;
+  totalFees: number;
+  totalTransactions: number;
+  completedJobs: number;
+  updatedAt?: any;
+}
+
 export type RoadReportCategory = 'pothole' | 'damaged_path' | 'obstacle' | 'missing_signage' | 'flooding' | 'other';
 export type RoadReportSeverity = 'low' | 'medium' | 'high';
 export type RoadReportStatus = 'open' | 'confirmed' | 'in_review' | 'resolved' | 'rejected';

@@ -28,7 +28,7 @@ const AIBikeDoctor = lazy(() => import('./components/AIBikeDoctor').then(module 
 
 
 if (typeof window !== 'undefined' && !(window as any).__app_boot_started) {
-  console.time('AppBoot');
+  if (import.meta.env.DEV) console.time('AppBoot');
   (window as any).__app_boot_started = true;
 }
 
@@ -46,10 +46,9 @@ export default function App() {
     // End boot timer only on first full mount
     if (!loading && (window as any).__app_boot_started) {
       try {
-        console.timeEnd('AppBoot');
+        if (import.meta.env.DEV) console.timeEnd('AppBoot');
         delete (window as any).__app_boot_started;
-      // eslint-disable-next-line no-empty
-      } catch (e) {}
+      } catch (e) { /* ignore cleanup error */ }
     }
   }, [loading]);
 
@@ -113,8 +112,7 @@ export default function App() {
                   return;
                 }
               }
-            // eslint-disable-next-line no-empty
-            } catch(e){}
+            } catch(e) { /* ignore geo error */ }
             // Default Rome
             setUserLocation({ lat: 41.9028, lng: 12.4964 });
             setLocationPermissionError(false);
@@ -149,23 +147,25 @@ export default function App() {
           $name: fbUser.displayName,
         });
         
+        // Check admin status from Firestore collection (primary) with email fallback
+        const adminSnap = await getDoc(doc(db, 'admins', fbUser.uid));
+        const isAdmin = adminSnap.exists() || fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com';
+        
         unsubscribeProfile = onSnapshot(doc(db, 'users', fbUser.uid), (snapshot) => {
           if (snapshot.exists()) {
             const profileData = snapshot.data() as UserProfile;
             
-            if (fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+            if (isAdmin) {
               if (profileData.role !== 'ADMIN' && !(window as any).firebaseTransactionInProgress) {
                 updateDoc(doc(db, 'users', fbUser.uid), { role: 'ADMIN' });
               }
               // Ensure the admin record exists for security rules helper to work
-              getDoc(doc(db, 'admins', fbUser.uid)).then(d => {
-                if (!d.exists()) {
-                  setDoc(doc(db, 'admins', fbUser.uid), { 
-                    email: fbUser.email, 
-                    createdAt: serverTimestamp() 
-                  }).catch(err => console.error("Admin bootstrap failed", err));
-                }
-              });
+              if (!adminSnap.exists()) {
+                setDoc(doc(db, 'admins', fbUser.uid), { 
+                  email: fbUser.email, 
+                  createdAt: serverTimestamp() 
+                }).catch(err => console.error("Admin bootstrap failed", err));
+              }
               setRole('ADMIN');
               setProfile({ ...profileData, role: 'ADMIN' });
             } else {
@@ -213,7 +213,7 @@ export default function App() {
             // Reset quota error if we successfully get data
             setQuotaError(false);
           } else {
-            if (fbUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+            if (isAdmin) {
               try {
                 const adminProfile = {
                   uid: fbUser.uid,
@@ -224,11 +224,13 @@ export default function App() {
                   updatedAt: serverTimestamp()
                 };
                 setDoc(doc(db, 'users', fbUser.uid), adminProfile);
-                setDoc(doc(db, 'admins', fbUser.uid), {
-                  uid: fbUser.uid,
-                  email: fbUser.email,
-                  createdAt: serverTimestamp()
-                });
+                if (!adminSnap.exists()) {
+                  setDoc(doc(db, 'admins', fbUser.uid), {
+                    uid: fbUser.uid,
+                    email: fbUser.email,
+                    createdAt: serverTimestamp()
+                  });
+                }
                 setRole('ADMIN');
                 setProfile(adminProfile as any);
               } catch (e) {
@@ -273,7 +275,7 @@ export default function App() {
     };
   }, [setUser, setRole, setProfile, setLoading, setQuotaError, setUserLocation]);
 
-  const appLastUpdateRef = useRef<{time: number, lat: number|null, lng: number|null}>({ time: 0, lat: null, lng: null });
+  const appLastUpdateRef = useRef<{time: number, lat: number|null, lng: number|null, isWriting: boolean}>({ time: 0, lat: null, lng: null, isWriting: false });
 
   useEffect(() => {
     if (!user || !role) return;
@@ -313,8 +315,8 @@ export default function App() {
       
       if (isLocked) return;
       
-      // UPDATE: High-reactivity threshold for LIVE feel (2 seconds)
-      if (now - appLastUpdateRef.current.time < 2000) return;
+      // Prevent overlapping writes using a flag instead of time-based throttle
+      if (appLastUpdateRef.current.isWriting) return;
 
       // Distance check: only update Firestore if moved significantly (> 100 meters) or it's been more than 5 minutes
       const hasMovedSignificantly = () => {
@@ -358,11 +360,14 @@ export default function App() {
           geohash: geohashForLocation([coords.latitude, coords.longitude])
         };
         
+        appLastUpdateRef.current.isWriting = true;
         await updateDoc(doc(db, 'users', user.uid), updateData);
+        appLastUpdateRef.current.isWriting = false;
         appLastUpdateRef.current.time = now;
         appLastUpdateRef.current.lat = coords.latitude;
         appLastUpdateRef.current.lng = coords.longitude;
       } catch (err) {
+        appLastUpdateRef.current.isWriting = false;
         if (err instanceof Error && (err.message.includes('Quota exceeded') || err.message.includes('quota limits'))) {
           setQuotaError(true);
         } else {
@@ -519,7 +524,7 @@ export default function App() {
                           id="approxCity"
                           placeholder="Inserisci la tua città (Manuale)..." 
                           className="w-full bg-grey/5 text-black placeholder:text-grey/50 px-4 py-3 rounded-xl border border-grey/10 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" 
-                          onKeyPress={async (e) => {
+                          onKeyDown={async (e) => {
                             if (e.key === 'Enter') {
                               const val = e.currentTarget.value;
                               if (!val) return;
@@ -541,16 +546,14 @@ export default function App() {
                                         updatedAt: serverTimestamp(),
                                         isOnline: profile?.isOnline ?? true
                                       }, { merge: true });
-                                    // eslint-disable-next-line no-empty
-                                    } catch(e){}
+                                    } catch(e) { /* ignore update error */ }
                                   }
                                   setLocationPermissionError(false);
                                   return;
                                 } else {
                                   toast.error("Città non trovata. Riprova.");
                                 }
-                              // eslint-disable-next-line no-empty
-                              } catch(err) {}
+                              } catch(err) { /* ignore fetch error */ }
                               e.currentTarget.disabled = false;
                             }
                           }}
@@ -586,8 +589,7 @@ export default function App() {
                                   updatedAt: serverTimestamp(),
                                   isOnline: profile?.isOnline ?? true
                                 }, { merge: true });
-                              // eslint-disable-next-line no-empty
-                              } catch(e){}
+                              } catch(e) { /* ignore update error */ }
                             }
                             setLocationPermissionError(false);
                           }}
