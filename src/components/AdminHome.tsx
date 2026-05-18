@@ -824,18 +824,18 @@ export function AdminHome() {
                          <span className="text-[8px] font-black text-grey uppercase tracking-widest">Azioni Rapide</span>
                       </div>
                       
-                      {/* Role Management */}
-                      <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
-                        {(['CYCLIST', 'MECHANIC', 'ADMIN'] as const).map(r => (
-                          <button
-                            key={r}
-                            onClick={() => updateUserRole(u.id, r)}
-                            className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.role === r ? 'bg-primary text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
-                          >
-                            {r}
-                          </button>
-                        ))}
-                      </div>
+                       {/* Role Management */}
+                       <div className="flex gap-1 bg-white text-black border border-grey/10 shadow-sm p-1 rounded-xl">
+                         {(['CYCLIST', 'MECHANIC', 'PEER_MECHANIC', 'ADMIN'] as const).map(r => (
+                           <button
+                             key={r}
+                             onClick={() => updateUserRole(u.id, r)}
+                             className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.role === r ? 'bg-primary text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
+                           >
+                             {r === 'PEER_MECHANIC' ? 'PEER' : r}
+                           </button>
+                         ))}
+                       </div>
 
                       {/* Plan Management (for Mechanics) */}
                       {u.role === 'MECHANIC' && (
