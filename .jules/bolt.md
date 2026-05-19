@@ -1,0 +1,3 @@
+## 2024-05-24 - Missing Memoization for Expensive Array Filters
+**Learning:** Frequent array filtering operations (like `.filter()`) inside the render cycle of heavily updated components (e.g., Maps and Admin dashboards with real-time listeners) can cause significant performance degradation. React will recalculate these filters on every re-render (like when a search input changes), blocking the main thread.
+**Action:** Always wrap expensive or repeatedly called `.filter()`, `.map()`, and `.reduce()` operations in `useMemo` with appropriate dependency arrays to ensure they are only recalculated when their underlying data or dependencies change.

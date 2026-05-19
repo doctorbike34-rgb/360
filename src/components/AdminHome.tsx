@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import React, { useState, useEffect, Component, type ReactNode } from 'react';
+import React, { useState, useEffect, useMemo, Component, type ReactNode } from 'react';
 import { db, auth, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { collection, query, where, onSnapshot, doc, runTransaction, increment, serverTimestamp, limit, orderBy, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
@@ -332,13 +332,20 @@ export function AdminHome() {
     }
   };
 
-  const filteredUsers = allUsers.filter(u => {
-    const matchesSearch = u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.id?.includes(searchQuery);
-    const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
-    return matchesSearch && matchesKyc;
-  });
+  const filteredUsers = useMemo(() => {
+    return allUsers.filter(u => {
+      const matchesSearch = u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.id?.includes(searchQuery);
+      const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
+      return matchesSearch && matchesKyc;
+    });
+  }, [allUsers, searchQuery, kycFilter]);
+
+  const pendingKycCount = useMemo(() => allUsers.filter(u => u.kycStatus === 'PENDING').length, [allUsers]);
+  const cyclistCount = useMemo(() => allUsers.filter(u => u.role === 'CYCLIST').length, [allUsers]);
+  const mechanicCount = useMemo(() => allUsers.filter(u => u.role === 'MECHANIC').length, [allUsers]);
+  const recentApprovedUsers = useMemo(() => allUsers.filter(u => u.role !== 'MECHANIC' || u.kycStatus === 'APPROVED').slice(0, 6), [allUsers]);
 
   const updateUserRole = async (userId: string, newRole: string) => {
     if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
@@ -368,8 +375,8 @@ export function AdminHome() {
       id: 'USERS', 
       label: 'Utenti', 
       icon: <Users size={20} />, 
-      badge: allUsers.filter(u => u.kycStatus === 'PENDING').length,
-      badgeColor: allUsers.some(u => u.kycStatus === 'PENDING') ? 'bg-accent' : 'bg-primary'
+      badge: pendingKycCount,
+      badgeColor: pendingKycCount > 0 ? 'bg-accent' : 'bg-primary'
     },
     { id: 'MAP', label: 'Mappa Live', icon: <MapIcon size={20} /> },
     { id: 'SUPPORT', label: 'Assistenza', icon: <MessageSquare size={20} />, badge: activeSupportChats.length + supportTickets.length },
@@ -636,11 +643,11 @@ export function AdminHome() {
                     <div className="text-right space-y-4 pt-2">
                        <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/10 text-center">
                           <p className="text-[8px] font-black text-white/50 uppercase mb-0.5">Ciclisti</p>
-                          <p className="font-black">{allUsers.filter(u => u.role === 'CYCLIST').length}</p>
+                          <p className="font-black">{cyclistCount}</p>
                        </div>
                        <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/10 text-center">
                           <p className="text-[8px] font-black text-white/50 uppercase mb-0.5">Meccanici</p>
-                          <p className="font-black">{allUsers.filter(u => u.role === 'MECHANIC').length}</p>
+                          <p className="font-black">{mechanicCount}</p>
                        </div>
                     </div>
                   </div>
@@ -658,7 +665,7 @@ export function AdminHome() {
                   </div>
                   <h3 className="text-[10px] font-black text-grey uppercase tracking-[0.2em] mb-2">Richieste KYC Pendenti</h3>
                   <div className="text-4xl font-black text-danger italic">
-                    {allUsers.filter(u => u.kycStatus === 'PENDING').length}
+                    {pendingKycCount}
                   </div>
                   <p className="text-[10px] text-danger font-bold mt-4 uppercase flex items-center gap-1">
                     Da validare subito <ArrowRight size={10} />
@@ -673,7 +680,7 @@ export function AdminHome() {
                     <Clock size={16} /> Ultimi Utenti Registrati
                   </h3>
                   <div className="space-y-3">
-                    {allUsers.filter(u => u.role !== 'MECHANIC' || u.kycStatus === 'APPROVED').slice(0, 6).map(u => (
+                    {recentApprovedUsers.map(u => (
                       <div key={u.id} className="flex justify-between items-center p-5 bg-white text-black border border-grey/10 shadow-sm rounded-3xl hover:border-primary/20 hover:bg-primary/5 transition-all cursor-default">
                         <div className="flex items-center gap-4">
                           <img 
@@ -766,7 +773,7 @@ export function AdminHome() {
                   >
                     <ShieldAlert size={14} />
                     {kycFilter === 'PENDING' ? 'Vedi Tutti' : 'Da Approvare'}
-                    {kycFilter === 'ALL' && allUsers.filter(u => u.kycStatus === 'PENDING').length > 0 && (
+                    {kycFilter === 'ALL' && pendingKycCount > 0 && (
                       <span className="w-2 h-2 bg-danger rounded-full animate-pulse ml-1" />
                     )}
                   </button>
