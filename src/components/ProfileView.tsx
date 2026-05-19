@@ -5,7 +5,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { signOut, sendEmailVerification, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db, functions, handleFirestoreError, OperationType } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
-import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, getDoc, onSnapshot, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, getDoc, onSnapshot, setDoc, deleteDoc, runTransaction, increment, addDoc } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
 import { getCloudFunctionUrl } from '../config/env';
@@ -43,7 +43,6 @@ import {
   CalendarCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { increment } from 'firebase/firestore';
 import { Chat } from './Chat';
 import { LeaderboardView } from './LeaderboardView';
 import { InterventionHistory } from './InterventionHistory';
@@ -426,13 +425,33 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const startStripeFlow = async () => {
     if (!selectedAmount) return;
     
-    // Simulation mode ONLY in development
+    // Dev: credit balance locally (no Stripe) so wallet testing works
     if (import.meta.env.DEV) {
-      console.log('DEV Mode: Simulating payment...');
+      if (!user) return;
       setPaymentStep('PROCESSING');
-      setTimeout(() => {
-        handleTopUpSuccess();
-      }, 1500);
+      setIsProcessing(true);
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          balance: increment(selectedAmount),
+          updatedAt: serverTimestamp(),
+        });
+        await addDoc(collection(db, 'transactions'), {
+          userId: user.uid,
+          amount: selectedAmount,
+          type: 'TOPUP',
+          status: 'COMPLETED',
+          fromId: 'DEV_SIMULATION',
+          createdAt: serverTimestamp(),
+        }).catch(() => undefined);
+        toast.success(`[Dev] Ricarica di €${selectedAmount} applicata al saldo`);
+        setPaymentStep('SUCCESS');
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
+        toast.error('Errore ricarica dev');
+        setPaymentStep('SELECT_AMOUNT');
+      } finally {
+        setIsProcessing(false);
+      }
       return;
     }
 

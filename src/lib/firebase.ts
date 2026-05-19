@@ -114,7 +114,7 @@ export const getFCM = async () => {
   if (isSupportedFCM && !messaging && typeof window !== 'undefined') {
     try {
       if (!('serviceWorker' in navigator)) throw new Error('Missing ServiceWorker API');
-      
+
       messaging = getMessaging(app);
     } catch (e) {
       console.warn('FCM initialization failed', e);

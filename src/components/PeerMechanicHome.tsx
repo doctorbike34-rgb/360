@@ -99,7 +99,7 @@ export function PeerMechanicHome() {
             if ('Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
               new Notification(t('mechanic.availableJobs'), {
                 body: `${getFaultTypeTranslation(data.faultType)} ${t('common.nearYou')}.`,
-                icon: '/logo192.png'
+                icon: '/icon.svg'
               });
             }
           }

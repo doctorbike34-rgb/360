@@ -1,28 +1,26 @@
-importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js');
+/* eslint-disable no-undef */
+importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
-// This is a minimal background listener
-// Note: We need the config here too if we want to initialize it correctly in background
-// In a real app, you'd fetch this or hardcode it.
 firebase.initializeApp({
-  apiKey: "REPLACE_WITH_YOUR_API_KEY",
-  authDomain: "REPLACE_WITH_YOUR_AUTH_DOMAIN",
-  projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
-  storageBucket: "REPLACE_WITH_YOUR_STORAGE_BUCKET",
-  messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
-  appId: "REPLACE_WITH_YOUR_APP_ID"
+  apiKey: 'AIzaSyADxqb1dYF5TzOZTzF3MwvOqDvAcl4T-5g',
+  authDomain: 'doctorbike-v2.firebaseapp.com',
+  projectId: 'doctorbike-v2',
+  storageBucket: 'doctorbike-v2.firebasestorage.app',
+  messagingSenderId: '513494631917',
+  appId: '1:513494631917:web:78691138fd0df02ee253e4',
 });
 
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  
-  const notificationTitle = payload.notification.title;
-  const notificationOptions = {
-    body: payload.notification.body,
-    icon: '/logo.png'
+  const notification = payload.notification || {};
+  const title = notification.title || 'DoctorBike';
+  const options = {
+    body: notification.body || '',
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    data: payload.data,
   };
-
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  self.registration.showNotification(title, options);
 });

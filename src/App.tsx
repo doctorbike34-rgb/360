@@ -21,6 +21,7 @@ import { GlobalNotifications } from './components/GlobalNotifications';
 import { AIPrompt } from './components/AIPrompt';
 import { Onboarding } from './components/Onboarding';
 import { EmailVerificationGuard } from './components/EmailVerificationGuard';
+import { InstallPWAOverlay } from './components/InstallPWAOverlay';
 import { Toaster, toast } from 'react-hot-toast';
 
 const CyclistHome = lazy(() => import('./components/CyclistHome').then(module => ({ default: module.CyclistHome })));
@@ -506,6 +507,7 @@ export default function App() {
           <EmailVerificationGuard>
             <NotificationManager />
             <GlobalNotifications />
+            <InstallPWAOverlay />
 
             <AnimatePresence>
               {locationPermissionError && (
@@ -581,7 +583,10 @@ export default function App() {
                                 } else {
                                   toast.error("Città non trovata. Riprova.");
                                 }
-                              } catch(err) { /* ignore fetch error */ }
+                              } catch (err) {
+                                console.warn('City lookup failed', err);
+                                toast.error('Errore di rete durante la ricerca città');
+                              }
                               e.currentTarget.disabled = false;
                             }
                           }}

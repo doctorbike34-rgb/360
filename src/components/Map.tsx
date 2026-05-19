@@ -192,13 +192,16 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
   );
 }
 
-function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick }: {
+function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick, sos, currentUser, currentUserRole }: {
   user: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
   roleColor: string;
   onClick?: () => void;
+  sos?: SOSRequest;
+  currentUser?: FirebaseUser | null;
+  currentUserRole?: string | null;
 }) {
   const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', '[#8B5CF6]': '#22C55E' };
   const borderColor = colorMap[roleColor] || '#3B82F6';
@@ -207,7 +210,15 @@ function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColo
   return (
     <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
       <Popup>
-        <MechanicPopup mechanic={u} onStartChat={onStartChat} t={t} getFaultTypeTranslation={getFaultTypeTranslation} />
+        <MechanicPopup
+          mechanic={u}
+          onStartChat={onStartChat}
+          t={t}
+          getFaultTypeTranslation={getFaultTypeTranslation}
+          sos={sos}
+          currentUser={currentUser}
+          currentUserRole={currentUserRole}
+        />
       </Popup>
     </Marker>
   );
@@ -241,9 +252,11 @@ function ReportMarker({ report, isSelected, t, onClick }: {
   );
 }
 
-function EventMarker({ event, onClick, currentUser, t }: {
+function EventMarker({ event, onClick, onJoin, isJoining, currentUser, t }: {
   event: any;
   onClick: () => void;
+  onJoin?: (event: any) => void;
+  isJoining?: boolean;
   currentUser: any;
   t: TFunction;
 }) {
@@ -268,13 +281,23 @@ function EventMarker({ event, onClick, currentUser, t }: {
             <div className="flex items-center gap-1">👥 {event.participantCount}/{event.maxParticipants}</div>
           </div>
           {isJoined ? (
-            <div className="w-full bg-accent/10 text-accent py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center">
-              ✅ Iscritto - Chat Gruppo
-            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onJoin?.(event); }}
+              disabled={isJoining}
+              className="w-full bg-accent/10 text-accent py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center active:scale-95 transition-all disabled:opacity-50"
+            >
+              {isJoining ? '...' : 'Iscritto - Apri chat'}
+            </button>
           ) : (
-            <div className="w-full bg-primary text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center">
-              🚲 Unisciti
-            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onJoin?.(event); }}
+              disabled={isJoining}
+              className="w-full bg-primary text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center active:scale-95 transition-all disabled:opacity-50"
+            >
+              {isJoining ? '...' : 'Unisciti'}
+            </button>
           )}
         </div>
       </Popup>
@@ -327,12 +350,14 @@ function MapClickEvents({ onClick }: { onClick: () => void }) {
   return null;
 }
 
-export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails, onViewReportDetails, minimal = false, isAdmin = false, adminUsers = [], showMechanics = true, showCyclists = true }: { 
+export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails, onViewReportDetails, onJoinEvent, joiningEventId, minimal = false, isAdmin = false, adminUsers = [], showMechanics = true, showCyclists = true }: { 
   center?: [number, number], 
   mechanicToTrackId?: string,
   onStartChat?: (userId: string, userName: string) => void,
   onViewEventDetails?: (event: any) => void,
   onViewReportDetails?: (report: any) => void,
+  onJoinEvent?: (event: any) => void,
+  joiningEventId?: string | null,
   minimal?: boolean,
   isAdmin?: boolean,
   adminUsers?: any[],
@@ -828,6 +853,9 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               getFaultTypeTranslation={getFaultTypeTranslation}
               roleColor={roleColor}
               onClick={() => setSelectedObj(u)}
+              sos={u.role === 'CYCLIST' ? activeSOSs[u.id] : undefined}
+              currentUser={currentUser}
+              currentUserRole={currentUserRole}
             />
           );
         })}
@@ -861,7 +889,12 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
             <EventMarker
               key={event.id}
               event={event}
-              onClick={() => setSelectedObj(event)}
+              onClick={() => {
+                setSelectedObj(event);
+                onViewEventDetails?.(event);
+              }}
+              onJoin={onJoinEvent}
+              isJoining={joiningEventId === event.id}
               currentUser={currentUser}
               t={t}
             />

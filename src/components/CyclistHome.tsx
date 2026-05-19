@@ -996,6 +996,7 @@ export function CyclistHome() {
       }
     } catch (err) {
       console.error(err);
+      toast.error(t('common.error', { defaultValue: 'Impossibile aggiornare la partecipazione all\'evento' }));
     } finally {
       setIsJoiningEventId(null);
     }
@@ -1177,6 +1178,8 @@ export function CyclistHome() {
                 onViewReportDetails={(report) => {
                   setSelectedReport(report);
                 }}
+                onJoinEvent={toggleJoin}
+                joiningEventId={isJoiningEventId}
                 center={focusedPos || undefined}
               />
           </div>

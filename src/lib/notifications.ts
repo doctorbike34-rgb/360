@@ -5,6 +5,19 @@ import { FIREBASE_VAPID_KEY } from '../config/env';
 import { safeStorage } from './storage';
 
 let lastRequestTime = 0;
+let fcmSwRegistration: ServiceWorkerRegistration | null = null;
+
+async function getFcmServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | undefined> {
+  if (!('serviceWorker' in navigator)) return undefined;
+  if (fcmSwRegistration) return fcmSwRegistration;
+  try {
+    fcmSwRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    return fcmSwRegistration;
+  } catch (err) {
+    console.warn('[FCM] firebase-messaging-sw.js registration failed', err);
+    return undefined;
+  }
+}
 
 export const requestNotificationPermission = async () => {
   if (!('Notification' in window)) return null;
@@ -23,8 +36,10 @@ export const requestNotificationPermission = async () => {
       const messaging = await getFCM();
       if (!messaging) return null;
 
+      const swRegistration = await getFcmServiceWorkerRegistration();
       const token = await getToken(messaging, {
-        vapidKey: FIREBASE_VAPID_KEY 
+        vapidKey: FIREBASE_VAPID_KEY,
+        ...(swRegistration ? { serviceWorkerRegistration: swRegistration } : {}),
       });
       
       if (token && auth.currentUser) {
@@ -57,7 +72,7 @@ export const onForegroundMessage = async (callback: (payload: unknown) => void) 
 export const showLocalNotification = (title: string, options?: NotificationOptions) => {
   if (Notification.permission === 'granted') {
     new Notification(title, {
-      icon: '/logo192.png', // Fallback icon path
+      icon: '/icon.svg',
       ...options
     });
   }

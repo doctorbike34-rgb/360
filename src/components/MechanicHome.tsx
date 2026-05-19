@@ -459,7 +459,7 @@ export function MechanicHome() {
               if ('Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
                 new Notification(t('mechanic.availableJobs'), {
                   body: `${getFaultTypeTranslation(data.faultType)} ${t('common.nearYou')}.`,
-                  icon: '/logo192.png'
+                  icon: '/icon.svg'
                 });
               }
             }
@@ -797,6 +797,8 @@ export function MechanicHome() {
       toast.success(t('mechanic.repairCompleted', { defaultValue: 'Riparazione conclusa. In attesa della conferma del ciclista per sbloccare i fondi.' }));
     } catch (err) {
       console.error('Error completing job:', err);
+      toast.error(t('common.error', { defaultValue: 'Errore durante il completamento del lavoro' }));
+      handleFirestoreError(err, OperationType.UPDATE, `sosRequests/${jobId}`);
     }
   };
 
