@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetWeeklyPoints = exports.processEurPayout = exports.requestEurPayout = exports.disputeSOS = exports.analyzeBikeIssue = exports.askBikeDoctor = exports.sendDailyBonusReminder = exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createCheckoutSession = exports.createStripePayment = exports.stripeWebhook = exports.confirmSubscriptionCheckout = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
+exports.sanitizeAllLoyaltyPoints = exports.resetWeeklyPoints = exports.processEurPayout = exports.requestEurPayout = exports.disputeSOS = exports.analyzeBikeIssue = exports.askBikeDoctor = exports.sendDailyBonusReminder = exports.sendKycEmail = exports.notifyUserKycStatus = exports.clearAllUsersAuth = exports.refundPayment = exports.createCheckoutSession = exports.createStripePayment = exports.stripeWebhook = exports.confirmSubscriptionCheckout = exports.rewardRoadReport = exports.transferFunds = exports.completeSOS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
@@ -1162,4 +1162,6 @@ Object.defineProperty(exports, "requestEurPayout", { enumerable: true, get: func
 Object.defineProperty(exports, "processEurPayout", { enumerable: true, get: function () { return payouts_1.processEurPayout; } });
 var leaderboard_1 = require("./leaderboard");
 Object.defineProperty(exports, "resetWeeklyPoints", { enumerable: true, get: function () { return leaderboard_1.resetWeeklyPoints; } });
+var loyaltySanitize_1 = require("./loyaltySanitize");
+Object.defineProperty(exports, "sanitizeAllLoyaltyPoints", { enumerable: true, get: function () { return loyaltySanitize_1.sanitizeAllLoyaltyPoints; } });
 //# sourceMappingURL=index.js.map

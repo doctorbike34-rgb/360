@@ -1248,3 +1248,4 @@ export { askBikeDoctor, analyzeBikeIssue } from './gemini';
 export { disputeSOS } from './disputes';
 export { requestEurPayout, processEurPayout } from './payouts';
 export { resetWeeklyPoints } from './leaderboard';
+export { sanitizeAllLoyaltyPoints } from './loyaltySanitize';

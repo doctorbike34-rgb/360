@@ -1,6 +1,10 @@
 import { db } from '../lib/firebase';
 import { DAILY_BONUS_POINTS } from '../lib/badgeMeta';
 import {
+  loyaltyPointsNeedSanitize,
+  normalizeLoyaltyPointsValue,
+} from '../lib/loyaltyPoints';
+import {
   doc,
   getDoc,
   runTransaction,
@@ -18,6 +22,28 @@ import { BadgeId, Badge, UserProfile } from '../types';
 export { DAILY_BONUS_POINTS };
 
 export const gamificationService = {
+  /** Arrotonda punti/weeklyPoints già salvati con decimali spurii. */
+  sanitizeUserLoyaltyPoints: async (userId: string): Promise<boolean> => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return false;
+
+      const data = userSnap.data() as UserProfile;
+      if (!loyaltyPointsNeedSanitize(data.points, data.weeklyPoints)) return false;
+
+      await updateDoc(userRef, {
+        points: normalizeLoyaltyPointsValue(data.points),
+        weeklyPoints: normalizeLoyaltyPointsValue(data.weeklyPoints),
+        updatedAt: serverTimestamp(),
+      });
+      return true;
+    } catch (error) {
+      console.error('Error sanitizing loyalty points:', error);
+      return false;
+    }
+  },
+
   awardPoints: async (userId: string, action: string, points: number) => {
     try {
       const userRef = doc(db, 'users', userId);
@@ -25,9 +51,10 @@ export const gamificationService = {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists()) return;
 
+        const pts = normalizeLoyaltyPointsValue(points);
         transaction.update(userRef, {
-          points: increment(points),
-          weeklyPoints: increment(points),
+          points: increment(pts),
+          weeklyPoints: increment(pts),
           updatedAt: serverTimestamp(),
         });
       });

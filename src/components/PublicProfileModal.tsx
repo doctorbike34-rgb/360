@@ -4,6 +4,7 @@ import { X, Star, MapPin, Bike, Mail, Phone, Award, Flame } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { BADGE_CATALOG, getUnlockedBadgeIds } from '../lib/badgeMeta';
+import { formatLoyaltyPoints } from '../lib/loyaltyPoints';
 
 interface PublicProfileModalProps {
   userId: string;
@@ -33,7 +34,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({ userId, 
 
   const avatar = profile?.photoURL || profile?.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`;
   const isOwnProfile = auth.currentUser?.uid === userId;
-  const reputationPoints = Math.round((profile?.points ?? 0) * 10) / 10;
+  const reputationPointsLabel = formatLoyaltyPoints(profile?.points ?? 0);
   const unlockedBadges = getUnlockedBadgeIds(profile?.badges);
   const visibleBadges = BADGE_CATALOG.filter((b) => unlockedBadges.has(b.id));
 
@@ -89,7 +90,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({ userId, 
                     <p className="text-[9px] font-black uppercase text-grey tracking-widest mb-1 flex items-center gap-1">
                       <Award size={12} className="text-warning" /> Punti reputazione
                     </p>
-                    <p className="text-2xl font-black text-warning">{reputationPoints}</p>
+                    <p className="text-2xl font-black text-warning tabular-nums tracking-tight">{reputationPointsLabel}</p>
                   </div>
                   {(profile?.dailyStreak ?? 0) > 0 && (
                     <div className="bg-accent/10 border border-accent/20 p-4 rounded-xl">

@@ -47,6 +47,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Chat } from './Chat';
 import { LeaderboardView } from './LeaderboardView';
 import { BADGE_CATALOG, DAILY_BONUS_POINTS } from '../lib/badgeMeta';
+import { formatLoyaltyPoints } from '../lib/loyaltyPoints';
 import { InterventionHistory } from './InterventionHistory';
 import { gamificationService } from '../services/gamificationService';
 import { requestEurPayout } from '../lib/payoutService';
@@ -903,7 +904,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                  </div>
                  <div>
                     <p className="text-[10px] font-black text-grey  uppercase tracking-widest italic transition-colors">Punti Reputazione</p>
-                    <p className="text-2xl font-black text-warning">{profile?.points || 0}</p>
+                    <p className="text-2xl font-black text-warning tabular-nums tracking-tight">{formatLoyaltyPoints(profile?.points ?? 0)}</p>
                  </div>
               </div>
               <button id="btn-show-leaderboard" onClick={() => setShowLeaderboard(true)}
@@ -1089,7 +1090,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
            </div>
            <div className="bg-white text-black p-5 rounded-[2rem] shadow-sm border border-grey/5  text-center transition-colors">
               <p className="text-[10px] font-bold text-grey  uppercase tracking-tighter mb-1 transition-colors">{t('profile.points')}</p>
-              <p className="text-lg font-black text-primary  transition-colors">{profile?.points || 0}</p>
+              <p className="text-lg font-black text-primary tabular-nums tracking-tight transition-colors">{formatLoyaltyPoints(profile?.points ?? 0)}</p>
            </div>
         </div>
 

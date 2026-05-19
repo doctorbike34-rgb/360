@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Trophy, Medal, Star, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { gamificationService } from '../services/gamificationService';
+import { formatLoyaltyPoints } from '../lib/loyaltyPoints';
 
 export function LeaderboardView({ onClose }: { onClose: () => void }) {
   const { user } = useAuthStore();
@@ -65,7 +66,7 @@ export function LeaderboardView({ onClose }: { onClose: () => void }) {
                      <p className="font-bold text-sm flex items-center gap-2">
                          {leader.name} {leader.uid === user?.uid && <span className="text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-full">TU</span>}
                      </p>
-                     <p className="text-xs text-grey border-b border-white/0">{tab.includes('weekly') ? leader.weeklyPoints || 0 : leader.points || 0} pt</p>
+                     <p className="text-xs text-grey tabular-nums">{formatLoyaltyPoints(tab.includes('weekly') ? leader.weeklyPoints ?? 0 : leader.points ?? 0)} pt</p>
                  </div>
                  {index === 0 && <Medal size={24} className="text-warning" />}
                  {index === 1 && <Medal size={24} className="text-grey/70" />}

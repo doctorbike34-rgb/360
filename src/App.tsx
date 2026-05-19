@@ -8,6 +8,10 @@ import { logger } from './lib/logger';
 import { useAuthStore } from './store/useAuthStore';
 import { useThemeStore } from './store/useThemeStore';
 import { gamificationService } from './services/gamificationService';
+import {
+  loyaltyPointsNeedSanitize,
+  normalizeLoyaltyPointsValue,
+} from './lib/loyaltyPoints';
 import { AlertTriangle, Loader2, Navigation2, X } from 'lucide-react';
 import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -53,6 +57,20 @@ export default function App() {
   const hasShownDailyToastRef = useRef(false);
   const hasClaimedDailyBonusRef = useRef(false);
   const adminBootstrappedRef = useRef(false);
+  const loyaltySanitizeAttemptedRef = useRef<string | null>(null);
+
+  const withIntegerLoyaltyPoints = (profileData: UserProfile): UserProfile => ({
+    ...profileData,
+    points: normalizeLoyaltyPointsValue(profileData.points),
+    weeklyPoints: normalizeLoyaltyPointsValue(profileData.weeklyPoints),
+  });
+
+  const maybeSanitizeLoyaltyPoints = (uid: string, profileData: UserProfile) => {
+    if (!loyaltyPointsNeedSanitize(profileData.points, profileData.weeklyPoints)) return;
+    if (loyaltySanitizeAttemptedRef.current === uid) return;
+    loyaltySanitizeAttemptedRef.current = uid;
+    void gamificationService.sanitizeUserLoyaltyPoints(uid);
+  };
 
   useEffect(() => {
     // End boot timer only on first full mount
@@ -167,17 +185,18 @@ export default function App() {
         
         const processProfileSnapshot = (snapshot: { exists: () => boolean; data: () => any }) => {
           if (snapshot.exists()) {
-            const profileData = snapshot.data() as UserProfile;
-            
+            const profileData = withIntegerLoyaltyPoints(snapshot.data() as UserProfile);
+            maybeSanitizeLoyaltyPoints(fbUser.uid, snapshot.data() as UserProfile);
+
             if (isAdmin) {
               if (profileData.role !== 'ADMIN' && !adminBootstrappedRef.current) {
                 adminBootstrappedRef.current = true;
                 updateDoc(doc(db, 'users', fbUser.uid), { role: 'ADMIN' }).catch(err => console.error("Admin bootstrap failed", err));
               }
               if (!adminSnap.exists()) {
-                setDoc(doc(db, 'admins', fbUser.uid), { 
-                  email: fbUser.email, 
-                  createdAt: serverTimestamp() 
+                setDoc(doc(db, 'admins', fbUser.uid), {
+                  email: fbUser.email,
+                  createdAt: serverTimestamp()
                 }).catch(err => console.error("Admin bootstrap failed", err));
               }
               setRole('ADMIN');
