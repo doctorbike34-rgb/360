@@ -1,15 +1,37 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFirestore } from 'firebase/firestore';
 import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
 import { getFunctions } from 'firebase/functions';
-import firebaseConfig from '../../firebase-applet-config.json';
+import fallbackFirebaseConfig from '../../firebase-applet-config.json';
 import { useAuthStore } from '../store/useAuthStore';
-import { RECAPTCHA_SITE_KEY } from '../config/env';
+import { FIREBASE_CONFIG, FIREBASE_FUNCTIONS_REGION, RECAPTCHA_SITE_KEY } from '../config/env';
 
-if (!firebaseConfig || !firebaseConfig.apiKey) {
-  console.error("Firebase configuration is missing or invalid in firebase-applet-config.json");
+function resolveFirebaseConfig(): FirebaseOptions {
+  const fromEnv = FIREBASE_CONFIG;
+  if (fromEnv.apiKey && fromEnv.projectId) {
+    return {
+      apiKey: fromEnv.apiKey,
+      authDomain: fromEnv.authDomain,
+      projectId: fromEnv.projectId,
+      storageBucket: fromEnv.storageBucket,
+      messagingSenderId: fromEnv.messagingSenderId,
+      appId: fromEnv.appId,
+      measurementId: fromEnv.measurementId,
+    };
+  }
+
+  console.warn(
+    '[firebase] VITE_FIREBASE_* missing in .env — using firebase-applet-config.json fallback'
+  );
+  return fallbackFirebaseConfig as FirebaseOptions;
+}
+
+const firebaseConfig = resolveFirebaseConfig();
+
+if (!firebaseConfig?.apiKey) {
+  console.error('Firebase configuration is missing. Set VITE_FIREBASE_* in .env');
 }
 
 export const app = initializeApp(firebaseConfig);
@@ -22,7 +44,7 @@ export const app = initializeApp(firebaseConfig);
 // if (typeof window !== 'undefined') {
 //   if (import.meta.env?.DEV) (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 //   if (!RECAPTCHA_SITE_KEY) {
-//     console.warn('RECAPTCHA_SITE_KEY is not configured. App Check will not be initialized.');
+//     console.warn('VITE_RECAPTCHA_SITE_KEY is not configured. App Check will not be initialized.');
 //   } else {
 //     try {
 //       initializeAppCheck(app, {
@@ -41,9 +63,7 @@ export const storage = getStorage(app);
 export const db = getFirestore(app);
 
 export const auth = getAuth(app);
-// Firebase Functions are deployed to europe-west1.
-// Ensure all callable functions match this region.
-export const functions = getFunctions(app, 'europe-west1');
+export const functions = getFunctions(app, FIREBASE_FUNCTIONS_REGION);
 
 export enum OperationType {
   CREATE = 'create',
@@ -115,7 +135,6 @@ export const getFCM = async () => {
   
   if (isSupportedFCM && !messaging && typeof window !== 'undefined') {
     try {
-      // FCM also requires ServiceWorker API
       if (!('serviceWorker' in navigator)) throw new Error('Missing ServiceWorker API');
       
       messaging = getMessaging(app);

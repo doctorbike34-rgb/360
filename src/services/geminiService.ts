@@ -1,15 +1,15 @@
 import { GoogleGenAI } from "@google/genai";
 import { db } from "../lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { GEMINI_API_KEY } from "../config/env";
 
 let aiClient: GoogleGenAI | null = null;
 function getAI() {
   if (!aiClient) {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) {
+    if (!GEMINI_API_KEY) {
       console.error("VITE_GEMINI_API_KEY is not defined in .env");
     }
-    aiClient = new GoogleGenAI({ apiKey: apiKey || '' });
+    aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
   return aiClient;
 }

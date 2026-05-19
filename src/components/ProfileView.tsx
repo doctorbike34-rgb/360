@@ -8,6 +8,7 @@ import { httpsCallable } from 'firebase/functions';
 import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs, getDoc, onSnapshot, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
+import { getCloudFunctionUrl } from '../config/env';
 import { 
   CreditCard, 
   Settings, 
@@ -245,7 +246,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       const idToken = await user.getIdToken();
       console.log('Generated ID Token (exists):', !!idToken);
       const returnUrl = `${window.location.origin}/profile`;
-      const response = await fetch('https://europe-west1-doctorbike-v2.cloudfunctions.net/createCheckoutSession', {
+      const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -439,7 +440,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     try {
       const idToken = await user.getIdToken();
       const returnUrl = `${window.location.origin}/profile`;
-      const response = await fetch('https://europe-west1-doctorbike-v2.cloudfunctions.net/createCheckoutSession', {
+      const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

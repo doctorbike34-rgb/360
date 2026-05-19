@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import { initLogger, logger } from './lib/logger';
 import { initAnalytics } from './lib/analytics';
 import { useAuthStore } from './store/useAuthStore';
+import { validateClientEnv } from './config/env';
 
 // Suppress noisy Firebase quota errors
 const originalConsoleError = console.error;
@@ -14,6 +15,8 @@ console.error = (...args: any[]) => {
   }
   originalConsoleError(...args);
 };
+
+validateClientEnv();
 
 // Initialize tracking and error monitoring
 initLogger();

@@ -22,6 +22,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from '../store/useAuthStore';
+import { getCloudFunctionUrl } from '../config/env';
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -214,7 +215,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       
       const idToken = await user.getIdToken();
       const returnUrl = `${window.location.origin}/onboarding`;
-      const response = await fetch('https://europe-west1-doctorbike-v2.cloudfunctions.net/createCheckoutSession', {
+      const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

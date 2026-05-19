@@ -1,14 +1,14 @@
 import { getAnalytics, logEvent, setUserId as setFbUserId, isSupported as isAnalyticsSupported, Analytics } from 'firebase/analytics';
 import mixpanel from 'mixpanel-browser';
 import { app } from './firebase';
+import { MIXPANEL_TOKEN } from '../config/env';
 
 let analytics: Analytics | null = null;
 let mixpanelInitialized = false;
 
 export const initAnalytics = async () => {
-  const mixpanelToken = import.meta.env.VITE_MIXPANEL_TOKEN;
-  if (mixpanelToken) {
-    mixpanel.init(mixpanelToken, { debug: import.meta.env.DEV, track_pageview: true, persistence: 'localStorage' });
+  if (MIXPANEL_TOKEN) {
+    mixpanel.init(MIXPANEL_TOKEN, { debug: import.meta.env.DEV, track_pageview: true, persistence: 'localStorage' });
     mixpanelInitialized = true;
     console.log("Mixpanel initialized");
   } else {
