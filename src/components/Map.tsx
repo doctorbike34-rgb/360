@@ -354,7 +354,7 @@ function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: 
   const lastFlyPosRef = useRef<string | null>(null);
   const initialCenterSet = useRef(false);
 
-  const customIcon = useMemo(() => avatarUrl ? userMarkerIcon('#3B82F6', true) : undefined, [avatarUrl]);
+  const customIcon = useMemo(() => avatarUrl ? avatarMarkerIcon(avatarUrl, '#3B82F6', 36, true) : undefined, [avatarUrl]);
 
   const isValidPosition = position && position.length === 2 && 
                            Number.isFinite(position[0]) && 
