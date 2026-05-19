@@ -4,25 +4,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, MapPin as MapIcon, Image as ImageIcon, CheckCircle2, Loader2, AlertTriangle, Route, Navigation2, LogIn } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
-import L from 'leaflet';
 import imageCompression from 'browser-image-compression';
 import { useAuthStore } from '../store/useAuthStore';
 import { roadReportService } from '../services/roadReportService';
 import { fileToBase64 } from '../lib/fileUtils';
-
-// Fix for Leaflet default icons in Vite
-const icon = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';
-const iconShadow = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
-
-const DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-
-L.Marker.prototype.options.icon = DefaultIcon;
-
 const SEVERITIES = [
   { id: 'low', color: 'bg-yellow-500' },
   { id: 'medium', color: 'bg-orange-500' },

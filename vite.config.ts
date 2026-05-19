@@ -62,13 +62,14 @@ export default defineConfig(({mode}) => {
             'react-vendor': ['react', 'react-dom', 'zustand'],
             'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage', 'firebase/functions'],
             'ui-vendor': ['motion', 'lucide-react', 'react-hot-toast'],
-            'map-vendor': ['leaflet', 'react-leaflet']
+            'map-vendor': ['react-leaflet']
           }
         }
       }
     },
     envPrefix: ['VITE_'],
     resolve: {
+      dedupe: ['leaflet', 'react-leaflet'],
       alias: {
         '@': path.resolve(__dirname, './src'),
         'root': path.resolve(__dirname, '.')

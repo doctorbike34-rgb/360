@@ -5,7 +5,7 @@ import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, update
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Users, MapPin, Plus, Bike, ChevronRight, X, Clock, MessageCircle, ArrowLeft, Search } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
-import L from 'leaflet';
+import { defaultMarkerIcon } from '../lib/leafletIcons';
 import { gamificationService } from '../services/gamificationService';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 
@@ -36,12 +36,7 @@ function DraggableMarker({ position, setPosition }: { position: [number, number]
       eventHandlers={eventHandlers}
       position={position}
       ref={markerRef}
-      icon={L.icon({
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-        iconSize: [25, 41],
-        iconAnchor: [12, 41]
-      })}
+      icon={defaultMarkerIcon()}
     />
   );
 }

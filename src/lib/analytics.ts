@@ -11,7 +11,7 @@ export const initAnalytics = async () => {
     mixpanel.init(MIXPANEL_TOKEN, { debug: import.meta.env.DEV, track_pageview: true, persistence: 'localStorage' });
     mixpanelInitialized = true;
     console.log("Mixpanel initialized");
-  } else {
+  } else if (import.meta.env.DEV) {
     console.info("Set VITE_MIXPANEL_TOKEN in .env to enable Mixpanel logs.");
   }
 

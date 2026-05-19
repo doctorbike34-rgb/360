@@ -9,19 +9,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { db } from '../lib/firebase';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
-import L from 'leaflet';
 import { useTranslation } from 'react-i18next';
-
-// Fix for Leaflet default icons in Vite
-const icon = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';
-const iconShadow = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
-
-const DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
+import { defaultMarkerIcon } from '../lib/leafletIcons';
 
 interface RoadReportDetailModalProps {
   report: RoadReport | null;
@@ -179,7 +168,7 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                     className="w-full h-full"
                   >
                     <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                    <Marker position={[report.location.lat, report.location.lng]} icon={DefaultIcon} />
+                    <Marker position={[report.location.lat, report.location.lng]} icon={defaultMarkerIcon()} />
                   </MapContainer>
                 </div>
               )}

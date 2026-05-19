@@ -18,7 +18,7 @@ export const initLogger = () => {
     });
     isSentryInitialized = true;
     console.log("Sentry initialized");
-  } else {
+  } else if (import.meta.env.DEV) {
     console.info("Sentry DSN not found. Set VITE_SENTRY_DSN in .env for error tracking.");
   }
 };
