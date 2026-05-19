@@ -5,16 +5,14 @@ import { FIREBASE_VAPID_KEY } from '../config/env';
 import { safeStorage } from './storage';
 
 let lastRequestTime = 0;
-let fcmSwRegistration: ServiceWorkerRegistration | null = null;
 
+/** Use the active PWA service worker (includes FCM via importScripts). */
 async function getFcmServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | undefined> {
   if (!('serviceWorker' in navigator)) return undefined;
-  if (fcmSwRegistration) return fcmSwRegistration;
   try {
-    fcmSwRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-    return fcmSwRegistration;
+    return await navigator.serviceWorker.ready;
   } catch (err) {
-    console.warn('[FCM] firebase-messaging-sw.js registration failed', err);
+    console.warn('[FCM] service worker not ready', err);
     return undefined;
   }
 }
@@ -69,11 +67,29 @@ export const onForegroundMessage = async (callback: (payload: unknown) => void) 
   });
 };
 
-export const showLocalNotification = (title: string, options?: NotificationOptions) => {
-  if (Notification.permission === 'granted') {
-    new Notification(title, {
-      icon: '/icon.svg',
-      ...options
-    });
+/** Show a system notification via the service worker (works on mobile PWA). */
+export const showLocalNotification = async (title: string, options?: NotificationOptions) => {
+  if (Notification.permission !== 'granted') return;
+
+  const payload: NotificationOptions = {
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    ...options,
+  };
+
+  try {
+    const registration = await getFcmServiceWorkerRegistration();
+    if (registration?.showNotification) {
+      await registration.showNotification(title, payload);
+      return;
+    }
+  } catch (err) {
+    console.warn('[notifications] SW showNotification failed, falling back', err);
+  }
+
+  try {
+    new Notification(title, payload);
+  } catch (err) {
+    console.warn('[notifications] Notification constructor failed', err);
   }
 };

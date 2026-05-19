@@ -20,6 +20,7 @@ export default defineConfig(({mode}) => {
         injectRegister: false,
         includeManifestIcons: true,
         workbox: {
+          importScripts: ['firebase-messaging-sw-import.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           navigateFallback: 'index.html',
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB

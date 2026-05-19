@@ -1,4 +1,5 @@
 /* eslint-disable no-undef */
+// Loaded via Workbox importScripts — handles FCM background push in the main PWA service worker.
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
@@ -25,6 +26,28 @@ messaging.onBackgroundMessage((payload) => {
     data: payload.data || {},
   };
   return self.registration.showNotification(title, options);
+});
+
+self.addEventListener('push', (event) => {
+  if (event.data) {
+    try {
+      const payload = event.data.json();
+      if (payload.notification) {
+        const n = payload.notification;
+        event.waitUntil(
+          self.registration.showNotification(n.title || 'DoctorBike', {
+            body: n.body || '',
+            icon: n.icon || '/icon.svg',
+            badge: '/icon.svg',
+            tag: payload.data?.tag || 'db360',
+            data: payload.data || {},
+          })
+        );
+      }
+    } catch (_e) {
+      // onBackgroundMessage handles FCM-formatted payloads
+    }
+  }
 });
 
 self.addEventListener('notificationclick', (event) => {

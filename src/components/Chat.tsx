@@ -91,19 +91,17 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
            if (!hasResetUnread) {
               const nestedUnread = data.unreadCount?.[user.uid] || 0;
               const flatUnread = data[`unreadCount.${user.uid}`] || undefined;
-              
+              const readUpdates: Record<string, unknown> = {
+                [`lastReadAt.${user.uid}`]: serverTimestamp(),
+              };
               if (flatUnread !== undefined) {
-                 updateDoc(
-                   chatDocRef, 
-                   { [`unreadCount.${user.uid}`]: deleteField() }
-                 ).catch((e) => console.error('Failed to delete flat unread count', e));
+                readUpdates[`unreadCount.${user.uid}`] = deleteField();
+              } else if (nestedUnread > 0 || isAdminSupport) {
+                readUpdates[`unreadCount.${user.uid}`] = 0;
               }
-
-              if (nestedUnread > 0) {
-                 updateDoc(chatDocRef, {
-                    [`unreadCount.${user.uid}`]: 0
-                 }).catch((e) => console.error('Failed to reset unread count', e));
-              }
+              updateDoc(chatDocRef, readUpdates).catch((e) =>
+                console.error('Failed to reset unread/read state', e)
+              );
               hasResetUnread = true;
            }
         } else if (!isAdminSupport && chatId.startsWith('direct_')) {
@@ -232,9 +230,11 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       
       const parentUpdates: Record<string, any> = {
         lastMessage: msgContent,
+        lastMessageSenderId: user.uid,
         updatedAt: serverTimestamp(),
         lastMessageAt: serverTimestamp(),
-        [`unreadCount.${user.uid}`]: 0 // Reset self unread
+        [`unreadCount.${user.uid}`]: 0,
+        [`lastReadAt.${user.uid}`]: serverTimestamp(),
       };
 
       // Increment unread count for the other party
@@ -344,8 +344,10 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
         
         const updates: Record<string, unknown> = {
           lastMessage: '📷 Foto',
+          lastMessageSenderId: user.uid,
           updatedAt: serverTimestamp(),
-          lastMessageAt: serverTimestamp()
+          lastMessageAt: serverTimestamp(),
+          [`unreadCount.${user.uid}`]: 0,
         };
 
         if (!docSnap.exists()) {

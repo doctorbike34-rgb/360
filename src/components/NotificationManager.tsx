@@ -12,6 +12,7 @@ export const NotificationManager: React.FC = () => {
   const [showPermissionPrompt, setShowPermissionPrompt] = React.useState(false);
   const lastSOSRef = useRef<Record<string, string>>({});
   const lastUnreadRef = useRef<Record<string, number>>({});
+  const chatsInitializedRef = useRef(false);
   const processedMechanicSOS = useRef<Map<string, number>>(new Map());
   const hasRequestedPermission = useRef<string | null>(null);
   const fcmUnsubRef = useRef<() => void>(() => {});
@@ -30,7 +31,7 @@ export const NotificationManager: React.FC = () => {
 
   const notify = (title: string, options?: NotificationOptions & { isSOS?: boolean }) => {
     playNotificationSound(options?.isSOS);
-    showLocalNotification(title, options);
+    void showLocalNotification(title, options);
   };
 
     useEffect(() => {
@@ -173,26 +174,29 @@ export const NotificationManager: React.FC = () => {
       );
 
       cleanupChats = onSnapshot(q, (snapshot) => {
-        snapshot.docs.forEach(doc => {
-          const data = doc.data();
+        snapshot.docs.forEach(docSnap => {
+          const data = docSnap.data();
           const nestedUnread = data.unreadCount?.[user.uid] || 0;
           const flatUnread = data[`unreadCount.${user.uid}`] || 0;
           const unreadNow = nestedUnread + flatUnread;
-          const unreadBefore = lastUnreadRef.current[doc.id] || 0;
-          
-          if (unreadNow > unreadBefore) {
-             const activeChatId = useAuthStore.getState().activeChatId;
-             if (activeChatId !== doc.id) {
-               // Only notify if not currently looking at this chat
-               const senderName = data.id && data.id.startsWith('direct_') ? (data.title || 'Nuovo Messaggio') : data.title || 'Nuovo Messaggio Gruppo';
-               notify(senderName, {
-                 body: data.lastMessage || 'Hai ricevuto un nuovo messaggio.',
-                 tag: `chat-${doc.id}`
-               });
-             }
+          const unreadBefore = lastUnreadRef.current[docSnap.id] ?? 0;
+
+          if (chatsInitializedRef.current && unreadNow > unreadBefore) {
+            const activeChatId = useAuthStore.getState().activeChatId;
+            const fromSelf = data.lastMessageSenderId === user.uid;
+            if (activeChatId !== docSnap.id && !fromSelf) {
+              const senderName = docSnap.id.startsWith('direct_')
+                ? (data.title || 'Nuovo Messaggio')
+                : data.title || 'Nuovo Messaggio Gruppo';
+              notify(senderName, {
+                body: data.lastMessage || 'Hai ricevuto un nuovo messaggio.',
+                tag: `chat-${docSnap.id}`,
+              });
+            }
           }
-          lastUnreadRef.current[doc.id] = unreadNow;
+          lastUnreadRef.current[docSnap.id] = unreadNow;
         });
+        chatsInitializedRef.current = true;
       }, (err) => {
          if (!err.message?.includes('Quota')) {
            console.error("Error polling chats for notifications", err);
@@ -202,6 +206,8 @@ export const NotificationManager: React.FC = () => {
 
     return () => {
       fcmUnsubRef.current();
+      chatsInitializedRef.current = false;
+      lastUnreadRef.current = {};
       if (cleanupSOS) cleanupSOS();
       if (cleanupNearby) cleanupNearby();
       if (cleanupChats) cleanupChats();
