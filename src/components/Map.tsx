@@ -189,17 +189,63 @@ const DefaultIcon = L.icon({
     iconAnchor: [12, 41]
 });
 
-function createMarkerIcon(color: string, size: number = 25): L.Icon {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="${size}" height="${size * 1.5}"><path d="M12 0C7.03 0 3 4.03 3 9c0 6.75 9 15 9 15s9-8.25 9-15c0-4.97-4.03-9-9-9z" fill="${color}" stroke="white" stroke-width="1.5"/><circle cx="12" cy="9" r="4" fill="white" opacity="0.9"/></svg>`;
+L.Marker.prototype.options.icon = DefaultIcon;
+
+function makeSvgIcon(svg: string, size: number, anchor: [number, number]): L.Icon {
   return L.icon({
     iconUrl: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
-    iconSize: [size, size * 1.5],
-    iconAnchor: [size / 2, size * 1.5],
-    popupAnchor: [0, -size * 1.2]
+    iconSize: [size, size],
+    iconAnchor: anchor,
+    popupAnchor: [0, -size / 2]
   });
 }
 
-L.Marker.prototype.options.icon = DefaultIcon;
+function userMarkerIcon(color: string, online: boolean): L.Icon {
+  const dot = online ? `<circle cx="26" cy="26" r="5" fill="#22C55E" stroke="white" stroke-width="2"/>` : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+    <circle cx="16" cy="16" r="14" fill="${color}" opacity="0.2" stroke="${color}" stroke-width="2"/>
+    <circle cx="16" cy="16" r="8" fill="${color}" opacity="0.6"/>
+    ${dot}
+  </svg>`;
+  return makeSvgIcon(svg, 32, [16, 16]);
+}
+
+function mechanicMarkerIcon(status: string, online: boolean): L.Icon {
+  const pulse = status === 'TRAVELING' ? `<animate attributeName="r" values="14;18;14" dur="1.5s" repeatCount="indefinite"/>` : '';
+  const dot = online ? `<circle cx="26" cy="26" r="5" fill="#22C55E" stroke="white" stroke-width="2"/>` : '';
+  const color = status === 'TRAVELING' ? '#F97316' : '#EA580C';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+    <circle cx="18" cy="18" r="14" fill="${color}" opacity="0.25" stroke="${color}" stroke-width="2.5">
+      ${pulse}
+    </circle>
+    <circle cx="18" cy="18" r="10" fill="${color}" opacity="0.7"/>
+    <circle cx="18" cy="18" r="5" fill="white" opacity="0.9"/>
+    ${dot}
+  </svg>`;
+  return makeSvgIcon(svg, 36, [18, 18]);
+}
+
+function reportMarkerIcon(severity: string): L.Icon {
+  const colors: Record<string, string> = { low: '#EAB308', medium: '#F97316', high: '#EF4444' };
+  const color = colors[severity] || '#EAB308';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+    <circle cx="16" cy="16" r="14" fill="${color}" opacity="0.3" stroke="${color}" stroke-width="2"/>
+    <path d="M16 8 L22 22 L10 22 Z" fill="${color}" stroke="white" stroke-width="1" stroke-linejoin="round"/>
+    <circle cx="16" cy="18" r="1.5" fill="white"/>
+    <line x1="16" y1="13" x2="16" y2="15.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`;
+  return makeSvgIcon(svg, 32, [16, 16]);
+}
+
+function eventMarkerIcon(): L.Icon {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+    <circle cx="20" cy="20" r="18" fill="#EA580C" opacity="0.2" stroke="#EA580C" stroke-width="2"/>
+    <circle cx="20" cy="20" r="14" fill="#EA580C" opacity="0.5"/>
+    <circle cx="20" cy="20" r="10" fill="white" opacity="0.9"/>
+    <text x="20" y="24" text-anchor="middle" font-size="14" fill="#EA580C">🚲</text>
+  </svg>`;
+  return makeSvgIcon(svg, 40, [20, 20]);
+}
 
 function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslation }: {
   mechanic: any;
@@ -207,8 +253,8 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
 }) {
-  const color = mechanic.mechanicStatus === 'TRAVELING' ? '#F97316' : '#EA580C';
-  const icon = useMemo(() => createMarkerIcon(color, 30), [color]);
+  const icon = useMemo(() => mechanicMarkerIcon(mechanic.mechanicStatus, mechanic.isOnline),
+    [mechanic.mechanicStatus, mechanic.isOnline]);
 
   return (
     <Marker position={[mechanic.lastLat, mechanic.lastLng]} icon={icon}>
@@ -229,7 +275,7 @@ function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColo
 }) {
   const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', '[#8B5CF6]': '#8B5CF6' };
   const color = colorMap[roleColor] || '#3B82F6';
-  const icon = useMemo(() => createMarkerIcon(color, 25), [color]);
+  const icon = useMemo(() => userMarkerIcon(color, u.isOnline), [color, u.isOnline]);
 
   return (
     <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
@@ -246,8 +292,7 @@ function ReportMarker({ report, isSelected, t, onClick }: {
   t: TFunction;
   onClick: () => void;
 }) {
-  const color = report.severity === 'high' ? '#EF4444' : report.severity === 'medium' ? '#F97316' : '#EAB308';
-  const icon = useMemo(() => createMarkerIcon(color, 28), [color]);
+  const icon = useMemo(() => reportMarkerIcon(report.severity), [report.severity]);
 
   const lat = report.location?.lat ?? report.location?.latitude;
   const lng = report.location?.lng ?? report.location?.longitude;
@@ -257,7 +302,7 @@ function ReportMarker({ report, isSelected, t, onClick }: {
     <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
       <Popup>
         <div className="p-1 min-w-[140px]">
-          <div className="font-black uppercase text-sm leading-tight mb-1" style={{ color }}>{t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '') as any}</div>
+          <div className="font-black uppercase text-sm leading-tight mb-1">{t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '') as any}</div>
           <div className="text-[10px] text-black/70 mb-2 truncate max-w-[150px]">{report?.description}</div>
           <div className="flex items-center justify-between text-[9px] font-bold text-grey uppercase mt-2 mb-3">
             <span>Upvotes: {report?.upvotes?.length || 0}</span>
@@ -273,7 +318,7 @@ function EventMarker({ event, onClick }: {
   event: any;
   onClick: () => void;
 }) {
-  const icon = useMemo(() => createMarkerIcon('#EA580C', 32), []);
+  const icon = useMemo(() => eventMarkerIcon(), []);
 
   const lat = event.lastLat ?? event.lat ?? event.location?.latitude;
   const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
@@ -303,7 +348,7 @@ function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: 
   const lastFlyPosRef = useRef<string | null>(null);
   const initialCenterSet = useRef(false);
 
-  const customIcon = useMemo(() => avatarUrl ? createMarkerIcon('#3B82F6', 30) : undefined, [avatarUrl]);
+  const customIcon = useMemo(() => avatarUrl ? userMarkerIcon('#3B82F6', true) : undefined, [avatarUrl]);
 
   const isValidPosition = position && position.length === 2 && 
                            Number.isFinite(position[0]) && 
