@@ -51,6 +51,7 @@ import { formatLoyaltyPoints } from '../lib/loyaltyPoints';
 import { InterventionHistory } from './InterventionHistory';
 import { gamificationService } from '../services/gamificationService';
 import { requestEurPayout } from '../lib/payoutService';
+import { runProductionReset } from '../lib/adminTools';
 
 import { P2PWalletModal } from './P2PWalletModal';
 import { TransactionsModal } from './TransactionsModal';
@@ -560,111 +561,15 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   };
 
   const [isResetting, setIsResetting] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const performProductionReset = async () => {
     if (role !== 'ADMIN') return;
     setIsResetting(true);
     try {
-      console.log('Starting Production Reset...');
-      
-      // 1. Clear SOS Requests
-      const sosSnap = await getDocs(collection(db, 'sosRequests'));
-      for (const docSnap of sosSnap.docs) {
-        await deleteDoc(doc(db, 'sosRequests', docSnap.id));
-      }
-      console.log('SOS Requests cleared');
-
-      // 2. Clear Chats
-      const chatSnap = await getDocs(collection(db, 'chats'));
-      for (const docSnap of chatSnap.docs) {
-        await deleteDoc(doc(db, 'chats', docSnap.id));
-      }
-      console.log('Chats cleared');
-
-      // 3. Clear Reviews
-      const reviewSnap = await getDocs(collection(db, 'reviews'));
-      for (const docSnap of reviewSnap.docs) {
-        await deleteDoc(doc(db, 'reviews', docSnap.id));
-      }
-      console.log('Reviews cleared');
-
-      // 4. Delete Users (except ADMINs) and Reset ADMIN Stats
-      const userSnap = await getDocs(collection(db, 'users'));
-      for (const docSnap of userSnap.docs) {
-        const userData = docSnap.data();
-        if (userData.role === 'ADMIN') {
-          await updateDoc(doc(db, 'users', docSnap.id), {
-            balance: 0,
-            completedJobs: 0,
-            points: 0,
-            totalEarnings: 0,
-            hasWelcomeGift: true, // Re-enable welcome gift for new production users
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          await deleteDoc(doc(db, 'users', docSnap.id));
-        }
-      }
-      console.log('Users cleared (Admins reset)');
-
-      // 5. Clear Support Tickets
-      const ticketSnap = await getDocs(collection(db, 'supportTickets'));
-      for (const docSnap of ticketSnap.docs) {
-        await deleteDoc(doc(db, 'supportTickets', docSnap.id));
-      }
-      console.log('Support tickets cleared');
-
-      // 6. Clear AI Conversations
-      const aiConvSnap = await getDocs(collection(db, 'aiConversations'));
-      for (const docSnap of aiConvSnap.docs) {
-        await deleteDoc(doc(db, 'aiConversations', docSnap.id));
-      }
-      console.log('AI Conversations cleared');
-
-      // 7. Clear Mechanic Stats
-      const mechSnap = await getDocs(collection(db, 'mechanics'));
-      for (const docSnap of mechSnap.docs) {
-        await deleteDoc(doc(db, 'mechanics', docSnap.id));
-      }
-      console.log('Mechanic statistics cleared');
-
-      // 7.1 Clear Events
-      const eventsSnap = await getDocs(collection(db, 'events'));
-      for (const docSnap of eventsSnap.docs) {
-        await deleteDoc(doc(db, 'events', docSnap.id));
-      }
-      console.log('Events cleared');
-
-      // 7.2 Clear Road Reports
-      const roadReportsSnap = await getDocs(collection(db, 'roadReports'));
-      for (const docSnap of roadReportsSnap.docs) {
-        await deleteDoc(doc(db, 'roadReports', docSnap.id));
-      }
-      console.log('Road reports cleared');
-
-      // 8. Reset Platform Global Stats
-      await setDoc(doc(db, 'platformStats', 'global'), {
-        totalFees: 0,
-        totalTransactions: 0,
-        completedJobs: 0,
-        updatedAt: serverTimestamp()
-      });
-      console.log('Platform stats reset');
-      
-      // 9. Clear Authentication Emails (Except Admins)
-      console.log('Clearing Authentication emails...');
-      try {
-        const clearAuth = httpsCallable(functions, 'clearAllUsersAuth');
-        const result = await clearAuth();
-        console.log('Authentication cleared:', result.data);
-      } catch (authErr) {
-        console.error('Error clearing auth emails:', authErr);
-        // We continue even if auth clearing fails, as Firestore is already reset
-      }
-
-      toast.success('Reset per la produzione completato con successo!');
-      setShowResetConfirm(false);
+      const summary = await runProductionReset();
+      const users = summary.usersDeleted ?? 0;
+      const auth = summary.authDeleted ?? 0;
+      toast.success(`Reset produzione completato. Utenti rimossi: ${users}, Auth: ${auth}`);
     } catch (err) {
       console.error('Error during production reset:', err);
       toast.error('Errore durante il reset: ' + (err instanceof Error ? err.message : String(err)));
@@ -1152,8 +1057,20 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
 
            {role === 'ADMIN' && (
              <div className="pt-4 mt-4 border-t border-danger/10">
-               <button onClick={() => setShowResetConfirm(true)}
-                 className="w-full flex items-center gap-4 p-5 bg-danger/5 hover:bg-danger/10 rounded-3xl transition-all border border-danger/20 group"
+               <button
+                 type="button"
+                 disabled={isResetting}
+                 onClick={() =>
+                   requestConfirm({
+                     title: 'Reset produzione',
+                     message:
+                       'Azione irreversibile: elimina utenti (tranne admin), SOS, chat, recensioni, ticket, eventi e azzera le statistiche. Continuare?',
+                     variant: 'danger',
+                     confirmLabel: isResetting ? 'In corso…' : 'Reset',
+                     onConfirm: performProductionReset,
+                   })
+                 }
+                 className="w-full flex items-center gap-4 p-5 bg-danger/5 hover:bg-danger/10 rounded-3xl transition-all border border-danger/20 group disabled:opacity-50"
                >
                  <div className="w-10 h-10 bg-danger/10 rounded-2xl flex items-center justify-center text-danger group-hover:scale-110 transition-transform">
                    <AlertCircle size={20}/>

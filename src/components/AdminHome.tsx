@@ -42,6 +42,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/useAuthStore';
 import { Transaction, Subscription, SupportTicket, AIConversation, PlatformStats, UserProfile, SOSRequest, RoadReport, PayoutRequest } from '../types';
 import { processEurPayout } from '../lib/payoutService';
+import { sanitizeAllLoyaltyPoints, runProductionReset } from '../lib/adminTools';
 import { Map } from './Map';
 import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { Chat } from './Chat';
@@ -609,24 +610,50 @@ export function AdminHome() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-8 max-w-full mx-auto"
             >
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const fn = httpsCallable(functions, 'sanitizeAllLoyaltyPoints');
-                      const res = await fn({});
-                      const data = res.data as { fixed?: number; scanned?: number };
-                      toast.success(`Punti fedeltà corretti: ${data.fixed ?? 0} / ${data.scanned ?? 0} utenti`);
-                    } catch (e: unknown) {
-                      toast.error(e instanceof Error ? e.message : 'Errore correzione punti');
+              <motion.div className="bg-white border-2 border-primary/20 rounded-[2rem] p-6 shadow-md space-y-4">
+                <h3 className="text-sm font-black text-primary uppercase tracking-widest">Strumenti admin</h3>
+                <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const { fixed, scanned } = await sanitizeAllLoyaltyPoints();
+                        toast.success(`Punti fedeltà corretti: ${fixed} / ${scanned} utenti`);
+                      } catch (e: unknown) {
+                        toast.error(e instanceof Error ? e.message : 'Errore correzione punti');
+                      }
+                    }}
+                    className="flex-1 min-w-[200px] bg-warning/10 text-warning border border-warning/30 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-warning/20"
+                  >
+                    Correggi decimali punti (tutti)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      requestConfirm({
+                        title: 'Reset produzione',
+                        message:
+                          'Elimina tutti i dati operativi e gli utenti non admin. Irreversibile.',
+                        variant: 'danger',
+                        confirmLabel: 'Reset produzione',
+                        onConfirm: async () => {
+                          try {
+                            const summary = await runProductionReset();
+                            toast.success(
+                              `Reset ok. Utenti: ${summary.usersDeleted ?? 0}, Auth: ${summary.authDeleted ?? 0}`
+                            );
+                          } catch (e: unknown) {
+                            toast.error(e instanceof Error ? e.message : 'Reset fallito');
+                          }
+                        },
+                      })
                     }
-                  }}
-                  className="bg-warning/10 text-warning border border-warning/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-warning/20"
-                >
-                  Correggi decimali punti (tutti)
-                </button>
-              </div>
+                    className="flex-1 min-w-[200px] bg-danger/10 text-danger border border-danger/30 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-danger/20"
+                  >
+                    Reset produzione
+                  </button>
+                </div>
+              </motion.div>
               {/* Stats Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white text-black p-8 rounded-[2.5rem] shadow-sm border border-grey/5">

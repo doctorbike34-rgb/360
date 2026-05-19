@@ -265,6 +265,7 @@ service cloud.firestore {
     match /payoutRequests/{payoutId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow write: if false;
+      allow delete: if isAdmin();
     }
   }
 }
