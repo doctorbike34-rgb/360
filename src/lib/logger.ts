@@ -1,12 +1,13 @@
 import * as Sentry from "@sentry/react";
-import { SENTRY_DSN } from '../config/env';
+import { getSentryDsn } from '../config/env';
 
 let isSentryInitialized = false;
 
 export const initLogger = () => {
-  if (SENTRY_DSN) {
+  const dsn = getSentryDsn();
+  if (dsn) {
     Sentry.init({
-      dsn: SENTRY_DSN,
+      dsn,
       integrations: [
         Sentry.browserTracingIntegration(),
       ],

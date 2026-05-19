@@ -8,6 +8,7 @@ import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import { defaultMarkerIcon } from '../lib/leafletIcons';
 import { gamificationService } from '../services/gamificationService';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
+import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 
 function DraggableMarker({ position, setPosition }: { position: [number, number], setPosition: (pos: [number, number]) => void }) {
   const map = useMap();
@@ -143,7 +144,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
         return Array.from(merged.values()).slice(0, 50);
       });
     }, (error: any) => {
-      if (error.message?.includes('Quota exceeded')) setQuotaError(true);
+      if (isFirestoreQuotaError(error)) setQuotaError(true);
       else console.warn('Error listening to nearby cyclists', error);
     }));
 
@@ -166,7 +167,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
         });
       setEvents(docs);
     }, (error: any) => {
-      if (error.message.includes('Quota exceeded')) setQuotaError(true);
+      if (isFirestoreQuotaError(error)) setQuotaError(true);
       console.warn('Error listening to events', error);
     });
 

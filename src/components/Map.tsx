@@ -14,6 +14,7 @@ import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
+import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 import { UserProfile, SOSRequest } from '../types';
 import { Crosshair, Navigation, Map as MapIcon, Layers, Users, Clock, Star, Clock4, MessageCircle, Sun, Moon, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -493,7 +494,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         });
         syncUsers();
       }, (error: any) => {
-        if (error.message.includes('Quota exceeded')) setQuotaError?.(true);
+        if (isFirestoreQuotaError(error)) setQuotaError?.(true);
       });
       unsubs.push(unsub);
     }

@@ -12,6 +12,7 @@ import { AlertTriangle, Loader2, Navigation2, X } from 'lucide-react';
 import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { geohashForLocation } from 'geofire-common';
+import { isFirestoreQuotaError } from './lib/firestoreErrors';
 
 import { Auth } from './components/Auth';
 import { WelcomePopup } from './components/WelcomePopup';
@@ -254,7 +255,7 @@ export default function App() {
             processProfileSnapshot({ exists: () => snap.exists(), data: () => snap.data() });
           }).catch((getDocError) => {
             console.error('getDoc fallback also failed:', getDocError.code || getDocError.message);
-            if (getDocError.message?.includes('Quota exceeded')) {
+            if (isFirestoreQuotaError(getDocError)) {
               setQuotaError(true);
             }
             setProfile(null);
@@ -384,7 +385,7 @@ export default function App() {
         appLastUpdateRef.current.lng = coords.longitude;
       } catch (err) {
         appLastUpdateRef.current.isWriting = false;
-        if (err instanceof Error && (err.message.includes('Quota exceeded') || err.message.includes('quota limits'))) {
+        if (isFirestoreQuotaError(err)) {
           setQuotaError(true);
         } else {
           console.error('Error updating global location:\n' + err);
@@ -486,9 +487,9 @@ export default function App() {
               <div className="flex items-start justify-center gap-3 max-w-lg mx-auto">
                 <AlertTriangle size={20} className="shrink-0 mt-0.5 text-white/90" />
                 <div className="text-left">
-                  <p className="font-black text-sm uppercase tracking-wider">Limite Quota Raggiunto</p>
+                  <p className="font-black text-sm uppercase tracking-wider">Limite Firestore raggiunto</p>
                   <p className="text-xs text-white/80 mt-1 leading-relaxed">
-                    Alcune funzioni potrebbero essere momentaneamente limitate. I dati verranno aggiornati automaticamente al reset del piano.
+                    Hai superato un limite di lettura/scrittura Firestore. Se hai un piano a pagamento, attendi qualche minuto o verifica l&apos;uso nella console Firebase.
                   </p>
                 </div>
                 <button onClick={() => useAuthStore.getState().setQuotaError(false)} aria-label="Dismiss quota warning" className="shrink-0 p-1.5 hover:bg-white/20 rounded-full transition-colors">

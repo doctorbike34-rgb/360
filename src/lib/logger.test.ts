@@ -41,7 +41,7 @@ describe('logger', () => {
 
       loggerModule.logger.error(mockError, mockContext);
 
-      expect(console.error).toHaveBeenCalledWith('🔴 [Error Logger]:', mockError, mockContext);
+      expect(console.error).toHaveBeenCalledWith('[Error Logger]:', mockError, mockContext);
       expect(Sentry.captureException).not.toHaveBeenCalled();
     });
 
@@ -51,7 +51,7 @@ describe('logger', () => {
 
       loggerModule.logger.info(mockMessage, mockContext);
 
-      expect(console.info).toHaveBeenCalledWith('🔵 [Info Logger]:', mockMessage, mockContext);
+      expect(console.info).toHaveBeenCalledWith('[Info Logger]:', mockMessage, mockContext);
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
     });
 
@@ -74,7 +74,7 @@ describe('logger', () => {
 
       loggerModule.logger.error(mockError, mockContext);
 
-      expect(console.error).toHaveBeenCalledWith('🔴 [Error Logger]:', mockError, mockContext);
+      expect(console.error).toHaveBeenCalledWith('[Error Logger]:', mockError, mockContext);
       expect(Sentry.captureException).toHaveBeenCalledWith(mockError, { extra: mockContext });
     });
 
@@ -84,7 +84,7 @@ describe('logger', () => {
 
       loggerModule.logger.info(mockMessage, mockContext);
 
-      expect(console.info).toHaveBeenCalledWith('🔵 [Info Logger]:', mockMessage, mockContext);
+      expect(console.info).toHaveBeenCalledWith('[Info Logger]:', mockMessage, mockContext);
       expect(Sentry.captureMessage).toHaveBeenCalledWith(mockMessage, { level: 'info', extra: mockContext });
     });
 

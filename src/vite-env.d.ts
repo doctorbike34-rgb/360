@@ -4,6 +4,8 @@ interface ImportMetaEnv {
   readonly VITE_GEMINI_API_KEY: string;
   readonly VITE_STRIPE_PUBLISHABLE_KEY: string;
   readonly VITE_RECAPTCHA_SITE_KEY: string;
+  readonly VITE_APP_CHECK_ENABLED: string;
+  readonly VITE_APP_CHECK_DEBUG: string;
   readonly VITE_FIREBASE_VAPID_KEY: string;
   readonly VITE_SENTRY_DSN: string;
   readonly VITE_MIXPANEL_TOKEN: string;

@@ -4,19 +4,22 @@ import { initLogger, logger } from './lib/logger';
 import { initAnalytics } from './lib/analytics';
 import { useAuthStore } from './store/useAuthStore';
 import { validateClientEnv } from './config/env';
+import { initAppCheck } from './lib/appCheck';
+import { isFirestoreQuotaError } from './lib/firestoreErrors';
 
 // Suppress noisy Firebase quota errors
 const originalConsoleError = console.error;
 console.error = (...args: any[]) => {
   const errorMsg = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
-  if (errorMsg.includes('Quota') || errorMsg.includes('resource-exhausted') || errorMsg.includes('quota limit')) {
+  if (isFirestoreQuotaError({ message: errorMsg } as Error)) {
     useAuthStore.getState().setQuotaError(true);
-    return; // Completely suppress from console
+    return;
   }
   originalConsoleError(...args);
 };
 
 validateClientEnv();
+void initAppCheck();
 
 // Initialize tracking and error monitoring
 initLogger();

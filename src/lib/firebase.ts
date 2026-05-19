@@ -6,7 +6,8 @@ import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
 import { getFunctions } from 'firebase/functions';
 import fallbackFirebaseConfig from '../../firebase-applet-config.json';
 import { useAuthStore } from '../store/useAuthStore';
-import { FIREBASE_CONFIG, FIREBASE_FUNCTIONS_REGION, RECAPTCHA_SITE_KEY } from '../config/env';
+import { FIREBASE_CONFIG, FIREBASE_FUNCTIONS_REGION } from '../config/env';
+import { isFirestoreQuotaError } from './firestoreErrors';
 
 function resolveFirebaseConfig(): FirebaseOptions {
   const fromEnv = FIREBASE_CONFIG;
@@ -35,27 +36,6 @@ if (!firebaseConfig?.apiKey) {
 }
 
 export const app = initializeApp(firebaseConfig);
-
-// App Check — reCAPTCHA Enterprise
-// DISABLED: reCAPTCHA Enterprise key returns 403. Re-enable after configuring
-// the key in Firebase Console > App Check with allowed domains.
-// import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
-//
-// if (typeof window !== 'undefined') {
-//   if (import.meta.env?.DEV) (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-//   if (!RECAPTCHA_SITE_KEY) {
-//     console.warn('VITE_RECAPTCHA_SITE_KEY is not configured. App Check will not be initialized.');
-//   } else {
-//     try {
-//       initializeAppCheck(app, {
-//         provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
-//         isTokenAutoRefreshEnabled: true
-//       });
-//     } catch (err) {
-//       console.warn('App Check initialization failed. App will run without App Check:', err);
-//     }
-//   }
-// }
 
 export const storage = getStorage(app);
 
@@ -92,11 +72,9 @@ interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const isQuotaError = error instanceof Error && (error.message.includes('Quota exceeded') || error.message.includes('quota limits'));
-  
-  if (isQuotaError) {
+  if (isFirestoreQuotaError(error)) {
     useAuthStore.getState().setQuotaError(true);
-    console.warn(`Firestore Quota Exceeded for ${path}. Action: ${operationType}.`);
+    console.warn(`Firestore quota limit for ${path}. Action: ${operationType}.`);
     return;
   }
 

@@ -29,6 +29,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Logo } from './Logo';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 import { safeStorage } from '../lib/storage';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, serverTimestamp, arrayUnion, addDoc, setDoc, limit, orderBy, runTransaction, increment, getDocs } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
@@ -403,8 +404,8 @@ export function MechanicHome() {
       }
       setQuotaError(false);
     }, (error) => {
-      if (error.message.includes('Quota exceeded')) {
-        console.warn('Firestore Quota exceeded (Mechanic stats)');
+      if (isFirestoreQuotaError(error)) {
+        console.warn('Firestore quota limit (Mechanic stats)');
         setQuotaError(true);
       } else if (!auth.currentUser) {
         console.warn('Expected Auth sync error during logout: ', error);
@@ -474,7 +475,7 @@ export function MechanicHome() {
       setAllPendingJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setQuotaError(false);
     }, (error) => {
-      if (error.message.includes('Quota exceeded')) setQuotaError(true);
+      if (isFirestoreQuotaError(error)) setQuotaError(true);
       else console.warn('Error listening to SOS requests:', error);
     });
 
@@ -495,7 +496,7 @@ export function MechanicHome() {
         }
       }
     }, (error) => {
-      if (!error.message.includes('Quota exceeded')) {
+      if (!isFirestoreQuotaError(error)) {
         console.warn('Error listening to user profile:', error);
       }
     });
@@ -525,7 +526,7 @@ export function MechanicHome() {
       setActiveJobs(current);
       setCompletedJobsList(finished);
     }, (error) => {
-      if (!error.message.includes('Quota exceeded') && auth.currentUser) {
+      if (!isFirestoreQuotaError(error) && auth.currentUser) {
         handleFirestoreError(error, OperationType.LIST, 'sosRequests (MECHANIC_JOBS)');
       }
     });
@@ -616,7 +617,7 @@ export function MechanicHome() {
       });
       setNearbyCyclistsCount(activeCount);
     }, (error) => {
-      if (!error.message.includes('Quota exceeded')) {
+      if (!isFirestoreQuotaError(error)) {
         console.warn('Error listening to nearby cyclists:', error);
       }
     });

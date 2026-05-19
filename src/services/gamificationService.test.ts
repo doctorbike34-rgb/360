@@ -1,36 +1,35 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { gamificationService } from './gamificationService';
 import { db } from '../lib/firebase';
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, increment } from 'firebase/firestore';
 
-// Mock dependencies
 vi.mock('../lib/firebase', () => ({
-  db: {}
+  db: {},
 }));
 
 vi.mock('firebase/firestore', () => ({
   doc: vi.fn(),
   runTransaction: vi.fn(),
   serverTimestamp: vi.fn(),
+  increment: vi.fn((n: number) => ({ __increment: n })),
   getDoc: vi.fn(),
   query: vi.fn(),
   collection: vi.fn(),
   orderBy: vi.fn(),
   limit: vi.fn(),
   getDocs: vi.fn(),
-  setDoc: vi.fn()
+  setDoc: vi.fn(),
+  updateDoc: vi.fn(),
 }));
 
 describe('gamificationService.awardPoints', () => {
-  let consoleLogSpy: any;
-  let consoleErrorSpy: any;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Prevent console output during tests
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    // Spy on checkAndAwardBadges
     vi.spyOn(gamificationService, 'checkAndAwardBadges').mockResolvedValue(undefined);
   });
 
@@ -38,19 +37,19 @@ describe('gamificationService.awardPoints', () => {
     const mockUserRef = { id: 'user123' };
     vi.mocked(doc).mockReturnValue(mockUserRef as any);
     vi.mocked(serverTimestamp).mockReturnValue('mockTimestamp' as any);
+    vi.mocked(increment).mockImplementation((n) => ({ __increment: n }) as any);
 
-    const mockData = { points: 10, weeklyPoints: 5 };
     const mockUserDoc = {
       exists: () => true,
-      data: () => mockData
+      data: () => ({ points: 10, weeklyPoints: 5 }),
     };
 
     const mockTransaction = {
       get: vi.fn().mockResolvedValue(mockUserDoc),
-      update: vi.fn()
+      update: vi.fn(),
     };
 
-    vi.mocked(runTransaction).mockImplementation(async (db, updateFunction) => {
+    vi.mocked(runTransaction).mockImplementation(async (_db, updateFunction) => {
       await updateFunction(mockTransaction as any);
     });
 
@@ -59,9 +58,9 @@ describe('gamificationService.awardPoints', () => {
     expect(doc).toHaveBeenCalledWith(db, 'users', 'user123');
     expect(mockTransaction.get).toHaveBeenCalledWith(mockUserRef);
     expect(mockTransaction.update).toHaveBeenCalledWith(mockUserRef, {
-      points: 15,
-      weeklyPoints: 10,
-      updatedAt: 'mockTimestamp'
+      points: { __increment: 5 },
+      weeklyPoints: { __increment: 5 },
+      updatedAt: 'mockTimestamp',
     });
     expect(consoleLogSpy).toHaveBeenCalledWith('Awarded 5 points for test_action');
     expect(gamificationService.checkAndAwardBadges).toHaveBeenCalledWith('user123');
@@ -73,15 +72,15 @@ describe('gamificationService.awardPoints', () => {
 
     const mockUserDoc = {
       exists: () => false,
-      data: vi.fn()
+      data: vi.fn(),
     };
 
     const mockTransaction = {
       get: vi.fn().mockResolvedValue(mockUserDoc),
-      update: vi.fn()
+      update: vi.fn(),
     };
 
-    vi.mocked(runTransaction).mockImplementation(async (db, updateFunction) => {
+    vi.mocked(runTransaction).mockImplementation(async (_db, updateFunction) => {
       await updateFunction(mockTransaction as any);
     });
 
@@ -93,32 +92,31 @@ describe('gamificationService.awardPoints', () => {
     expect(gamificationService.checkAndAwardBadges).toHaveBeenCalledWith('user123');
   });
 
-  it('defaults to 0 points when user exists but has no points yet', async () => {
+  it('uses increment when user exists but has no points yet', async () => {
     const mockUserRef = { id: 'user123' };
     vi.mocked(doc).mockReturnValue(mockUserRef as any);
     vi.mocked(serverTimestamp).mockReturnValue('mockTimestamp' as any);
 
-    const mockData = {}; // No points or weeklyPoints
     const mockUserDoc = {
       exists: () => true,
-      data: () => mockData
+      data: () => ({}),
     };
 
     const mockTransaction = {
       get: vi.fn().mockResolvedValue(mockUserDoc),
-      update: vi.fn()
+      update: vi.fn(),
     };
 
-    vi.mocked(runTransaction).mockImplementation(async (db, updateFunction) => {
+    vi.mocked(runTransaction).mockImplementation(async (_db, updateFunction) => {
       await updateFunction(mockTransaction as any);
     });
 
     await gamificationService.awardPoints('user123', 'test_action', 5);
 
     expect(mockTransaction.update).toHaveBeenCalledWith(mockUserRef, {
-      points: 5,
-      weeklyPoints: 5,
-      updatedAt: 'mockTimestamp'
+      points: { __increment: 5 },
+      weeklyPoints: { __increment: 5 },
+      updatedAt: 'mockTimestamp',
     });
   });
 

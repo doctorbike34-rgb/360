@@ -35,6 +35,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { auth, db, handleFirestoreError, OperationType, functions, storage } from '../lib/firebase';
+import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 import { safeStorage } from '../lib/storage';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
@@ -334,7 +335,7 @@ export function CyclistHome() {
       }, 0);
       setUnreadCount(totalUnread);
     }, (error) => {
-      if (error.message?.includes('Quota exceeded') || error.message?.includes('quota limits')) {
+      if (isFirestoreQuotaError(error)) {
         setQuotaError(true);
       } else {
         console.warn('Error fetching recent chats:', error);
@@ -423,7 +424,7 @@ export function CyclistHome() {
         setNearbyCyclistsCount(localCyclistsCount);
         setQuotaError(false);
       }, (error) => {
-        if (error.message?.includes('Quota exceeded')) setQuotaError(true);
+        if (isFirestoreQuotaError(error)) setQuotaError(true);
         else console.warn('Error listening to users via geohash:', error);
       });
       unsubs.push(unsub);
@@ -630,7 +631,7 @@ export function CyclistHome() {
         setActiveSOS(null);
       }
     }, (error) => {
-      if (!error.message?.includes('Quota exceeded')) {
+      if (!isFirestoreQuotaError(error)) {
         console.warn('Error listening to SOS:', error);
       }
     });
@@ -657,8 +658,8 @@ export function CyclistHome() {
           }
         }
       }, (error) => {
-        if (error.message?.includes('Quota exceeded')) {
-          console.warn('Firestore Quota exceeded (Mechanic tracking)');
+        if (isFirestoreQuotaError(error)) {
+          console.warn('Firestore quota limit (Mechanic tracking)');
         } else if (!auth.currentUser) {
           console.warn('Expected Auth sync error during logout: ', error);
         } else {

@@ -14,11 +14,24 @@ export const STRIPE_PUBLISHABLE_KEY = readEnv('VITE_STRIPE_PUBLISHABLE_KEY');
 
 export const RECAPTCHA_SITE_KEY = readEnv('VITE_RECAPTCHA_SITE_KEY');
 
+/** Enable App Check (recommended in production). */
+export const APP_CHECK_ENABLED =
+  readEnv('VITE_APP_CHECK_ENABLED') === 'true' || import.meta.env.PROD;
+
+/** Use Firebase App Check debug token in dev (register token in Console). */
+export const APP_CHECK_DEBUG = readEnv('VITE_APP_CHECK_DEBUG') === 'true';
+
 export const FIREBASE_VAPID_KEY = readEnv('VITE_FIREBASE_VAPID_KEY');
 
-export const SENTRY_DSN = readEnv('VITE_SENTRY_DSN');
+export const getSentryDsn = (): string => readEnv('VITE_SENTRY_DSN');
 
+export const getMixpanelToken = (): string => readEnv('VITE_MIXPANEL_TOKEN');
+
+/** @deprecated Use getMixpanelToken() — kept for backwards compatibility */
 export const MIXPANEL_TOKEN = readEnv('VITE_MIXPANEL_TOKEN');
+
+/** @deprecated Use getSentryDsn() */
+export const SENTRY_DSN = readEnv('VITE_SENTRY_DSN');
 
 export const APP_URL = readEnv('VITE_APP_URL');
 
