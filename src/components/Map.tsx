@@ -344,16 +344,26 @@ function EventMarker({ event, onClick, currentUser, t }: {
   );
 }
 
-function LocationMarker({ position, forceCenter, forceFlyPosition, avatarUrl }: { 
+function MapFlyController({ flyPos }: { flyPos: [number, number] | null }) {
+  const map = useMap();
+  const lastFlyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!flyPos) return;
+    const key = `${flyPos[0]},${flyPos[1]}`;
+    if (key !== lastFlyRef.current) {
+      lastFlyRef.current = key;
+      map.flyTo(flyPos, 15, { animate: true, duration: 0.8 });
+    }
+  }, [flyPos, map]);
+
+  return null;
+}
+
+function LocationMarker({ position, avatarUrl }: { 
   position: [number, number] | null, 
-  forceCenter?: boolean,
-  forceFlyPosition?: [number, number] | null,
   avatarUrl?: string | null
 }) {
-  const map = useMap();
-  const lastFlyPosRef = useRef<string | null>(null);
-  const initialCenterSet = useRef(false);
-
   const customIcon = useMemo(() => avatarUrl ? avatarMarkerIcon(avatarUrl, '#3B82F6', 36, true) : undefined, [avatarUrl]);
 
   const isValidPosition = position && position.length === 2 && 
@@ -403,7 +413,6 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   const [mapType, setMapType] = useState<'standard' | 'satellite' | 'terrain'>('standard');
   const [showMapTypes, setShowMapTypes] = useState(false);
   const [showNavMenu, setShowNavMenu] = useState(false);
-  const [forceCenterToggle, setForceCenterToggle] = useState(false);
   const { isDarkMode, toggleDarkMode } = useThemeStore();
   const { t } = useTranslation();
   const mapRef = useRef<L.Map | null>(null);
@@ -440,7 +449,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     if (storeLocation) {
         const newPos: [number, number] = [storeLocation.lat, storeLocation.lng];
         setUserPos(newPos);
-        if (centerMap) setForceCenterToggle(prev => !prev);
+        if (centerMap) setFlyPos(newPos);
         return;
     }
 
@@ -454,8 +463,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           const newPos: [number, number] = [pos.coords.latitude, pos.coords.longitude];
           setUserPos(newPos);
           setIsRefreshing(false);
-          // If we have a center prop (focusing on an event), don't auto-center on user position
-          if (centerMap) setForceCenterToggle(prev => !prev);
+          if (centerMap) setFlyPos(newPos);
         },
         (error) => {
           clearTimeout(safetyTimeout);
@@ -748,16 +756,36 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
            {/* Locate */}
            <motion.button
              whileHover={{ scale: 1.05 }}
-             whileTap={{ scale: 0.95 }}
-             onClick={() => {
-               setFlyPos(null);
-               if (storeLocation) {
-                 setUserPos([storeLocation.lat, storeLocation.lng]);
-                 setForceCenterToggle(prev => !prev);
-               } else {
-                 updateRealPosition(true);
-               }
-             }} 
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                if (!("geolocation" in navigator)) {
+                  toast.error('Geolocalizzazione non disponibile');
+                  return;
+                }
+                setIsRefreshing(true);
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    const newPos: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+                    setUserPos(newPos);
+                    setFlyPos(newPos);
+                    setIsRefreshing(false);
+                    toast.success('Posizione aggiornata');
+                  },
+                  (error) => {
+                    setIsRefreshing(false);
+                    if (error.code === 1) {
+                      toast.error('Permesso geolocalizzazione negato. Attivalo dalle impostazioni.');
+                    } else if (error.code === 2) {
+                      toast.error('Posizione non disponibile');
+                    } else if (error.code === 3) {
+                      toast.error('Timeout geolocalizzazione');
+                    } else {
+                      toast.error('Errore geolocalizzazione');
+                    }
+                  },
+                  { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                );
+              }}
              className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
              title={t('map.locate')}
            >
@@ -781,6 +809,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         } as any)}
       >
         <MapClickEvents onClick={() => setSelectedObj(null)} />
+        <MapFlyController flyPos={flyPos} />
         <TileLayer
           {...({
             attribution: mapType === 'satellite' ? 'Esri' : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -791,8 +820,6 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         {userPos && (profile?.isOnline !== false || isAdmin) && (
           <LocationMarker 
             position={userPos} 
-            forceCenter={forceCenterToggle}
-            forceFlyPosition={flyPos}
             avatarUrl={isAdmin ? null : (profile?.photoURL || currentUser?.photoURL)}
           />
         )}{/* Route Track */}
@@ -893,7 +920,6 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
             <EventMarker
               key={event.id}
               event={event}
-              isSelected={isSelected}
               onClick={() => setSelectedObj(event)}
               currentUser={currentUser}
               t={t}
