@@ -656,6 +656,17 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     setShowNavMenu(false);
   };
 
+  const onlineMechanicsCount = useMemo(() => visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length, [visibleUsers]);
+  const onlineCyclistsCount = useMemo(() => visibleUsers.filter(u => u.role === 'CYCLIST').length, [visibleUsers]);
+  const filteredMapUsers = useMemo(() => visibleUsers.filter(u => {
+    if (u.id === mechanicToTrackId) return false;
+    const isMechanic = u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC';
+    const isCyclist = u.role === 'CYCLIST';
+    if (isMechanic && !showMechanics) return false;
+    if (isCyclist && !showCyclists) return false;
+    return true;
+  }), [visibleUsers, mechanicToTrackId, showMechanics, showCyclists]);
+
   const getMapUrl = () => {
     if (mapType === 'satellite') {
       return "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
@@ -676,11 +687,11 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         <div className="absolute top-4 left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
            <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-             <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length} Meccanici online</span>
+             <span className="text-[9px] font-bold uppercase">{onlineMechanicsCount} Meccanici online</span>
            </div>
            <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-             <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'CYCLIST').length} Ciclisti online</span>
+             <span className="text-[9px] font-bold uppercase">{onlineCyclistsCount} Ciclisti online</span>
            </div>
         </div>
       )}
@@ -838,14 +849,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         )}
 
         {/* Regular Users (Mechanics, Peer Mechanics & Cyclists) */}
-        {visibleUsers.filter(u => {
-          if (u.id === mechanicToTrackId) return false;
-          const isMechanic = u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC';
-          const isCyclist = u.role === 'CYCLIST';
-          if (isMechanic && !showMechanics) return false;
-          if (isCyclist && !showCyclists) return false;
-          return true;
-        }).map((u: any) => {
+        {filteredMapUsers.map((u: any) => {
           if (!u.lastLat || !u.lastLng) return null;
           let roleColor = 'primary';
           if (u.role === 'MECHANIC') roleColor = 'warning';
