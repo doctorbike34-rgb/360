@@ -13,6 +13,7 @@ import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { geohashForLocation } from 'geofire-common';
 import { isFirestoreQuotaError } from './lib/firestoreErrors';
+import { getCurrentCoords, fetchIpLocation } from './lib/geolocation';
 
 import { Auth } from './components/Auth';
 import { WelcomePopup } from './components/WelcomePopup';
@@ -71,63 +72,53 @@ export default function App() {
     };
   }, [setDeferredPrompt]);
 
-  const retryLocation = () => {
-    console.log("Retry location pressed");
-    if ("geolocation" in navigator) {
-      console.log("Geolocation available, requesting position...");
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          console.log("Location obtained:", pos);
-          setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          setLocationPermissionError(false);
-          // Manually kick off an update similar to updateLocation
-          if (useAuthStore.getState().user && useAuthStore.getState().role && !useAuthStore.getState().quotaError) {
-             setDoc(doc(db, 'users', useAuthStore.getState().user!.uid), {
-                lastLat: pos.coords.latitude,
-                lastLng: pos.coords.longitude,
-                location: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-                lastSeenAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-                isOnline: profile?.isOnline ?? true
-             }, { merge: true }).catch((err) => handleFirestoreError(err, OperationType.UPDATE, `users/${useAuthStore.getState().user?.uid}`));
-          }
-        },
-        async (err) => {
-          console.error("Geolocation error:", err.code, err.message);
-          if (err.code === 1) {
-            setLocationPermissionError(true);
-          } else {
-            // Auto fallback
-            try {
-              const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
-              if (res.ok) {
-                const data = await res.json();
-                if (data.latitude && data.longitude) {
-                  setUserLocation({ lat: parseFloat(data.latitude), lng: parseFloat(data.longitude) });
-                  setLocationPermissionError(false);
-                  if (useAuthStore.getState().user && useAuthStore.getState().role && !useAuthStore.getState().quotaError) {
-                     setDoc(doc(db, 'users', useAuthStore.getState().user!.uid), {
-                        lastLat: parseFloat(data.latitude),
-                        lastLng: parseFloat(data.longitude),
-                        location: { lat: parseFloat(data.latitude), lng: parseFloat(data.longitude) },
-                        lastSeenAt: serverTimestamp(),
-                        updatedAt: serverTimestamp(),
-                        isOnline: profile?.isOnline ?? true
-                     }, { merge: true }).catch((e) => console.warn('Background update failed', e)); 
-                  }
-                  return;
-                }
-              }
-            } catch(e) { /* ignore geo error */ }
-            // Default Rome
-            setUserLocation({ lat: 41.9028, lng: 12.4964 });
-            setLocationPermissionError(false);
-          }
-        },
-        { timeout: 30000, maximumAge: 0, enableHighAccuracy: true }
+  const persistUserLocation = (lat: number, lng: number) => {
+    setUserLocation({ lat, lng });
+    setLocationPermissionError(false);
+    if (useAuthStore.getState().user && useAuthStore.getState().role && !useAuthStore.getState().quotaError) {
+      setDoc(doc(db, 'users', useAuthStore.getState().user!.uid), {
+        lastLat: lat,
+        lastLng: lng,
+        location: { lat, lng },
+        lastSeenAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        isOnline: profile?.isOnline ?? true,
+      }, { merge: true }).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, `users/${useAuthStore.getState().user?.uid}`)
       );
-    } else {
-      console.error("Geolocation not available in navigator");
+    }
+  };
+
+  const retryLocation = async () => {
+    if (!('geolocation' in navigator)) {
+      const ip = await fetchIpLocation();
+      if (ip) {
+        persistUserLocation(ip.lat, ip.lng);
+        toast('Posizione approssimativa (rete)', { icon: 'ℹ️' });
+      }
+      return;
+    }
+    try {
+      const coords = await getCurrentCoords({ preferHighAccuracy: true, fallbackToIp: true });
+      persistUserLocation(coords.lat, coords.lng);
+      if (coords.source === 'ip' || coords.source === 'default') {
+        toast('Posizione approssimativa — per il GPS preciso riprova all\'aperto', { icon: 'ℹ️', duration: 5000 });
+      }
+    } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
+      if (code === 1) {
+        setLocationPermissionError(true);
+        toast.error('Permesso posizione negato');
+      } else {
+        const ip = await fetchIpLocation();
+        if (ip) {
+          persistUserLocation(ip.lat, ip.lng);
+          toast('GPS non disponibile — uso posizione di rete', { icon: 'ℹ️' });
+        } else {
+          persistUserLocation(41.9028, 12.4964);
+          toast.error('Impossibile ottenere la posizione');
+        }
+      }
     }
   };
 
@@ -446,7 +437,7 @@ export default function App() {
       watchId = navigator.geolocation.watchPosition(
         (pos) => updateLocation(pos.coords),
         handleGeoError,
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 60000, maximumAge: 30000 }
       );
     }
 

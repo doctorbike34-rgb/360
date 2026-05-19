@@ -7,6 +7,7 @@ import {
   eventMarkerIcon,
   reportMarkerIcon,
 } from '../lib/leafletIcons';
+import { getCurrentCoords, geolocationErrorMessage, geoSuccessToast } from '../lib/geolocation';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { User as FirebaseUser } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt, runTransaction } from 'firebase/firestore';
@@ -421,28 +422,17 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
     if ("geolocation" in navigator) {
       setIsRefreshing(true);
-      const safetyTimeout = setTimeout(() => setIsRefreshing(false), 5000);
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          clearTimeout(safetyTimeout);
-          const newPos: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+      getCurrentCoords({ preferHighAccuracy: true, fallbackToIp: true })
+        .then((coords) => {
+          const newPos: [number, number] = [coords.lat, coords.lng];
           setUserPos(newPos);
-          setIsRefreshing(false);
           if (centerMap) setFlyPos(newPos);
-        },
-        (error) => {
-          clearTimeout(safetyTimeout);
-          if (error.code === 1) {
-            console.warn('Map geolocation permission denied');
-          } else {
-            console.debug('Map geolocation unavailable:', error.message);
-          }
-          setIsRefreshing(false);
-          setUserPos(prev => prev ? prev : [45.4642, 9.1900]); 
-        },
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-      );
+        })
+        .catch((error: { code?: number }) => {
+          if (error?.code === 1) console.warn('Map geolocation permission denied');
+          setUserPos((prev) => prev ?? [45.4642, 9.19]);
+        })
+        .finally(() => setIsRefreshing(false));
     }
   }, [center, storeLocation]);
 
@@ -723,34 +713,31 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
            <motion.button
              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => {
+              onClick={async () => {
                 if (!("geolocation" in navigator)) {
                   toast.error('Geolocalizzazione non disponibile');
                   return;
                 }
                 setIsRefreshing(true);
-                navigator.geolocation.getCurrentPosition(
-                  (pos) => {
-                    const newPos: [number, number] = [pos.coords.latitude, pos.coords.longitude];
-                    setUserPos(newPos);
-                    setFlyPos(newPos);
-                    setIsRefreshing(false);
-                    toast.success('Posizione aggiornata');
-                  },
-                  (error) => {
-                    setIsRefreshing(false);
-                    if (error.code === 1) {
-                      toast.error('Permesso geolocalizzazione negato. Attivalo dalle impostazioni.');
-                    } else if (error.code === 2) {
-                      toast.error('Posizione non disponibile');
-                    } else if (error.code === 3) {
-                      toast.error('Timeout geolocalizzazione');
-                    } else {
-                      toast.error('Errore geolocalizzazione');
-                    }
-                  },
-                  { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-                );
+                try {
+                  const coords = await getCurrentCoords({ preferHighAccuracy: true, fallbackToIp: true });
+                  const newPos: [number, number] = [coords.lat, coords.lng];
+                  setUserPos(newPos);
+                  setFlyPos(newPos);
+                  if (coords.source === 'ip' || coords.source === 'default') {
+                    toast(coords.source === 'ip' ? geoSuccessToast('ip') : geoSuccessToast('default'), {
+                      icon: 'ℹ️',
+                      duration: 5000,
+                    });
+                  } else {
+                    toast.success(geoSuccessToast(coords.source));
+                  }
+                } catch (error: unknown) {
+                  const code = (error as { code?: number })?.code ?? 0;
+                  toast.error(geolocationErrorMessage(code));
+                } finally {
+                  setIsRefreshing(false);
+                }
               }}
              className="bg-white text-accent p-3 rounded-xl shadow-xl shadow-accent/20 border border-grey/10 cursor-pointer transition-all"
              title={t('map.locate')}
