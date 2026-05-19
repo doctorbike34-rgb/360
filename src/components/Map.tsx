@@ -200,29 +200,17 @@ function makeSvgIcon(svg: string, size: number, anchor: [number, number]): L.Ico
   });
 }
 
-function userMarkerIcon(color: string, online: boolean): L.Icon {
-  const dot = online ? `<circle cx="26" cy="26" r="5" fill="#22C55E" stroke="white" stroke-width="2"/>` : '';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-    <circle cx="16" cy="16" r="14" fill="${color}" opacity="0.2" stroke="${color}" stroke-width="2"/>
-    <circle cx="16" cy="16" r="8" fill="${color}" opacity="0.6"/>
+function avatarMarkerIcon(avatarUrl: string | null, borderColor: string, size: number = 36, online: boolean = false): L.Icon {
+  const dot = online ? `<circle cx="${size - 4}" cy="${size - 4}" r="5" fill="#22C55E" stroke="white" stroke-width="2"/>` : '';
+  const avatarContent = avatarUrl
+    ? `<clipPath id="clip"><circle cx="${size/2}" cy="${size/2}" r="${size/2 - 4}"/></clipPath><image href="${escapeHtml(avatarUrl)}" x="4" y="4" width="${size - 8}" height="${size - 8}" clip-path="url(#clip)" preserveAspectRatio="xMidYMid slice"/>`
+    : `<circle cx="${size/2}" cy="${size/2}" r="${size/2 - 4}" fill="${borderColor}" opacity="0.3"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+    <circle cx="${size/2}" cy="${size/2}" r="${size/2 - 2}" fill="white" stroke="${borderColor}" stroke-width="3"/>
+    ${avatarContent}
     ${dot}
   </svg>`;
-  return makeSvgIcon(svg, 32, [16, 16]);
-}
-
-function mechanicMarkerIcon(status: string, online: boolean): L.Icon {
-  const pulse = status === 'TRAVELING' ? `<animate attributeName="r" values="14;18;14" dur="1.5s" repeatCount="indefinite"/>` : '';
-  const dot = online ? `<circle cx="26" cy="26" r="5" fill="#22C55E" stroke="white" stroke-width="2"/>` : '';
-  const color = status === 'TRAVELING' ? '#F97316' : '#EA580C';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
-    <circle cx="18" cy="18" r="14" fill="${color}" opacity="0.25" stroke="${color}" stroke-width="2.5">
-      ${pulse}
-    </circle>
-    <circle cx="18" cy="18" r="10" fill="${color}" opacity="0.7"/>
-    <circle cx="18" cy="18" r="5" fill="white" opacity="0.9"/>
-    ${dot}
-  </svg>`;
-  return makeSvgIcon(svg, 36, [18, 18]);
+  return makeSvgIcon(svg, size, [size / 2, size / 2]);
 }
 
 function reportMarkerIcon(severity: string): L.Icon {
@@ -253,8 +241,9 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
 }) {
-  const icon = useMemo(() => mechanicMarkerIcon(mechanic.mechanicStatus, mechanic.isOnline),
-    [mechanic.mechanicStatus, mechanic.isOnline]);
+  const borderColor = mechanic.plan === 'PRO' ? '#F59E0B' : mechanic.plan === 'CLUB' ? '#94A3B8' : '#3B82F6';
+  const icon = useMemo(() => avatarMarkerIcon(mechanic.photoURL || mechanic.avatarUrl, borderColor, 40, mechanic.isOnline),
+    [mechanic.photoURL, mechanic.avatarUrl, borderColor, mechanic.isOnline]);
 
   return (
     <Marker position={[mechanic.lastLat, mechanic.lastLng]} icon={icon}>
@@ -273,9 +262,9 @@ function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColo
   roleColor: string;
   onClick?: () => void;
 }) {
-  const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', '[#8B5CF6]': '#8B5CF6' };
-  const color = colorMap[roleColor] || '#3B82F6';
-  const icon = useMemo(() => userMarkerIcon(color, u.isOnline), [color, u.isOnline]);
+  const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', '[#8B5CF6]': '#22C55E' };
+  const borderColor = colorMap[roleColor] || '#3B82F6';
+  const icon = useMemo(() => avatarMarkerIcon(u.photoURL || u.avatarUrl, borderColor, 36, u.isOnline), [u.photoURL, u.avatarUrl, borderColor, u.isOnline]);
 
   return (
     <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
@@ -314,11 +303,14 @@ function ReportMarker({ report, isSelected, t, onClick }: {
   );
 }
 
-function EventMarker({ event, onClick }: {
+function EventMarker({ event, onClick, currentUser, t }: {
   event: any;
   onClick: () => void;
+  currentUser: any;
+  t: TFunction;
 }) {
   const icon = useMemo(() => eventMarkerIcon(), []);
+  const isJoined = event.participants?.includes(currentUser?.uid);
 
   const lat = event.lastLat ?? event.lat ?? event.location?.latitude;
   const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
@@ -327,11 +319,25 @@ function EventMarker({ event, onClick }: {
   return (
     <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
       <Popup>
-        <div className="p-1">
+        <div className="p-1 min-w-[160px]">
           <div className="font-black text-primary uppercase italic text-sm leading-tight mb-1">{event.title}</div>
+          {event.address && (
+            <div className="text-[9px] font-bold text-black/60 mb-2 flex items-center gap-1">
+              📍 {event.address}
+            </div>
+          )}
           <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-3">
-            <div className="flex items-center gap-1"><Users size={12} /> {event.participantCount}/{event.maxParticipants}</div>
+            <div className="flex items-center gap-1">👥 {event.participantCount}/{event.maxParticipants}</div>
           </div>
+          {isJoined ? (
+            <div className="w-full bg-accent/10 text-accent py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center">
+              ✅ Iscritto - Chat Gruppo
+            </div>
+          ) : (
+            <div className="w-full bg-primary text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center">
+              🚲 Unisciti
+            </div>
+          )}
         </div>
       </Popup>
     </Marker>
@@ -889,6 +895,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               event={event}
               isSelected={isSelected}
               onClick={() => setSelectedObj(event)}
+              currentUser={currentUser}
+              t={t}
             />
           );
         })}
