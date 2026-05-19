@@ -18,10 +18,13 @@ interface AuthState {
   quotaError: boolean;
   showAIDoctor: boolean;
   userLocation: { lat: number, lng: number } | null;
+  locationSource: 'gps' | 'ip' | 'default' | null;
   locationPermissionError: boolean;
   deferredPrompt: any | null;
   toasts: ToastMessage[];
   activeChatId: string | null;
+  hasActiveSOS: boolean;
+  chatsLoading: boolean;
   setUser: (user: FirebaseUser | null) => void;
   setProfile: (profile: UserProfile | null) => void;
   setRole: (role: 'CYCLIST' | 'MECHANIC' | 'ADMIN' | 'PEER_MECHANIC' | null) => void;
@@ -29,11 +32,14 @@ interface AuthState {
   setQuotaError: (error: boolean) => void;
   setShowAIDoctor: (show: boolean) => void;
   setUserLocation: (loc: { lat: number, lng: number } | null) => void;
+  setLocationSource: (source: 'gps' | 'ip' | 'default' | null) => void;
   setLocationPermissionError: (error: boolean) => void;
   setDeferredPrompt: (prompt: any | null) => void;
   addToast: (toast: Omit<ToastMessage, 'id'>) => void;
   removeToast: (id: string) => void;
   setActiveChatId: (chatId: string | null) => void;
+  setHasActiveSOS: (hasActiveSOS: boolean) => void;
+  setChatsLoading: (chatsLoading: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -44,10 +50,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   quotaError: false,
   showAIDoctor: false,
   userLocation: null,
+  locationSource: null,
   locationPermissionError: false,
   deferredPrompt: null,
   toasts: [],
   activeChatId: null,
+  hasActiveSOS: false,
+  chatsLoading: false,
   setUser: (user) => set({ user }),
   setProfile: (profile) => set({ profile }),
   setRole: (role) => set({ role }),
@@ -60,6 +69,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     return { userLocation };
   }),
+  setLocationSource: (locationSource) => set({ locationSource }),
   setLocationPermissionError: (locationPermissionError) => set({ locationPermissionError }),
   setDeferredPrompt: (deferredPrompt) => set({ deferredPrompt }),
   addToast: (toast) => set((state) => {
@@ -68,5 +78,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   }),
   removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
   setActiveChatId: (chatId) => set({ activeChatId: chatId }),
+  setHasActiveSOS: (hasActiveSOS) => set({ hasActiveSOS }),
+  setChatsLoading: (chatsLoading) => set({ chatsLoading }),
 }));
 

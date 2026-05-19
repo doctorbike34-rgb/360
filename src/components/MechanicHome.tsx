@@ -38,13 +38,17 @@ import { signOut } from 'firebase/auth';
 import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
 import { Map as BicycleMap } from './Map';
-import { RoadReportDetailModal } from './RoadReportDetailModal';
+import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { ChatListView } from './ChatListView';
 import { ChatHeader } from './ChatHeader';
 import { PublicProfileModal } from './PublicProfileModal';
 import { KYCVerification } from './KYCVerification';
 import { useTranslation } from 'react-i18next';
 import { soundService } from '../lib/sounds';
+import { ConfirmDialog } from './ConfirmDialog';
+import { JobCardSkeleton } from './Skeleton';
+import { syncMapPresence } from '../services/mapPresenceService';
+import { geohashForLocation } from 'geofire-common';
 import { 
   ResponsiveContainer, 
   AreaChart, 
@@ -81,6 +85,13 @@ export function MechanicHome() {
   const [completedJobsList, setCompletedJobsList] = useState<any[]>([]);
   const [isAvailable, setIsAvailable] = useState(profile?.isOnline || false);
   const [loadingJobId, setLoadingJobId] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'danger' | 'primary';
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
   const [availabilityMsg, setAvailabilityMsg] = useState<{text: string, isOnline: boolean} | null>(null);
   const [nearbyCyclistsCount, setNearbyCyclistsCount] = useState(0);
   const [showChat, setShowChat] = useState(false);
@@ -91,6 +102,9 @@ export function MechanicHome() {
   const [mechanicStatus, setMechanicStatus] = useState<string>(profile?.mechanicStatus || 'FREE');
   const [userLocation, setUserLocation] = useState<any>(null);
   const [recentChats, setRecentChats] = useState<any[]>([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
+  const [jobsDataLoading, setJobsDataLoading] = useState(true);
+  const jobsListenersReadyRef = useRef({ sos: false, active: false });
   const [unreadCount, setUnreadCount] = useState(0);
   const [showStats, setShowStats] = useState(false);
   const [userSupportTicket, setUserSupportTicket] = useState<any | null>(null);
@@ -256,7 +270,6 @@ export function MechanicHome() {
 
   const cancelJob = async (jobId: string) => {
     if (!user) return;
-    if (!window.confirm(t('mechanic.confirmCancel'))) return;
     try {
       await updateDoc(doc(db, 'sosRequests', jobId), {
         status: 'PENDING',
@@ -281,6 +294,7 @@ export function MechanicHome() {
           updatedAt: serverTimestamp()
         });
       }
+      toast.success('Intervento rilasciato. La richiesta è di nuovo disponibile per altri meccanici.');
     } catch (error) {
       console.error('Error cancelling job:', error);
       toast.error(t('mechanic.cancelError', { defaultValue: 'Errore durante l\'annullamento.' }));
@@ -432,9 +446,18 @@ export function MechanicHome() {
     return () => { isMountedRef.current = false; };
   }, [isAvailable, mechanicStatus, activeJobs.length, profile?.notificationsEnabled]);
 
+  const markJobsDataLoaded = () => {
+    if (jobsListenersReadyRef.current.sos && jobsListenersReadyRef.current.active) {
+      setJobsDataLoading(false);
+    }
+  };
+
   // 2. Listen for pending SOS requests (Dispatcher) - STABILIZED
   useEffect(() => {
     if (!user) return;
+
+    jobsListenersReadyRef.current = { sos: false, active: false };
+    setJobsDataLoading(true);
     
     const sosQuery = query(
       collection(db, 'sosRequests'), 
@@ -474,9 +497,13 @@ export function MechanicHome() {
       
       setAllPendingJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setQuotaError(false);
+      jobsListenersReadyRef.current.sos = true;
+      markJobsDataLoaded();
     }, (error) => {
       if (isFirestoreQuotaError(error)) setQuotaError(true);
       else console.warn('Error listening to SOS requests:', error);
+      jobsListenersReadyRef.current.sos = true;
+      markJobsDataLoaded();
     });
 
     return () => unsubSos();
@@ -508,6 +535,9 @@ export function MechanicHome() {
   useEffect(() => {
     if (!user) return;
 
+    jobsListenersReadyRef.current.active = false;
+    if (!jobsListenersReadyRef.current.sos) setJobsDataLoading(true);
+
     const activeQ = query(
       collection(db, 'sosRequests'), 
       where('mechanicId', '==', user.uid),
@@ -525,10 +555,14 @@ export function MechanicHome() {
       
       setActiveJobs(current);
       setCompletedJobsList(finished);
+      jobsListenersReadyRef.current.active = true;
+      markJobsDataLoaded();
     }, (error) => {
       if (!isFirestoreQuotaError(error) && auth.currentUser) {
         handleFirestoreError(error, OperationType.LIST, 'sosRequests (MECHANIC_JOBS)');
       }
+      jobsListenersReadyRef.current.active = true;
+      markJobsDataLoaded();
     });
 
     return () => unsubJobs();
@@ -574,7 +608,17 @@ export function MechanicHome() {
                 lastLat: latitude,
                 lastLng: longitude,
                 location: { lat: latitude, lng: longitude },
+                geohash: geohashForLocation([latitude, longitude]),
                 updatedAt: serverTimestamp()
+              });
+              await syncMapPresence({
+                uid: user.uid,
+                role: 'MECHANIC',
+                name: profile?.name,
+                lastLat: latitude,
+                lastLng: longitude,
+                isOnline: profile?.isOnline !== false,
+                mechanicStatus: mechanicStatus,
               });
               lastUpdateRef.current = now;
               lastCoordsRef.current.lat = latitude;
@@ -640,6 +684,7 @@ export function MechanicHome() {
         ...doc.data()
       }));
       setRecentChats(chats);
+      setChatsLoading(false);
       
       // Calculate total unread count
       const totalUnread = chats.reduce((acc: number, chat: any) => {
@@ -811,7 +856,7 @@ export function MechanicHome() {
   }
 
   return (
-    <div className="flex flex-col relative bg-white transition-colors duration-500" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
+    <div className="flex flex-col relative bg-white transition-colors duration-500 h-full min-h-0 w-full flex-1">
       {/* New SOS Banner */}
       <AnimatePresence>
         {showNewSOSBanner && newSOS && (
@@ -911,7 +956,8 @@ export function MechanicHome() {
                     <h3 className="font-bold text-sm text-black transition-colors">{t('nav.chat')}</h3>
                   </div>
                   <ChatListView 
-                    chats={displayChats} 
+                    chats={displayChats}
+                    loading={chatsLoading}
                     onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
                       setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
                     }}
@@ -1106,7 +1152,11 @@ export function MechanicHome() {
                )}
              </div>
 
-             <div className="mt-8 px-6 space-y-6">
+             <div className="mt-8 space-y-6">
+                {jobsDataLoading ? (
+                  <JobCardSkeleton count={3} />
+                ) : (
+                  <div className="px-6 space-y-6">
                 {activeJobs.map(job => (
                   <div key={job.id} className="bg-warning/10 border-2 border-warning/30 p-5 rounded-[2.5rem] relative overflow-hidden">
                     <div className="flex justify-between items-start mb-4">
@@ -1124,26 +1174,59 @@ export function MechanicHome() {
                     <div className="flex gap-2 mt-6">
                       <button onClick={() => { const ids = [job.cyclistId, job.mechanicId].sort(); setDirectChat({ id: `direct_${ids[0]}_${ids[1]}`, name: job.cyclistName || 'Ciclista' }); setShowChat(true); }} className="flex-1 bg-white border-2 border-warning/20 py-3 rounded-xl text-[10px] font-black uppercase">Chat</button>
                       {!job.mechanicConfirmed && (
-                        <button onClick={() => completeJob(job.id)} className="flex-[1.5] bg-warning text-primary py-3 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-warning/20">Concludi</button>
+                        <button
+                          onClick={() => setConfirmDialog({
+                            title: 'Concludi intervento',
+                            message: 'Confermi di aver completato la riparazione? Il ciclista dovrà confermare per sbloccare il pagamento.',
+                            confirmLabel: 'Concludi',
+                            variant: 'primary',
+                            onConfirm: async () => {
+                              setConfirmDialog(null);
+                              await completeJob(job.id);
+                            },
+                          })}
+                          className="flex-[1.5] bg-warning text-primary py-3 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-warning/20 min-h-[44px]"
+                        >
+                          Concludi
+                        </button>
                       )}
                     </div>
                   </div>
                 ))}
 
                 {isAvailable && filteredJobs.map(job => (
-                   <div key={job.id} onClick={() => acceptJob(job.id)} className="bg-danger/5 border-2 border-danger/20 p-5 rounded-[2.5rem] flex justify-between items-center cursor-pointer active:scale-95 transition-all">
+                   <motion.div
+                     key={job.id}
+                     role="button"
+                     tabIndex={0}
+                     onClick={() => setConfirmDialog({
+                       title: 'Accetta richiesta SOS',
+                       message: `Vuoi accettare l'intervento "${getFaultTypeTranslation(job.faultType)}"? Verrai messo in contatto con il ciclista.`,
+                       confirmLabel: 'Accetta',
+                       variant: 'primary',
+                       onConfirm: async () => {
+                         setConfirmDialog(null);
+                         await acceptJob(job.id);
+                       },
+                     })}
+                     className={`bg-danger/5 border-2 border-danger/20 p-5 rounded-[2.5rem] flex justify-between items-center cursor-pointer active:scale-95 transition-all ${loadingJobId === job.id ? 'opacity-60 pointer-events-none' : ''}`}
+                   >
                       <div className="flex gap-3">
                          <div className="w-12 h-12 bg-danger text-white rounded-2xl flex items-center justify-center shadow-lg shadow-danger/20">
-                            <AlertTriangle size={24} />
+                            {loadingJobId === job.id ? <Loader2 size={24} className="animate-spin" /> : <AlertTriangle size={24} />}
                          </div>
                          <div>
                             <h4 className="font-black text-black text-sm uppercase">{getFaultTypeTranslation(job.faultType)}</h4>
                             <p className="text-[10px] font-bold text-grey uppercase">{job.address || 'Vicino a te'}</p>
                          </div>
                       </div>
-                      <div className="bg-danger text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">Accetta</div>
-                   </div>
+                      <motion.div className="bg-danger text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest min-h-[44px] flex items-center">
+                        {loadingJobId === job.id ? '...' : 'Accetta'}
+                      </motion.div>
+                   </motion.div>
                 ))}
+                  </div>
+                )}
              </div>
           </div>
         </div>
@@ -1192,7 +1275,22 @@ export function MechanicHome() {
         </div>
       </div>
       <PublicProfileModal userId={viewProfileId as string} onClose={() => setViewProfileId(null)} />
-      <RoadReportDetailModal report={selectedReport} onClose={() => setSelectedReport(null)} />
+      {selectedReport && (
+        <ModalSuspense>
+          <RoadReportDetailModalLazy report={selectedReport} onClose={() => setSelectedReport(null)} />
+        </ModalSuspense>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(confirmDialog)}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        confirmLabel={confirmDialog?.confirmLabel}
+        variant={confirmDialog?.variant}
+        loading={Boolean(loadingJobId)}
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
 
       {/* Photo Preview Overlay */}
       <AnimatePresence>

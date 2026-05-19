@@ -39,6 +39,32 @@ service firebase.storage {
       allow write: if isSignedIn();
     }
 
+    function isChatStorageParticipant(chatId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        (
+          firestore.exists(/databases/(default)/documents/chats/$(chatId)) &&
+          request.auth.uid in firestore.get(/databases/(default)/documents/chats/$(chatId)).data.participants
+        ) ||
+        (
+          firestore.exists(/databases/(default)/documents/supportTickets/$(chatId)) &&
+          (
+            firestore.get(/databases/(default)/documents/supportTickets/$(chatId)).data.userId == request.auth.uid ||
+            isAdmin()
+          )
+        ) ||
+        (chatId.matches('^direct_.*') && chatId.matches('.*' + request.auth.uid + '.*'))
+      );
+    }
+
+    // Chat photos (Chat.tsx → chat-photos/{chatId}/...)
+    match /chat-photos/{chatId}/{fileName} {
+      allow read: if isChatStorageParticipant(chatId);
+      allow write: if isChatStorageParticipant(chatId)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     // Default: Deny all
     match /{allPaths=**} {
       allow read, write: if false;

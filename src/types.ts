@@ -85,6 +85,14 @@ export interface UserProfile {
   dailyStreak?: number;
   dailyReminderEnabled?: boolean;
   lastDailyClaim?: Timestamp;
+
+  planExpiresAt?: Timestamp;
+  subscriptionPendingPlan?: UserPlan;
+  subscriptionCheckoutSessionId?: string;
+
+  payoutIban?: string;
+  payoutAccountHolder?: string;
+  weeklyPointsResetAt?: Timestamp;
 }
 
 export interface MechanicProfile {
@@ -152,7 +160,16 @@ export interface Transaction {
   toId: string;
   amount: number;
   currency: string;
-  type: 'TOPUP' | 'SUBSCRIPTION' | 'ADMIN_DISPUTE_RELEASE' | 'ADMIN_DISPUTE_REFUND' | 'SOS_PAYMENT' | 'P2P_TRANSFER';
+  type:
+    | 'TOPUP'
+    | 'SUBSCRIPTION'
+    | 'ADMIN_DISPUTE_RELEASE'
+    | 'ADMIN_DISPUTE_REFUND'
+    | 'SOS_PAYMENT'
+    | 'P2P_TRANSFER'
+    | 'PAYOUT_REQUEST'
+    | 'PAYOUT_PAID'
+    | 'PAYOUT_REFUND';
   status?: 'PENDING' | 'COMPLETED' | 'FAILED';
   createdAt: any;
   stripePaymentId?: string;
@@ -177,6 +194,7 @@ export interface Subscription {
   createdAt: any;
   expiresAt?: any;
   stripePaymentIntentId?: string;
+  stripeCheckoutSessionId?: string;
 }
 
 export interface SupportTicket {
@@ -188,6 +206,25 @@ export interface SupportTicket {
   createdAt: any;
   updatedAt: any;
   lastMessage: string;
+  category?: 'DISPUTE' | 'GENERAL';
+  sosId?: string;
+  subject?: string;
+}
+
+export interface PayoutRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  amountEur: number;
+  iban: string;
+  accountHolder: string;
+  status: 'PENDING' | 'PAID' | 'REJECTED';
+  createdAt: any;
+  updatedAt: any;
+  processedAt?: any;
+  processedBy?: string;
+  rejectionReason?: string;
 }
 
 export interface AIConversation {

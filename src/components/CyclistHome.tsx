@@ -72,7 +72,9 @@ import { soundService } from '../lib/sounds';
 
 import { ReviewModal } from './ReviewModal';
 import { RoadReportModal } from './RoadReportModal';
-import { RoadReportDetailModal } from './RoadReportDetailModal';
+import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
+import { ConfirmDialog } from './ConfirmDialog';
+import { getSosStatusLabel } from '../lib/uxLabels';
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 
 function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, number]) => void, userLoc: [number, number] | null }) {
@@ -186,11 +188,18 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => 
 };
 
 export function CyclistHome() {
-  const { user, profile, setQuotaError, setShowAIDoctor, userLocation } = useAuthStore();
+  const { user, profile, setQuotaError, setShowAIDoctor, userLocation, locationSource, setHasActiveSOS } = useAuthStore();
   const { isDarkMode, toggleDarkMode } = useThemeStore();
   const { t, i18n } = useTranslation();
   
-  const [onlineMsg, setOnlineMsg] = useState<{ text: string; isOnline: boolean } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'danger' | 'primary';
+    loading?: boolean;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
 
   const getFaultTypeTranslation = (faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
@@ -270,6 +279,7 @@ export function CyclistHome() {
   const [completedJobToReview, setCompletedJobToReview] = useState<any>(null);
 
   const [recentChats, setRecentChats] = useState<any[]>([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [userSupportTicket, setUserSupportTicket] = useState<any | null>(null);
 
@@ -327,6 +337,7 @@ export function CyclistHome() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRecentChats(chats);
+      setChatsLoading(false);
       
       const totalUnread = chats.reduce((acc, chat: { id: string; unreadCount?: Record<string, number> }) => {
         const nestedUnread = chat.unreadCount?.[user?.uid] || 0;
@@ -343,6 +354,11 @@ export function CyclistHome() {
     });
     return () => unsubscribe();
   }, [user]);
+
+  useEffect(() => {
+    setHasActiveSOS(Boolean(activeSOS));
+    return () => setHasActiveSOS(false);
+  }, [activeSOS, setHasActiveSOS]);
 
   const [rawMechanics, setRawMechanics] = useState<any[]>([]);
   const [isBackground, setIsBackground] = useState(false);
@@ -929,11 +945,14 @@ export function CyclistHome() {
 
       setShowSOSDetails(false);
       setActiveSOS(null);
+      toast.success('Richiesta SOS annullata. I fondi sono stati rimborsati sul wallet.');
     } catch (err) {
       console.error('Error cancelling SOS:', err);
       const errMsg = err instanceof Error ? err.message : '';
       if (errMsg === 'Cannot cancel an accepted request') {
          toast.error(t('cyclist.cannotCancelAccepted'));
+      } else {
+        toast.error(t('common.error', { defaultValue: 'Impossibile annullare la richiesta' }));
       }
     } finally {
       setIsCancelling(false);
@@ -1010,8 +1029,7 @@ export function CyclistHome() {
       // OPTIMISTIC UPDATE for LIVE feel
       useAuthStore.getState().setProfile({ ...profile, isOnline: newStatus });
       
-      setOnlineMsg({text: newStatus ? 'ONLINE' : 'OFFLINE', isOnline: newStatus});
-      setTimeout(() => setOnlineMsg(null), 3000);
+      toast.success(newStatus ? 'Sei visibile sulla mappa' : 'Sei invisibile sulla mappa (modalità ghost)', { duration: 3500 });
 
       const updateData: Record<string, unknown> = {
         isOnline: newStatus,
@@ -1027,11 +1045,26 @@ export function CyclistHome() {
       console.error(err);
       // Revert if failed
       useAuthStore.getState().setProfile({ ...profile, isOnline: profile.isOnline });
+      toast.error('Impossibile aggiornare la visibilità sulla mappa');
     }
   };
 
+  const closeSosForm = () => {
+    setShowSOSForm(false);
+    setSelectedFaultType(null);
+    setSosStep(1);
+  };
+
+  const handleSosFormBackdropClick = () => {
+    if (sosStep > 1) {
+      toast('Completa o annulla il passaggio corrente prima di chiudere', { icon: 'ℹ️' });
+      return;
+    }
+    closeSosForm();
+  };
+
   return (
-    <div className="flex flex-col relative bg-white transition-colors duration-500" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
+    <div className="flex flex-col relative bg-white transition-colors duration-500 h-full min-h-0 w-full flex-1">
       <AnimatePresence>
         {showAcceptedToast && (
           <motion.div
@@ -1058,6 +1091,14 @@ export function CyclistHome() {
       </AnimatePresence>
 
       {/* HUD & Top UI */}
+      {activeTab === 'MAP' && locationSource && locationSource !== 'gps' && (
+        <div className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] left-4 right-4 z-[15] pointer-events-none">
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[10px] font-bold px-4 py-2.5 rounded-2xl shadow-md text-center">
+            Posizione approssimativa — attiva il GPS per una precisione migliore
+          </div>
+        </div>
+      )}
+
       {activeTab === 'MAP' && (
         <div className="absolute top-0 left-0 right-0 z-10 p-4 pt-[calc(1rem+env(safe-area-inset-top))] pointer-events-none">
           <div className="flex justify-between items-start">
@@ -1074,19 +1115,7 @@ export function CyclistHome() {
 
               <div className="flex flex-col items-start gap-2 pointer-events-auto">
                  <div className="relative bg-white/90  backdrop-blur-md rounded-2xl p-2 shadow-lg transition-colors flex flex-col items-center gap-3 w-fit border border-grey/10 ">
-                    <AnimatePresence>
-                      {onlineMsg && (
-                        <motion.div 
-                          initial={{ opacity: 0, x: 20, scale: 0.8 }} 
-                          animate={{ opacity: 1, x: 0, scale: 1 }} 
-                          exit={{ opacity: 0, x: 10, scale: 0.8 }} 
-                          className={`absolute left-full ml-3 whitespace-nowrap text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full shadow-lg border border-white/20 z-10 ${onlineMsg.isOnline ? 'bg-accent text-white shadow-accent/30' : 'bg-grey text-white shadow-grey/30'}`}
-                        >
-                          {onlineMsg.text}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                    <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" title={t('profile.ghostMode', { defaultValue: 'Ghost Mode' })}>
+                    <button onClick={toggleOnline} className="text-primary transition-colors p-1.5" aria-label={profile?.isOnline ? 'Visibile sulla mappa' : 'Invisibile sulla mappa'} title={profile?.isOnline ? 'Visibile sulla mappa' : 'Invisibile sulla mappa'}>
                       {!profile?.isOnline ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                     <div className="w-8 h-px bg-grey/20 " />
@@ -1095,7 +1124,7 @@ export function CyclistHome() {
                       className={`flex flex-col items-center gap-1.5 px-2 py-2 rounded-xl text-[7px] font-black uppercase tracking-widest transition-all ${profile?.isOnline ? 'bg-accent/10 text-accent' : 'bg-grey/10 text-grey '}`}
                     >
                       <div className={`w-1.5 h-1.5 rounded-full ${profile?.isOnline ? 'bg-accent animate-pulse' : 'bg-grey'}`} />
-                      {profile?.isOnline ? t('mechanic.online') : t('mechanic.offline')}
+                      {profile?.isOnline ? 'Visibile' : 'Invisibile'}
                     </button>
                  </div>
               </div>
@@ -1218,7 +1247,8 @@ export function CyclistHome() {
                     <h3 className="font-bold text-sm">{t('nav.chat')}</h3>
                   </div>
                   <ChatListView 
-                    chats={displayChats} 
+                    chats={displayChats}
+                    loading={chatsLoading}
                     onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
                       setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
                     }}
@@ -1423,13 +1453,17 @@ export function CyclistHome() {
             <NavButton active={activeTab === 'COMMUNITY'} onClick={() => setActiveTab('COMMUNITY')} icon={<Bike />} label={t('nav.social')} />
           </div>
           
-          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative -mt-12 group z-10">
+          <div className="w-16 sm:w-20 flex-shrink-0 flex flex-col items-center justify-center relative -mt-12 group z-10">
               <button 
                 onClick={toggleOnline}
+                aria-label={profile?.isOnline ? 'Visibile sulla mappa' : 'Invisibile sulla mappa'}
                 className={`w-16 h-16 rounded-[2rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 ${profile?.isOnline ? 'bg-primary text-white scale-110 shadow-primary/40 ring-4 ring-primary/20' : 'bg-grey/20  text-grey  shadow-none border border-white/5 rotate-45'}`}
               >
                  <Power size={28} className={profile?.isOnline ? 'animate-pulse' : ''} />
               </button>
+              <span className="mt-1 text-[7px] font-black uppercase tracking-widest text-grey text-center leading-tight">
+                {profile?.isOnline ? 'Visibile' : 'Invisibile'}
+              </span>
           </div>
 
           <div className="flex-1 flex justify-around items-center">
@@ -1474,7 +1508,7 @@ export function CyclistHome() {
                   </div>
                 </div>
                 <div className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-black uppercase tracking-widest">
-                  {activeSOS.status}
+                  {getSosStatusLabel(activeSOS.status)}
                 </div>
               </div>
 
@@ -1495,13 +1529,13 @@ export function CyclistHome() {
                 {/* Tracking & Stats */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white text-black shadow-sm border border-grey/10 p-5 rounded-3xl border border-grey/5  transition-colors text-black ">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-grey  mb-1 transition-colors">Distanza</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-grey  mb-1 transition-colors">Distanza (stima)</p>
                     <p className="text-2xl font-black text-primary  italic transition-colors">
                       {distance?.toFixed(1) || '--'} <span className="text-[10px] uppercase">km</span>
                     </p>
                   </div>
                   <div className="bg-white text-black shadow-sm border border-grey/10 p-5 rounded-3xl border border-grey/5  transition-colors text-black ">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-grey  mb-1 transition-colors">Tempo Stimato</p>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-grey  mb-1 transition-colors">Tempo stimato (indicativo)</p>
                     <p className="text-2xl font-black text-primary  italic transition-colors">
                       {eta ? `${eta}-${eta+2}` : '--'} <span className="text-[10px] uppercase">min</span>
                     </p>
@@ -1695,7 +1729,16 @@ export function CyclistHome() {
                            </div>
                         </div>
                         <button 
-                          onClick={finalizeJob}
+                          onClick={() => setConfirmDialog({
+                            title: 'Conferma pagamento',
+                            message: 'Confermi che l\'intervento è stato completato? I fondi verranno sbloccati al meccanico.',
+                            confirmLabel: 'Conferma e paga',
+                            variant: 'primary',
+                            onConfirm: async () => {
+                              setConfirmDialog(null);
+                              await finalizeJob();
+                            },
+                          })}
                           className="w-full bg-accent text-white py-4 rounded-3xl font-black uppercase tracking-widest text-xs shadow-xl shadow-accent/20 hover:scale-[1.02] active:scale-95 transition-all"
                         >
                           Conferma e paga riparazione
@@ -1704,7 +1747,17 @@ export function CyclistHome() {
                    )}
 
                    <button 
-                      onClick={() => cancelSOS()}
+                      onClick={() => setConfirmDialog({
+                        title: 'Annulla richiesta SOS',
+                        message: 'Vuoi annullare la richiesta? I fondi bloccati verranno rimborsati sul tuo wallet.',
+                        confirmLabel: 'Annulla SOS',
+                        variant: 'danger',
+                        onConfirm: async () => {
+                          setConfirmDialog((d) => d ? { ...d, loading: true } : null);
+                          await cancelSOS();
+                          setConfirmDialog(null);
+                        },
+                      })}
                       disabled={isCancelling}
                       className="w-full py-4 bg-danger/10 text-danger rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-danger hover:text-white active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
                    >
@@ -1781,7 +1834,7 @@ export function CyclistHome() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { setShowSOSForm(false); setSelectedFaultType(null); setSosStep(1); }}
+              onClick={handleSosFormBackdropClick}
               className="fixed inset-0 bg-dark/40 backdrop-blur-sm z-[90]"
             />
             <motion.div
@@ -1793,9 +1846,10 @@ export function CyclistHome() {
             >
               <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6 shrink-0" />
               <button 
-                onClick={() => { setShowSOSForm(false); setSelectedFaultType(null); setSosStep(1); }}
+                onClick={handleSosFormBackdropClick}
                 className="absolute top-6 right-6 p-2 bg-grey/10 rounded-full text-grey hover:text-black transition-colors"
                 title={t('common.close')}
+                aria-label={t('common.close')}
               >
                 <X size={20} />
               </button>
@@ -2111,9 +2165,24 @@ export function CyclistHome() {
         onClose={() => setShowRoadReportModal(false)}
       />
       <PublicProfileModal userId={viewProfileId as string} onClose={() => setViewProfileId(null)} />
-      <RoadReportDetailModal 
-        report={selectedReport} 
-        onClose={() => setSelectedReport(null)} 
+      {selectedReport && (
+        <ModalSuspense>
+          <RoadReportDetailModalLazy
+            report={selectedReport}
+            onClose={() => setSelectedReport(null)}
+          />
+        </ModalSuspense>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(confirmDialog)}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        confirmLabel={confirmDialog?.confirmLabel}
+        variant={confirmDialog?.variant}
+        loading={confirmDialog?.loading || isCancelling || isFinishing}
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
       />
     </div>
   );

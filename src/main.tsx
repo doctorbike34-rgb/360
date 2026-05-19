@@ -21,6 +21,24 @@ console.error = (...args: any[]) => {
 validateClientEnv();
 void initAppCheck();
 
+// Dopo ogni deploy: controlla aggiornamenti SW e ricarica la pagina (registerType: autoUpdate)
+import { registerSW } from 'virtual:pwa-register';
+
+registerSW({
+  immediate: true,
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return;
+    const checkForUpdate = () => {
+      registration.update().catch(() => {});
+    };
+    // Nuova versione quando l’utente riapre il tab o ogni ora se resta aperto
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    });
+    window.setInterval(checkForUpdate, 60 * 60 * 1000);
+  },
+});
+
 // Initialize tracking and error monitoring
 initLogger();
 initAnalytics();
@@ -54,6 +72,11 @@ window.addEventListener('error', (event) => {
 import './i18n';
 import App from './App';
 import './index.css';
+import { isPwaStandalone } from './lib/pwaInstall';
+
+if (typeof document !== 'undefined' && isPwaStandalone()) {
+  document.documentElement.classList.add('pwa-standalone');
+}
 
 class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: ReactNode}) {

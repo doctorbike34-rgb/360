@@ -9,6 +9,7 @@ import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, lim
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
 import { getCloudFunctionUrl } from '../config/env';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { 
   CreditCard, 
   Settings, 
@@ -45,11 +46,14 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Chat } from './Chat';
 import { LeaderboardView } from './LeaderboardView';
+import { BADGE_CATALOG, DAILY_BONUS_POINTS } from '../lib/badgeMeta';
 import { InterventionHistory } from './InterventionHistory';
 import { gamificationService } from '../services/gamificationService';
+import { requestEurPayout } from '../lib/payoutService';
 
 import { P2PWalletModal } from './P2PWalletModal';
 import { TransactionsModal } from './TransactionsModal';
+import { FullScreenPortal } from './FullScreenPortal';
 
 export interface ProfileViewProps {
   isAvailable?: boolean;
@@ -62,6 +66,7 @@ function isValidPhotoURL(url: string | null | undefined): boolean {
 }
 
 export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewProps) {
+  const { requestConfirm, ConfirmDialogPortal } = useConfirmDialog();
   const { user, role, profile, deferredPrompt, setDeferredPrompt } = useAuthStore();
   const { isDarkMode, toggleDarkMode } = useThemeStore();
   const { t, i18n } = useTranslation();
@@ -92,52 +97,64 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const [showFAQ, setShowFAQ] = useState(false);
   const [userSupportTicket, setUserSupportTicket] = useState<any | null>(null);
   const [isCreatingTicket, setIsCreatingTicket] = useState(false);
+  const [showPayout, setShowPayout] = useState(false);
+  const [payoutAmount, setPayoutAmount] = useState(20);
+  const [payoutIban, setPayoutIban] = useState(profile?.payoutIban || '');
+  const [payoutHolder, setPayoutHolder] = useState(profile?.payoutAccountHolder || profile?.name || '');
+  const [isPayoutSubmitting, setIsPayoutSubmitting] = useState(false);
+  const [pendingPayout, setPendingPayout] = useState<{ id: string; amountEur: number; status: string } | null>(null);
   
   // Payment state
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [paymentStep, setPaymentStep] = useState<'SELECT_AMOUNT' | 'SELECT_METHOD' | 'STRIPE' | 'PROCESSING' | 'SUCCESS'>('SELECT_AMOUNT');
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Handle return from Stripe Checkout
-  const processedRef = useRef(false);
+  const processedStripeRef = useRef(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
-    if (sessionId && !processedRef.current) {
-      processedRef.current = true;
-      setPaymentStep('PROCESSING');
-      window.history.replaceState({}, document.title, window.location.pathname);
+    if (!sessionId || !user || processedStripeRef.current) return;
 
-      // Listen for balance changes via onSnapshot
-      const unsub = onSnapshot(doc(db, 'users', user!.uid), (snap) => {
+    processedStripeRef.current = true;
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    const handleReturn = async () => {
+      if (profile?.subscriptionPendingPlan || profile?.role === 'MECHANIC') {
+        setPlanUpgradeStep('PROCESSING');
+        try {
+          const { confirmSubscriptionCheckout } = await import('../lib/subscriptionCheckout');
+          const result = await confirmSubscriptionCheckout(sessionId);
+          if (result.success) {
+            toast.success(`Piano ${result.planId || ''} attivato! 🎉`);
+            setPlanUpgradeStep('SUCCESS');
+            setShowPlans(false);
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        setPlanUpgradeStep('SELECT');
+      }
+
+      setPaymentStep('PROCESSING');
+      const initialBalance = profile?.balance ?? 0;
+      const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
         if (snap.exists()) {
           const balance = snap.data().balance || 0;
-          // If balance changed from what we know, payment went through
-          if (balance > 0) {
+          if (balance > initialBalance) {
             setPaymentStep('SUCCESS');
             unsub();
           }
         }
       });
-
-      // Timeout after 15s if no webhook
-      const timeout = setTimeout(() => {
+      setTimeout(() => {
         unsub();
-        setPaymentStep(prev => {
-          if (prev === 'PROCESSING') {
-            toast('Il pagamento è ancora in elaborazione. Ricarica la pagina tra qualche istante per vedere il saldo aggiornato.', { icon: '⏳' });
-            return 'SELECT_AMOUNT';
-          }
-          return prev;
-        });
+        setPaymentStep((prev) => (prev === 'PROCESSING' ? 'SELECT_AMOUNT' : prev));
       }, 15000);
+    };
 
-      return () => {
-        clearTimeout(timeout);
-        unsub();
-      };
-    }
-  }, [user]);
+    void handleReturn();
+  }, [user, profile?.subscriptionPendingPlan, profile?.role, profile?.balance]);
 
   // Profile edit state
   const [editName, setEditName] = useState(profile?.name || '');
@@ -204,7 +221,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     try {
       const result = await gamificationService.claimDailyBonus(user.uid);
       if (result.success) {
-        toast.success(`+${result.amount.toFixed(2)} DBC! Streak: ${result.streak} 🔥`, { duration: 3000 });
+        toast.success(`+${result.amount} punti reputazione! Streak: ${result.streak} 🔥`, { duration: 3000 });
         setDailyStreak(result.streak);
       } else {
         toast.error('Hai già riscosso il bonus oggi! Torna domani.', { duration: 3000 });
@@ -303,6 +320,51 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
       return unsub;
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user || (role !== 'MECHANIC' && role !== 'PEER_MECHANIC')) return;
+    const q = query(
+      collection(db, 'payoutRequests'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'PENDING'),
+      limit(1)
+    );
+    return onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const d = snap.docs[0];
+        setPendingPayout({ id: d.id, amountEur: d.data().amountEur, status: d.data().status });
+      } else {
+        setPendingPayout(null);
+      }
+    });
+  }, [user, role]);
+
+  useEffect(() => {
+    if (profile?.payoutIban) setPayoutIban(profile.payoutIban);
+    if (profile?.payoutAccountHolder) setPayoutHolder(profile.payoutAccountHolder);
+  }, [profile?.payoutIban, profile?.payoutAccountHolder]);
+
+  const submitEurPayout = async () => {
+    if (!user || isPayoutSubmitting) return;
+    if (role === 'MECHANIC' && profile?.kycStatus !== 'APPROVED') {
+      toast.error('Completa la verifica KYC (carica documenti) prima del prelievo.');
+      return;
+    }
+    setIsPayoutSubmitting(true);
+    try {
+      await requestEurPayout({
+        amountEur: payoutAmount,
+        iban: payoutIban,
+        accountHolder: payoutHolder,
+      });
+      toast.success('Richiesta prelievo inviata. Riceverai il bonifico dopo approvazione admin.');
+      setShowPayout(false);
+    } catch (err: any) {
+      toast.error(err?.message || 'Errore richiesta prelievo');
+    } finally {
+      setIsPayoutSubmitting(false);
+    }
+  };
 
   const startSupportTicket = async () => {
     if (!user) return;
@@ -814,8 +876,22 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 >
                   <History size={12}/> Storico
                 </button>
+                {(role === 'MECHANIC' || role === 'PEER_MECHANIC') && (
+                  <button
+                    onClick={() => setShowPayout(true)}
+                    disabled={!!pendingPayout || (profile?.balance || 0) < 20}
+                    className="bg-black/10 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform active:scale-95 disabled:opacity-40"
+                  >
+                    Prelievo €
+                  </button>
+                )}
               </div>
            </div>
+           {(role === 'MECHANIC' || role === 'PEER_MECHANIC') && pendingPayout && (
+             <p className="text-[10px] font-bold text-accent mt-3">
+               Prelievo €{pendingPayout.amountEur} in elaborazione.
+             </p>
+           )}
         </div>
 
         {/* Gamification Card */}
@@ -855,7 +931,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                     className="flex-1 bg-primary text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {isClaimingDaily ? <Loader2 className="animate-spin" size={14} /> : <CalendarCheck size={14} />}
-                    Riscuoti +0.01 DBC
+                    Riscuoti +{DAILY_BONUS_POINTS} punti
                   </button>
                   <button 
                     onClick={toggleDailyReminder}
@@ -874,13 +950,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
               <p className="text-[10px] font-black text-grey  uppercase tracking-widest mb-3">I Tuoi Badge</p>
               <div className="flex gap-2 overflow-x-auto no-scrollbar">
                  {(() => {
-                   const BADGE_TYPES = [
-                     { id: 'first_sos', icon: '🆘', name: 'Primo SOS' },
-                     { id: 'rescuer_5', icon: '🦸', name: 'Eroe' },
-                     { id: 'community_hero', icon: '🌟', name: 'Hero' },
-                   ];
                    const userBadges = profile?.badges || [];
-                   return BADGE_TYPES.map(b => {
+                   return BADGE_CATALOG.map(b => {
                      const isUnlocked = userBadges.some((ub: any) => ub.id === b.id);
                      return (
                        <div key={b.id} className={`shrink-0 flex flex-col items-center justify-center p-3 rounded-2xl border ${isUnlocked ? 'border-warning/50 bg-warning/10' : 'border-grey/10 bg-grey/5 opacity-50 grayscale'}`}>
@@ -983,6 +1054,32 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
             </div>
           )}
         </AnimatePresence>
+
+        {showPayout && (
+          <div className="fixed inset-0 z-[100] flex flex-col justify-end sm:justify-center overflow-hidden">
+            <motion.div className="absolute inset-0 bg-dark/60 backdrop-blur-xl" onClick={() => setShowPayout(false)} />
+            <motion.div className="relative w-full sm:max-w-md sm:mx-auto bg-white text-black rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 z-[110] shadow-2xl">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-black uppercase text-primary italic">Prelievo in EUR</h3>
+                <button type="button" onClick={() => setShowPayout(false)} className="p-2 text-grey"><X size={20} /></button>
+              </div>
+              <p className="text-[10px] text-grey font-bold mb-4">1 DB Coin = 1 €. Minimo €20. Il saldo viene bloccato fino all&apos;approvazione admin.</p>
+              {role === 'MECHANIC' && profile?.kycStatus !== 'APPROVED' && (
+                <p className="text-[10px] text-danger font-bold mb-4 bg-danger/10 p-3 rounded-xl">Completa la verifica KYC (carica documenti) prima di prelevare.</p>
+              )}
+              <label className="text-[10px] font-black text-grey uppercase">Importo (€)</label>
+              <input type="number" min={20} max={profile?.balance || 0} value={payoutAmount} onChange={(e) => setPayoutAmount(Number(e.target.value))} className="w-full mt-1 mb-3 p-3 rounded-xl border border-grey/20 font-bold" />
+              <label className="text-[10px] font-black text-grey uppercase">IBAN</label>
+              <input value={payoutIban} onChange={(e) => setPayoutIban(e.target.value)} placeholder="IT00 X000 0000 0000 0000 0000 000" className="w-full mt-1 mb-3 p-3 rounded-xl border border-grey/20 font-mono text-sm" />
+              <label className="text-[10px] font-black text-grey uppercase">Intestatario conto</label>
+              <input value={payoutHolder} onChange={(e) => setPayoutHolder(e.target.value)} className="w-full mt-1 mb-4 p-3 rounded-xl border border-grey/20 font-bold" />
+              <button type="button" onClick={submitEurPayout} disabled={isPayoutSubmitting || (role === 'MECHANIC' && profile?.kycStatus !== 'APPROVED')} className="w-full bg-primary text-white py-4 rounded-2xl font-black uppercase text-xs disabled:opacity-50 flex items-center justify-center gap-2">
+                {isPayoutSubmitting ? <Loader2 className="animate-spin" size={16} /> : null}
+                Richiedi bonifico
+              </button>
+            </motion.div>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-4">
@@ -1545,9 +1642,14 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         </AnimatePresence>
 
         <AnimatePresence>
+          {showLeaderboard && <LeaderboardView onClose={() => setShowLeaderboard(false)} />}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {showSupport && userSupportTicket && (
-            <div className="fixed inset-0 z-[200] flex flex-col bg-white">
-              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20">
+            <FullScreenPortal>
+              <motion.div className="flex flex-col h-full min-h-0">
+              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20 shrink-0">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setShowSupport(false)} className="p-1 rounded-full hover:bg-white/10 transition-colors">
                     <ArrowLeft size={20} />
@@ -1563,23 +1665,28 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   </span>
                   {userSupportTicket.status !== 'CLOSED' && (
                     <button 
-                      onClick={async () => {
-                        if (!window.confirm('Chiudere questo ticket?')) return;
-                        try {
-                          await updateDoc(doc(db, 'supportTickets', userSupportTicket.id), { 
-                            status: 'CLOSED', 
-                            updatedAt: serverTimestamp(),
-                            closedBy: user?.uid,
-                            closedAt: serverTimestamp()
-                          });
-                          toast.success('Ticket chiuso');
-                          setShowSupport(false);
-                          setUserSupportTicket(null);
-                        } catch (err) {
-                          console.error(err);
-                          toast.error('Errore nella chiusura del ticket');
-                        }
-                      }}
+                      onClick={() => requestConfirm({
+                        title: 'Chiudi ticket',
+                        message: 'Chiudere questo ticket di assistenza?',
+                        variant: 'danger',
+                        confirmLabel: 'Chiudi',
+                        onConfirm: async () => {
+                          try {
+                            await updateDoc(doc(db, 'supportTickets', userSupportTicket.id), { 
+                              status: 'CLOSED', 
+                              updatedAt: serverTimestamp(),
+                              closedBy: user?.uid,
+                              closedAt: serverTimestamp()
+                            });
+                            toast.success('Ticket chiuso');
+                            setShowSupport(false);
+                            setUserSupportTicket(null);
+                          } catch (err) {
+                            console.error(err);
+                            toast.error('Errore nella chiusura del ticket');
+                          }
+                        },
+                      })}
                       className="p-1 rounded-full hover:bg-white/10 transition-colors"
                       title="Chiudi ticket"
                     >
@@ -1600,18 +1707,20 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   </button>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                   <Chat key={userSupportTicket.id} chatId={userSupportTicket.id} otherPartyName="Supporto DB360" isAdminSupport={true} targetUserId="admin" />
                 </div>
               )}
-            </div>
+              </motion.div>
+            </FullScreenPortal>
           )}
         </AnimatePresence>
 
         <AnimatePresence>
           {showFAQ && (
-            <div className="fixed inset-0 z-[200] flex flex-col bg-white">
-              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20">
+            <FullScreenPortal>
+              <motion.div className="flex flex-col h-full min-h-0">
+              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20 shrink-0">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setShowFAQ(false)} className="p-1 rounded-full hover:bg-white/10 transition-colors">
                     <ArrowLeft size={20} />
@@ -1622,7 +1731,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   </div>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
                 {[
                   { q: 'Come funziona il SOS?', a: 'Premi il pulsante SOS sulla mappa. I meccanici vicini riceveranno la tua richiesta e potranno accettarla. Vedrai chi ha accettato e il suo percorso verso di te.' },
                   { q: 'Come si pagano gli interventi?', a: 'Puoi pagare con DB Coin (portafoglio interno), carta di credito, PayPal o bonifico. Ricarica il portafoglio dalla sezione "Metodi di Pagamento" nel profilo.' },
@@ -1635,18 +1744,19 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 ].map((faq, i) => (
                   <FAQItem key={i} question={faq.q} answer={faq.a} />
                 ))}
-                <div className="pt-6 pb-8">
+                <div className="pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
                   <button 
                     onClick={createTicketFromFAQ}
                     disabled={isCreatingTicket}
-                    className="w-full py-4 bg-accent text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-accent/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-accent text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-accent/20 disabled:opacity-50 flex items-center justify-center gap-2 min-h-[48px]"
                   >
                     {isCreatingTicket ? <Loader2 className="animate-spin" size={16}/> : <MessageSquare size={16}/>}
                     {isCreatingTicket ? 'Creazione ticket...' : 'Non hai trovato risposta? Contattaci'}
                   </button>
                 </div>
               </div>
-            </div>
+              </motion.div>
+            </FullScreenPortal>
           )}
         </AnimatePresence>
 
@@ -1667,6 +1777,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
              <TransactionsModal onClose={() => setShowTransactionsModal(false)} />
           )}
         </AnimatePresence>
+
+        <ConfirmDialogPortal />
       </div>
     </div>
   );

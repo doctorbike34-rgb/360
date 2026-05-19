@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Star, MapPin, Bike, Navigation2, LogOut, Mail, Phone } from 'lucide-react';
+import { X, Star, MapPin, Bike, Mail, Phone, Award, Flame } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
+import { BADGE_CATALOG, getUnlockedBadgeIds } from '../lib/badgeMeta';
 
 interface PublicProfileModalProps {
   userId: string;
@@ -31,6 +32,10 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({ userId, 
   }, [userId]);
 
   const avatar = profile?.photoURL || profile?.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`;
+  const isOwnProfile = auth.currentUser?.uid === userId;
+  const reputationPoints = Math.round((profile?.points ?? 0) * 10) / 10;
+  const unlockedBadges = getUnlockedBadgeIds(profile?.badges);
+  const visibleBadges = BADGE_CATALOG.filter((b) => unlockedBadges.has(b.id));
 
   return (
     <AnimatePresence>
@@ -79,6 +84,41 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({ userId, 
               </div>
 
               <div className="px-6 pb-8 pt-6 space-y-4 -mt-6 bg-white text-black rounded-t-[2rem] relative z-10 transition-colors max-h-[60vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-warning/10 border border-warning/20 p-4 rounded-xl">
+                    <p className="text-[9px] font-black uppercase text-grey tracking-widest mb-1 flex items-center gap-1">
+                      <Award size={12} className="text-warning" /> Punti reputazione
+                    </p>
+                    <p className="text-2xl font-black text-warning">{reputationPoints}</p>
+                  </div>
+                  {(profile?.dailyStreak ?? 0) > 0 && (
+                    <div className="bg-accent/10 border border-accent/20 p-4 rounded-xl">
+                      <p className="text-[9px] font-black uppercase text-grey tracking-widest mb-1 flex items-center gap-1">
+                        <Flame size={12} className="text-accent" /> Streak
+                      </p>
+                      <p className="text-2xl font-black text-accent">{profile.dailyStreak} gg</p>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase text-grey tracking-widest mb-2">Badge ottenuti</p>
+                  {visibleBadges.length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                      {visibleBadges.map((b) => (
+                        <div
+                          key={b.id}
+                          title={b.hint}
+                          className="shrink-0 flex flex-col items-center p-2.5 rounded-xl border border-warning/40 bg-warning/10 min-w-[4.5rem]"
+                        >
+                          <span className="text-xl">{b.icon}</span>
+                          <span className="text-[8px] font-bold uppercase text-center mt-1 leading-tight">{b.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-grey font-bold text-center py-2">Nessun badge ancora</p>
+                  )}
+                </div>
                 <div className="bg-white text-black border border-grey/10 shadow-sm p-4 rounded-xl flex items-center gap-3 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
                     <Bike size={20} />
@@ -99,7 +139,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({ userId, 
                   </div>
                 </div>
 
-                {profile.email && (
+                {isOwnProfile && profile.email && (
                   <div className="bg-white text-black border border-grey/10 shadow-sm p-4 rounded-xl flex items-center gap-3 transition-colors">
                     <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
                       <Mail size={20} />
@@ -111,7 +151,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({ userId, 
                   </div>
                 )}
 
-                {profile.phone && (
+                {isOwnProfile && profile.phone && (
                   <div className="bg-white text-black border border-grey/10 shadow-sm p-4 rounded-xl flex items-center gap-3 transition-colors">
                     <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0">
                       <Phone size={20} />

@@ -13,9 +13,12 @@ import { UserProfile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { geohashForLocation } from 'geofire-common';
 import { isFirestoreQuotaError } from './lib/firestoreErrors';
-import { getCurrentCoords, fetchIpLocation } from './lib/geolocation';
+import { getCurrentCoords, fetchIpLocation, shouldApplyLocationSource, toStoreLocationSource } from './lib/geolocation';
+import { syncMapPresence, clearMapPresence } from './services/mapPresenceService';
+import { isPwaStandalone, markPwaInstalled } from './lib/pwaInstall';
 
 import { Auth } from './components/Auth';
+import { LandingPage } from './components/LandingPage';
 import { WelcomePopup } from './components/WelcomePopup';
 import { NotificationManager } from './components/NotificationManager';
 import { GlobalNotifications } from './components/GlobalNotifications';
@@ -41,10 +44,12 @@ export default function App() {
   const { 
     user, role, profile, loading, quotaError, showAIDoctor, userLocation,
     setUser, setRole, setProfile, setLoading, setQuotaError, setShowAIDoctor,
-    setUserLocation, setLocationPermissionError, locationPermissionError, setDeferredPrompt 
+    setUserLocation, setLocationSource, setLocationPermissionError, locationPermissionError, setDeferredPrompt 
   } = useAuthStore();
   const { isDarkMode } = useThemeStore();
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showLanding, setShowLanding] = useState(true);
+  const [authStartLogin, setAuthStartLogin] = useState<boolean | undefined>(undefined);
   const hasShownDailyToastRef = useRef(false);
   const hasClaimedDailyBonusRef = useRef(false);
   const adminBootstrappedRef = useRef(false);
@@ -60,6 +65,8 @@ export default function App() {
   }, [loading]);
 
   useEffect(() => {
+    if (isPwaStandalone()) markPwaInstalled();
+
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -72,8 +79,18 @@ export default function App() {
     };
   }, [setDeferredPrompt]);
 
-  const persistUserLocation = (lat: number, lng: number) => {
+  const persistUserLocation = (
+    lat: number,
+    lng: number,
+    source: 'gps' | 'ip' | 'default' = 'gps',
+    options?: { force?: boolean }
+  ) => {
+    const prevSource = useAuthStore.getState().locationSource;
+    if (!shouldApplyLocationSource(prevSource, source, options?.force)) {
+      return;
+    }
     setUserLocation({ lat, lng });
+    setLocationSource(source);
     setLocationPermissionError(false);
     if (useAuthStore.getState().user && useAuthStore.getState().role && !useAuthStore.getState().quotaError) {
       setDoc(doc(db, 'users', useAuthStore.getState().user!.uid), {
@@ -93,14 +110,14 @@ export default function App() {
     if (!('geolocation' in navigator)) {
       const ip = await fetchIpLocation();
       if (ip) {
-        persistUserLocation(ip.lat, ip.lng);
+        persistUserLocation(ip.lat, ip.lng, 'ip');
         toast('Posizione approssimativa (rete)', { icon: 'ℹ️' });
       }
       return;
     }
     try {
       const coords = await getCurrentCoords({ preferHighAccuracy: true, fallbackToIp: true });
-      persistUserLocation(coords.lat, coords.lng);
+      persistUserLocation(coords.lat, coords.lng, toStoreLocationSource(coords.source), { force: true });
       if (coords.source === 'ip' || coords.source === 'default') {
         toast('Posizione approssimativa — per il GPS preciso riprova all\'aperto', { icon: 'ℹ️', duration: 5000 });
       }
@@ -112,10 +129,10 @@ export default function App() {
       } else {
         const ip = await fetchIpLocation();
         if (ip) {
-          persistUserLocation(ip.lat, ip.lng);
+          persistUserLocation(ip.lat, ip.lng, 'ip');
           toast('GPS non disponibile — uso posizione di rete', { icon: 'ℹ️' });
         } else {
-          persistUserLocation(41.9028, 12.4964);
+          persistUserLocation(41.9028, 12.4964, 'default');
           toast.error('Impossibile ottenere la posizione');
         }
       }
@@ -177,6 +194,18 @@ export default function App() {
             }
             if (profileData.lastLat && profileData.lastLng) {
               setUserLocation({ lat: profileData.lastLat, lng: profileData.lastLng });
+              setLocationSource('gps');
+              if (profileData.role && profileData.role !== 'ADMIN') {
+                syncMapPresence({
+                  uid: fbUser.uid,
+                  role: profileData.role,
+                  name: profileData.name,
+                  lastLat: profileData.lastLat,
+                  lastLng: profileData.lastLng,
+                  isOnline: profileData.isOnline !== false,
+                  mechanicStatus: profileData.mechanicStatus,
+                }).catch(() => {});
+              }
             }
 
             const now = new Date();
@@ -194,7 +223,7 @@ export default function App() {
                 }
                 gamificationService.claimDailyBonus(fbUser.uid).then(result => {
                   if (result.success && !hasShownDailyToastRef.current) {
-                    toast.success(`Bonus giornaliero! +${result.amount.toFixed(2)} DBC 🎁 (Streak: ${result.streak} giorni)`, { duration: 4000 });
+                    toast.success(`Bonus giornaliero! +${result.amount} punti reputazione 🎁 (Streak: ${result.streak} giorni)`, { duration: 4000 });
                     hasShownDailyToastRef.current = true;
                   }
                 }).catch(console.error);
@@ -280,6 +309,10 @@ export default function App() {
     };
   }, [setUser, setRole, setProfile, setLoading, setQuotaError, setUserLocation]);
 
+  useEffect(() => {
+    if (!loading && !user) setShowLanding(true);
+  }, [loading, user]);
+
   const appLastUpdateRef = useRef<{time: number, lat: number|null, lng: number|null, isWriting: boolean}>({ time: 0, lat: null, lng: null, isWriting: false });
 
   useEffect(() => {
@@ -299,7 +332,8 @@ export default function App() {
           location: null,
           isOnline: false,
           updatedAt: serverTimestamp()
-        }).catch((e) => console.warn('Background update failed', e)); // Silent catch for background cleanup
+        }).catch((e) => console.warn('Background update failed', e));
+        clearMapPresence(user.uid).catch(() => {});
       }
       return;
     }
@@ -308,6 +342,7 @@ export default function App() {
 
     const updateLocation = async (coords: { latitude: number, longitude: number }) => {
       setUserLocation({ lat: coords.latitude, lng: coords.longitude });
+      setLocationSource('gps');
       setLocationPermissionError(false);
 
       // Read fresh state from store to avoid stale closure
@@ -371,6 +406,18 @@ export default function App() {
         
         appLastUpdateRef.current.isWriting = true;
         await updateDoc(doc(db, 'users', user.uid), updateData);
+        const p = useAuthStore.getState().profile;
+        if (role && role !== 'ADMIN') {
+          await syncMapPresence({
+            uid: user.uid,
+            role,
+            name: p?.name,
+            lastLat: coords.latitude,
+            lastLng: coords.longitude,
+            isOnline: p?.isOnline !== false,
+            mechanicStatus: p?.mechanicStatus,
+          });
+        }
         appLastUpdateRef.current.isWriting = false;
         appLastUpdateRef.current.time = now;
         appLastUpdateRef.current.lat = coords.latitude;
@@ -394,9 +441,26 @@ export default function App() {
       // Get FRESH state from Zustand to avoid stale closure
       const currentLoc = useAuthStore.getState().userLocation;
       
-      // If we don't have any location yet, handle it
+      const hadGpsFix = useAuthStore.getState().locationSource === 'gps';
+
       if (err.code === 1) {
-        // Permission strictly denied
+        if (hadGpsFix) {
+          return;
+        }
+        try {
+          const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.latitude && data.longitude) {
+              persistUserLocation(parseFloat(data.latitude), parseFloat(data.longitude), 'ip', { force: true });
+              toast('Posizione approssimativa attiva — abilita il GPS per maggiore precisione', { icon: 'ℹ️', duration: 5000 });
+              setLocationPermissionError(false);
+              return;
+            }
+          }
+        } catch {
+          /* fall through to block screen */
+        }
         setLocationPermissionError(true);
         updateDoc(doc(db, 'users', user.uid), {
           lastLat: null,
@@ -404,14 +468,15 @@ export default function App() {
           location: null,
           updatedAt: serverTimestamp()
         }).catch((e) => console.warn('Background update failed', e));
-      } else if (!currentLoc) {
-        // Timeout or unavailable: automatically fallback to approximate/IP location
+        clearMapPresence(user.uid).catch(() => {});
+      } else if (!currentLoc && useAuthStore.getState().locationSource !== 'gps') {
           try {
             const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
             if (res.ok) {
               const data = await res.json();
               if (data.latitude && data.longitude) {
                 updateLocation({ latitude: parseFloat(data.latitude), longitude: parseFloat(data.longitude) } as GeolocationCoordinates);
+                useAuthStore.getState().setLocationSource('ip');
                 setLocationPermissionError(false);
                 return;
               }
@@ -419,8 +484,8 @@ export default function App() {
           } catch (e) {
             console.error("Auto IP fallback failed", e);
           }
-          // Default to central Italy / Rome if everything else fails
           updateLocation({ latitude: 41.9028, longitude: 12.4964 } as GeolocationCoordinates);
+          useAuthStore.getState().setLocationSource('default');
           setLocationPermissionError(false);
       }
     };
@@ -448,7 +513,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center bg-white">
+      <div className="h-[100dvh] flex items-center justify-center bg-white pwa-shell-padding box-border">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
       </div>
     );
@@ -459,14 +524,33 @@ export default function App() {
   // Determine if we should show Auth for profile completion
   const isCompletingProfile = !!user && !role;
 
+  const dismissLanding = (toLogin: boolean) => {
+    setAuthStartLogin(toLogin);
+    setShowLanding(false);
+  };
+
   if (!user || isCompletingProfile) {
-    return <Auth />;
+    if (showLanding) {
+      return (
+        <LandingPage
+          onStart={() => dismissLanding(false)}
+          onLogin={() => dismissLanding(true)}
+          onSkip={() => dismissLanding(true)}
+        />
+      );
+    }
+    return (
+      <Auth
+        initialIsLogin={authStartLogin}
+        onShowLanding={() => setShowLanding(true)}
+      />
+    );
   }
 
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className="flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black" style={{ height: '100dvh', width: '100%' }}>
+    <div className="flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black pwa-shell-padding box-border" style={{ height: '100dvh', width: '100%' }}>
       <>
         <AnimatePresence>
           {quotaError && (
@@ -493,7 +577,18 @@ export default function App() {
         </AnimatePresence>
 
         {(!user || !role) ? (
-          <Auth />
+          showLanding ? (
+            <LandingPage
+              onStart={() => dismissLanding(false)}
+              onLogin={() => dismissLanding(true)}
+              onSkip={() => dismissLanding(true)}
+            />
+          ) : (
+            <Auth
+              initialIsLogin={authStartLogin}
+              onShowLanding={() => setShowLanding(true)}
+            />
+          )
         ) : (
           <EmailVerificationGuard>
             <NotificationManager />
@@ -532,7 +627,34 @@ export default function App() {
                     </p>
 
                     <div className="w-full space-y-4">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
+                            if (res.ok) {
+                              const data = await res.json();
+                              if (data.latitude && data.longitude) {
+                                persistUserLocation(parseFloat(data.latitude), parseFloat(data.longitude), 'ip');
+                                setLocationPermissionError(false);
+                                toast('Continui con posizione approssimativa', { icon: 'ℹ️' });
+                                return;
+                              }
+                            }
+                          } catch {
+                            /* ignore */
+                          }
+                          persistUserLocation(41.9028, 12.4964, 'default');
+                          setLocationPermissionError(false);
+                          toast('Posizione predefinita attiva — abilita il GPS quando puoi', { icon: 'ℹ️' });
+                        }}
+                        className="w-full bg-accent/10 text-accent font-black py-4 rounded-2xl border border-accent/20 active:scale-95 transition-all text-xs uppercase tracking-widest"
+                      >
+                        Continua con posizione approssimativa
+                      </button>
+
                       <button 
+                        type="button"
                         onClick={retryLocation}
                         className="w-full bg-primary text-white font-black py-5 rounded-2xl shadow-2xl shadow-primary/30 hover:bg-primary/90 hover:scale-[1.02] focus:ring-4 focus:ring-primary/50 focus:outline-none active:scale-95 transition-all text-sm uppercase tracking-widest"
                       >
@@ -651,16 +773,31 @@ export default function App() {
               {profile && !profile.hasCompletedOnboarding && (
                 <Onboarding 
                   profile={profile}
-                  onComplete={() => setProfile({ ...profile, hasCompletedOnboarding: true })} 
+                  onComplete={async () => {
+                    if (user) {
+                      try {
+                        await updateDoc(doc(db, 'users', user.uid), {
+                          hasCompletedOnboarding: true,
+                          updatedAt: serverTimestamp(),
+                        });
+                      } catch (e) {
+                        console.error('onboarding persist', e);
+                      }
+                    }
+                    setProfile({ ...profile, hasCompletedOnboarding: true });
+                    toast.success('Benvenuto in DoctorBike!');
+                  }} 
                 />
               )}
             </AnimatePresence>
 
+            <div className="flex-1 min-h-0 flex flex-col relative">
             <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>}>
               {role === 'ADMIN' ? <AdminHome /> : role === 'PEER_MECHANIC' ? <PeerMechanicHome /> : role === 'CYCLIST' ? <CyclistHome /> : <MechanicHome />}
               
               <AIBikeDoctor isOpen={showAIDoctor} onClose={() => setShowAIDoctor(false)} />
             </Suspense>
+            </div>
             
             <AIPrompt onOpenAssistant={() => setShowAIDoctor(true)} />
 
@@ -677,7 +814,7 @@ export default function App() {
       </>
 
       {/* Home Indicator (Barra di movimento) */}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[10000] pointer-events-none" />
+      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[10000] pointer-events-none bottom-pwa-safe" />
       <Toaster position="bottom-center" toastOptions={{ style: { background: '#333', color: '#fff', fontSize: '14px', borderRadius: '16px' } }} />
     </div>
   );

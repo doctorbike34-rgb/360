@@ -46,7 +46,7 @@ const authSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['email'],
-      message: 'Email is required'
+      message: 'Inserisci un indirizzo email valido'
     });
   }
   if (!data.isLogin) {
@@ -54,21 +54,21 @@ const authSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['password'],
-        message: 'Password must be at least 6 characters'
+        message: 'La password deve avere almeno 6 caratteri'
       });
     }
     if (!data.name || data.name.length < 2) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['name'],
-        message: 'Name must be at least 2 characters'
+        message: 'Il nome deve avere almeno 2 caratteri'
       });
     }
     if (!data.role) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['role'],
-        message: 'Role is required'
+        message: 'Seleziona un ruolo'
       });
     }
   }
@@ -76,9 +76,16 @@ const authSchema = z.object({
 
 type AuthForm = z.infer<typeof authSchema>;
 
-export function Auth() {
+interface AuthProps {
+  initialIsLogin?: boolean;
+  onShowLanding?: () => void;
+}
+
+export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
   const { user, setUser, setRole } = useAuthStore();
-  const [isLogin, setIsLogin] = useState(!user);
+  const [isLogin, setIsLogin] = useState(() =>
+    initialIsLogin !== undefined ? initialIsLogin : !user
+  );
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
@@ -112,6 +119,10 @@ export function Auth() {
     setValue('isLogin', isLogin);
     setValue('authMethod', authMethod);
   }, [isLogin, authMethod, setValue]);
+
+  React.useEffect(() => {
+    if (initialIsLogin !== undefined) setIsLogin(initialIsLogin);
+  }, [initialIsLogin]);
 
   const selectedRole = watch('role');
 
@@ -523,7 +534,7 @@ export function Auth() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full max-w-none shadow-[20px_0_50px_-15px_rgba(0,0,0,0.2)] relative overflow-hidden bg-primary transition-colors duration-500 pt-safe pb-safe">
+    <div className="flex flex-col h-[100dvh] w-full max-w-none shadow-[20px_0_50px_-15px_rgba(0,0,0,0.2)] relative overflow-hidden bg-primary transition-colors duration-500 pt-safe pb-safe pwa-shell-padding box-border">
       <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto no-scrollbar">
         <div className="w-full max-w-sm flex justify-end mb-4 z-50 relative">
           {/* Selettore Lingua */}
@@ -753,14 +764,24 @@ export function Auth() {
         </form>
 
         {!isCompletingProfile && (
-          <div className="mt-4 text-center">
-            <button 
+          <motion.div className="mt-4 text-center space-y-2">
+            <button
+              type="button"
               onClick={() => setIsLogin(!isLogin)}
-              className="text-xs font-bold text-grey hover:text-primary transition-colors"
+              className="text-xs font-bold text-grey hover:text-primary transition-colors block w-full"
             >
               {isLogin ? t('auth.needAccount') : t('auth.haveAccount')}
             </button>
-          </div>
+            {onShowLanding && (
+              <button
+                type="button"
+                onClick={onShowLanding}
+                className="text-[10px] font-black uppercase tracking-widest text-primary/80 hover:text-primary transition-colors"
+              >
+                {t('landing.rediscover')}
+              </button>
+            )}
+          </motion.div>
         )}
 
         {isCompletingProfile && (

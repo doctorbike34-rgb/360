@@ -24,9 +24,9 @@ export function AIBikeDoctor({ isOpen, onClose }: AIBikeDoctorProps) {
   const [messages, setMessages] = useState<Message[]>(() => [
     {
       id: '1',
-      text: role === 'CYCLIST' 
-        ? "Ciao! Sono Doctorbike Ai. Qual è il problema con la tua bici oggi?"
-        : "Saluti, collega. Sono Doctorbike Ai. Come posso aiutarti con le riparazioni di oggi?",
+      text: role === 'CYCLIST'
+        ? "Ciao! Sono Doctorbike AI. Descrivi il problema della bici e ti aiuto con la diagnosi. Se sei fermo in strada puoi usare **SOS** dall'app; per l'app o l'account vai in **Profilo → Assistenza**."
+        : "Ciao collega, sono Doctorbike AI. Dimmi il caso tecnico: ti aiuto con diagnosi e strumenti. Per problemi sulla piattaforma DB360 usa **Profilo → Assistenza**.",
       sender: 'ai',
       timestamp: Date.now()
     }
@@ -97,14 +97,16 @@ export function AIBikeDoctor({ isOpen, onClose }: AIBikeDoctorProps) {
       }
     }
 
+    const userText = userMsg.text;
     const [analysis, response] = await Promise.all([
-        analyzeBikeIssue(input),
-        askBikeDoctor(input, role || 'CYCLIST')
+      analyzeBikeIssue(userText),
+      askBikeDoctor(userText, role || 'CYCLIST'),
     ]);
 
-    const finalResponse = analysis !== "Could not analyze issue." 
-        ? `${response}\n\n---\n**Diagnosi Rapida:**\n${analysis}`
-        : (response || "Scusa, ho avuto un problema tecnico. Riprova.");
+    const main = (response || '').trim() || 'Scusa, ho avuto un problema tecnico. Riprova.';
+    const finalResponse = analysis
+      ? `${main}\n\n---\n**Diagnosi rapida**\n\n${analysis}`
+      : main;
 
     const aiMsg: Message = {
       id: (Date.now() + 1).toString(),

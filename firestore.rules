@@ -24,12 +24,25 @@ service cloud.firestore {
       );
     }
     function isVerified() { 
-      return isSignedIn(); 
+      return isEmailVerified() || isAdmin();
     }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+
+    /** Lettura profilo completo: solo proprio account o admin. */
+    function canReadOwnOrAdminUser(userId) {
+      return isOwner(userId) || isAdmin();
+    }
+
+    /** Scoperta su mappa / vicinanze: solo utenti con posizione indicizzata (no scrape profili senza geo). */
+    function canReadUserForMapDiscovery() {
+      return resource.data.role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC'] &&
+        resource.data.lastLat is number &&
+        resource.data.lastLng is number &&
+        resource.data.geohash is string;
+    }
 
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'role', 'createdAt']) &&
@@ -60,8 +73,22 @@ service cloud.firestore {
              data.location.lat is number && data.location.lng is number;
     }
 
-    match /users/{userId} {
+    /** Dati minimi per mappa — query geohash senza esporre email/telefono/balance. */
+    match /mapPresence/{userId} {
       allow read: if isSignedIn();
+      allow create: if isOwner(userId) && incoming().uid == request.auth.uid &&
+        incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC'] &&
+        incoming().lastLat is number && incoming().lastLng is number &&
+        incoming().geohash is string;
+      allow update: if isOwner(userId) &&
+        incoming().role in ['CYCLIST', 'MECHANIC', 'PEER_MECHANIC'] &&
+        incoming().lastLat is number && incoming().lastLng is number &&
+        incoming().geohash is string;
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (canReadOwnOrAdminUser(userId) || canReadUserForMapDiscovery());
       allow create: if isOwner(userId) || isAdmin();
       allow update: if isAdmin() || (
         isOwner(userId) && (
@@ -121,8 +148,8 @@ service cloud.firestore {
 
     match /sosRequests/{sosId} {
       allow read: if isSignedIn();
-      allow create: if isVerified() && isValidSOS(incoming());
-      allow update: if isAdmin() || (isSignedIn() && (
+      allow create: if isEmailVerified() && isValidSOS(incoming());
+      allow update: if isAdmin() || (isEmailVerified() && (
         (existing().status == 'PENDING' && incoming().status == 'ACCEPTED' && incoming().mechanicId == request.auth.uid) ||
         (isOwner(existing().cyclistId) && 
          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'photos', 'isReviewed', 'mechanicConfirmed', 'updatedAt', 'paymentStatus', 'cyclistConfirmed', 'completedAt', 'platformFee', 'mechanicNet', 'finalPrice', 'releaseTxId']) &&
@@ -137,15 +164,26 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
-      allow read, write: if isSignedIn() && (
+      allow read: if isSignedIn() && (
+        isAdmin() || 
+        (resource != null && request.auth.uid in resource.data.participants) ||
+        (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+      );
+      allow create, update: if isEmailVerified() && (
         isAdmin() || 
         (resource != null && request.auth.uid in resource.data.participants) ||
         (request.resource != null && request.auth.uid in request.resource.data.participants) ||
         (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
       );
+      allow delete: if isAdmin();
 
       match /messages/{msgId} {
-        allow read, write: if isSignedIn() && (
+        allow read: if isSignedIn() && (
+          isAdmin() ||
+          (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) ||
+          (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+        );
+        allow create, update, delete: if isEmailVerified() && (
           isAdmin() ||
           (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) ||
           (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
@@ -155,14 +193,14 @@ service cloud.firestore {
 
     match /events/{eventId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && incoming().organizerId == request.auth.uid;
+      allow create: if isEmailVerified() && incoming().organizerId == request.auth.uid;
       allow update: if isSignedIn() && (isOwner(existing().organizerId) || incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'participantCount'])) || isAdmin();
       allow delete: if isOwner(existing().organizerId) || isAdmin();
     }
 
     match /roadReports/{reportId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow create: if isEmailVerified() && isValidRoadReport(incoming());
       allow update: if isAdmin() || (isSignedIn() && (
         isOwner(existing().reporterId) || 
         incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'updatedAt'])
@@ -190,12 +228,11 @@ service cloud.firestore {
     match /transactions/{txId} {
        allow read: if isAdmin() || (isSignedIn() && (resource.data.fromId == request.auth.uid || resource.data.toId == request.auth.uid || resource.data.userId == request.auth.uid));
        allow delete: if isAdmin();
-       allow create: if isSignedIn() && (
+       allow create: if isAdmin() || (isEmailVerified() && (
          incoming().fromId == request.auth.uid || 
          incoming().toId == request.auth.uid || 
-         incoming().type == 'TOPUP' ||
-         isAdmin()
-       ) && incoming().amount >= 0;
+         incoming().type == 'TOPUP'
+       ) && incoming().amount >= 0);
     }
 
     match /interventions/{intId} {
@@ -223,6 +260,11 @@ service cloud.firestore {
     match /subscriptions/{subId} {
       allow read, write: if isAdmin();
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+    }
+
+    match /payoutRequests/{payoutId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if false;
     }
   }
 }

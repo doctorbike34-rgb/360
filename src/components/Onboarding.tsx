@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { 
@@ -23,6 +23,8 @@ import { db, functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from '../store/useAuthStore';
 import { getCloudFunctionUrl } from '../config/env';
+import { confirmSubscriptionCheckout } from '../lib/subscriptionCheckout';
+import { formatFeePercentLabel, PEER_MECHANIC_FEE_PERCENT } from '../lib/platformFees';
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -118,7 +120,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
     {
       id: 'peer_step1',
       title: 'Assistenza e Guadagno',
-      desc: 'Aiuta altri ciclisti in difficoltà e guadagna ricevendo un rimborso spese per i tuoi interventi.',
+      desc: `Aiuta altri ciclisti in difficoltà e guadagna con un rimborso spese. Come ciclista esperto, commissione piattaforma fissa del ${formatFeePercentLabel(PEER_MECHANIC_FEE_PERCENT)} su ogni intervento.`,
       icon: <Zap className="text-[#14B8A6]" size={48} />,
       gradient: 'from-[#14B8A6]/20 to-[#14B8A6]/5',
       image: 'https://images.unsplash.com/photo-1511994298241-608e28f14fde?auto=format&fit=crop&q=80&w=1000'
@@ -204,6 +206,38 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   ];
 
   const [confirmingPlan, setConfirmingPlan] = useState<string | null>(null);
+  const stripeReturnRef = useRef(false);
+
+  useEffect(() => {
+    if (!user || stripeReturnRef.current || profile?.role !== 'MECHANIC') return;
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    if (!sessionId) return;
+
+    stripeReturnRef.current = true;
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    void (async () => {
+      setIsFinishing(true);
+      try {
+        const result = await confirmSubscriptionCheckout(sessionId);
+        if (result.success && result.planId) {
+          setSelectedPlan(result.planId);
+          setConfirmingPlan(null);
+          toast.success(`Piano ${result.planId} attivato!`);
+          const finalIdx = activeSteps.findIndex((s) => s.id === 'final');
+          if (finalIdx >= 0) setStep(finalIdx);
+        } else if (result.pending) {
+          toast('Pagamento in elaborazione. Attendi qualche secondo.', { icon: '⏳' });
+        }
+      } catch (e) {
+        console.error('Stripe return onboarding', e);
+        toast.error('Errore attivazione abbonamento. Contatta assistenza se il pagamento è andato a buon fine.');
+      } finally {
+        setIsFinishing(false);
+      }
+    })();
+  }, [user, profile?.role]);
 
   const initStripeUpgrade = async (planId: string) => {
     if (!user) return false;
@@ -326,11 +360,32 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   };
 
   return (
-    <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-center overflow-hidden">
+    <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center px-6 pwa-shell-padding box-border text-center overflow-hidden">
       
       <button 
-        onClick={onComplete} 
-        className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] right-6 z-[250] p-2 bg-black/10 text-black rounded-full hover:bg-black/20 transition-colors backdrop-blur-md"
+        type="button"
+        onClick={async () => {
+          const stepId = activeSteps[step]?.id;
+          if (stepId === 'gdpr' && (!consents.privacyPolicy || !consents.termsOfService || !consents.dataProcessing)) {
+            toast.error('Accetta i termini obbligatori prima di uscire.');
+            return;
+          }
+          if (user) {
+            try {
+              await setDoc(doc(db, 'users', user.uid), {
+                hasCompletedOnboarding: true,
+                skippedOnboarding: true,
+                updatedAt: serverTimestamp(),
+              }, { merge: true });
+            } catch (e) {
+              console.error('skip onboarding', e);
+            }
+          }
+          toast('Puoi completare il profilo più tardi dalle impostazioni', { icon: 'ℹ️' });
+          onComplete();
+        }}
+        className="absolute top-6 top-pwa-safe right-6 z-[250] p-2 bg-black/10 text-black rounded-full hover:bg-black/20 transition-colors backdrop-blur-md"
+        aria-label="Salta introduzione"
       >
         <X size={20} />
       </button>
@@ -578,6 +633,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
                        <span className="text-black font-black text-xl w-12 text-right">{peerRadius}</span>
                    </div>
                 </div>
+                <p className="text-black/50 text-[10px] font-bold leading-relaxed bg-[#14B8A6]/10 p-3 rounded-xl border border-[#14B8A6]/20">
+                  Su ogni intervento completato la piattaforma trattiene una commissione fissa del {formatFeePercentLabel(PEER_MECHANIC_FEE_PERCENT)} (solo ciclisti esperti). I meccanici professionisti hanno commissioni diverse in base al piano (5%, 10%, 15%).
+                </p>
              </div>
           )}
           

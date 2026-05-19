@@ -7,13 +7,21 @@ import {
   eventMarkerIcon,
   reportMarkerIcon,
 } from '../lib/leafletIcons';
-import { getCurrentCoords, geolocationErrorMessage, geoSuccessToast } from '../lib/geolocation';
+import {
+  getFreshGpsCoords,
+  geolocationErrorMessage,
+  geoSuccessToast,
+  toStoreLocationSource,
+} from '../lib/geolocation';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { User as FirebaseUser } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt, runTransaction } from 'firebase/firestore';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
+import { filterItemsNearMapCenter } from '../lib/mapGeoFilter';
+import { MAP_VISIBLE_ROLES } from '../services/mapPresenceService';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../store/useThemeStore';
+import { MapLoadingOverlay } from './Skeleton';
 import { useAuthStore } from '../store/useAuthStore';
 import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 import { UserProfile, SOSRequest } from '../types';
@@ -104,7 +112,7 @@ function MechanicPopup({
           <div className="font-black text-sm truncate leading-tight text-black ">{mechanic.name || 'Utente Sconosciuto'}</div>
           <div className="mt-1">
             <span className={`inline-block px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${mechanic.role === 'MECHANIC' ? 'bg-primary/20 text-primary border border-primary/20' : mechanic.role === 'PEER_MECHANIC' ? 'bg-[#8B5CF6]/20 text-[#8B5CF6] border border-[#8B5CF6]/20' : 'bg-grey/20 text-grey border border-grey/20'}`}>
-              {mechanic.role === 'MECHANIC' ? 'Meccanico Pro' : mechanic.role === 'PEER_MECHANIC' ? 'Peer Mechanic' : 'Ciclista'}
+              {mechanic.role === 'MECHANIC' ? 'Meccanico Pro' : mechanic.role === 'PEER_MECHANIC' ? 'Ciclista Esperto' : 'Ciclista'}
             </span>
           </div>
           {mechanic.updatedAt && (
@@ -150,7 +158,7 @@ function MechanicPopup({
             🚨 SOS Attivo
           </div>
           <p className="font-bold truncate">{getFaultTypeTranslation(sos.faultType)}</p>
-          {sos.status === 'PENDING' && (currentUserRole === 'PEER_MECHANIC' || currentUserRole === 'MECHANIC') && currentUser?.uid !== mechanic.id && (
+          {sos.status === 'PENDING' && mechanic.role === 'CYCLIST' && currentUserRole === 'PEER_MECHANIC' && currentUser?.uid !== mechanic.id && (
             <button 
               onClick={handleAcceptSOS}
               disabled={isAccepting}
@@ -180,9 +188,16 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
 }) {
-  const borderColor = mechanic.plan === 'PRO' ? '#F59E0B' : mechanic.plan === 'CLUB' ? '#94A3B8' : '#3B82F6';
-  const icon = useMemo(() => avatarMarkerIcon(mechanic.photoURL || mechanic.avatarUrl, borderColor, 40, mechanic.isOnline),
-    [mechanic.photoURL, mechanic.avatarUrl, borderColor, mechanic.isOnline]);
+  const borderColor = mechanic.plan === 'PRO' ? '#F59E0B' : mechanic.plan === 'CLUB' ? '#94A3B8' : undefined;
+  const icon = useMemo(
+    () => avatarMarkerIcon(mechanic.id, mechanic.role || 'MECHANIC', {
+      displayName: mechanic.name,
+      borderColor,
+      size: 40,
+      online: mechanic.isOnline,
+    }),
+    [mechanic.id, mechanic.role, mechanic.name, borderColor, mechanic.isOnline]
+  );
 
   return (
     <Marker position={[mechanic.lastLat, mechanic.lastLng]} icon={icon}>
@@ -204,9 +219,18 @@ function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColo
   currentUser?: FirebaseUser | null;
   currentUserRole?: string | null;
 }) {
-  const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', '[#8B5CF6]': '#22C55E' };
+  const colorMap: Record<string, string> = { primary: '#3B82F6', warning: '#F59E0B', peer: '#8B5CF6' };
   const borderColor = colorMap[roleColor] || '#3B82F6';
-  const icon = useMemo(() => avatarMarkerIcon(u.photoURL || u.avatarUrl, borderColor, 36, u.isOnline), [u.photoURL, u.avatarUrl, borderColor, u.isOnline]);
+  const icon = useMemo(
+    () => avatarMarkerIcon(u.id, u.role || 'CYCLIST', {
+      displayName: u.name,
+      borderColor,
+      size: 36,
+      online: u.isOnline,
+      sosActive: Boolean(sos),
+    }),
+    [u.id, u.role, u.name, borderColor, u.isOnline, sos]
+  );
 
   return (
     <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
@@ -225,37 +249,63 @@ function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColo
   );
 }
 
-function ReportMarker({ report, isSelected, t, onClick }: {
+function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
   report: any;
   isSelected: boolean;
   t: TFunction;
   onClick: () => void;
+  onViewDetails?: () => void;
 }) {
-  const icon = useMemo(() => reportMarkerIcon(report.severity), [report.severity]);
+  const icon = useMemo(
+    () => reportMarkerIcon(report.category || 'other', report.severity),
+    [report.category, report.severity]
+  );
 
   const lat = report.location?.lat ?? report.location?.latitude;
   const lng = report.location?.lng ?? report.location?.longitude;
   if (!lat || !lng) return null;
 
   return (
-    <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
+    <Marker
+      position={[lat, lng]}
+      icon={icon}
+      eventHandlers={{
+        click: () => {
+          onClick();
+          onViewDetails?.();
+        },
+      }}
+    >
       <Popup>
         <div className="p-1 min-w-[140px]">
           <div className="font-black uppercase text-sm leading-tight mb-1">{t(`reports.categories.${report?.category}`, report?.category?.replace('_', ' ') || '') as any}</div>
           <div className="text-[10px] text-black/70 mb-2 truncate max-w-[150px]">{report?.description}</div>
-          <div className="flex items-center justify-between text-[9px] font-bold text-grey uppercase mt-2 mb-3">
-            <span>Upvotes: {report?.upvotes?.length || 0}</span>
+          <div className="flex items-center justify-between text-[9px] font-bold text-grey uppercase mt-2 mb-2">
+            <span>Conferme: {report?.upvotes?.length || 0}</span>
             <span className="bg-grey/10 px-1.5 py-0.5 rounded-md">{report?.status}</span>
           </div>
+          {onViewDetails && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewDetails();
+              }}
+              className="w-full bg-primary text-white text-[9px] py-2 rounded-lg font-black uppercase tracking-widest active:scale-95 transition-all"
+            >
+              {report?.photoUrl ? 'Foto e conferma' : 'Dettagli e conferma'}
+            </button>
+          )}
         </div>
       </Popup>
     </Marker>
   );
 }
 
-function EventMarker({ event, onClick, onJoin, isJoining, currentUser, t }: {
+function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
   event: any;
   onClick: () => void;
+  onViewDetails?: () => void;
   onJoin?: (event: any) => void;
   isJoining?: boolean;
   currentUser: any;
@@ -269,7 +319,16 @@ function EventMarker({ event, onClick, onJoin, isJoining, currentUser, t }: {
   if (!lat || !lng) return null;
 
   return (
-    <Marker position={[lat, lng]} icon={icon} eventHandlers={{ click: onClick }}>
+    <Marker
+      position={[lat, lng]}
+      icon={icon}
+      eventHandlers={{
+        click: () => {
+          onClick();
+          onViewDetails?.();
+        },
+      }}
+    >
       <Popup>
         <div className="p-1 min-w-[160px]">
           <div className="font-black text-primary uppercase italic text-sm leading-tight mb-1">{event.title}</div>
@@ -278,9 +337,21 @@ function EventMarker({ event, onClick, onJoin, isJoining, currentUser, t }: {
               📍 {event.address}
             </div>
           )}
-          <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-3">
+          <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-2">
             <div className="flex items-center gap-1">👥 {event.participantCount}/{event.maxParticipants}</div>
           </div>
+          {onViewDetails && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewDetails();
+              }}
+              className="w-full mb-2 bg-grey/10 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center active:scale-95 transition-all"
+            >
+              Dettagli evento
+            </button>
+          )}
           {isJoined ? (
             <button
               type="button"
@@ -306,29 +377,26 @@ function EventMarker({ event, onClick, onJoin, isJoining, currentUser, t }: {
   );
 }
 
-function MapFlyController({ flyPos }: { flyPos: [number, number] | null }) {
+function MapFlyController({ flyTarget }: { flyTarget: { pos: [number, number]; nonce: number } | null }) {
   const map = useMap();
-  const lastFlyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!flyPos) return;
-    const key = `${flyPos[0]},${flyPos[1]}`;
-    if (key !== lastFlyRef.current) {
-      lastFlyRef.current = key;
-      map.flyTo(flyPos, 15, { animate: true, duration: 0.8 });
-    }
-  }, [flyPos, map]);
+    if (!flyTarget) return;
+    map.flyTo(flyTarget.pos, 15, { animate: true, duration: 0.35 });
+  }, [flyTarget?.nonce, flyTarget?.pos, map]);
 
   return null;
 }
 
-function LocationMarker({ position, avatarUrl }: { 
-  position: [number, number] | null, 
-  avatarUrl?: string | null
+function LocationMarker({ position, userId, role, displayName }: { 
+  position: [number, number] | null;
+  userId: string;
+  role: string;
+  displayName?: string;
 }) {
   const customIcon = useMemo(
-    () => avatarMarkerIcon(avatarUrl ?? null, '#3B82F6', 36, true),
-    [avatarUrl]
+    () => avatarMarkerIcon(userId, role, { displayName, borderColor: '#3B82F6', size: 36, online: true }),
+    [userId, role, displayName]
   );
 
   const isValidPosition = position && position.length === 2 && 
@@ -367,13 +435,15 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 }) {
   const { user: currentUser, profile, role: currentUserRole, setQuotaError, userLocation: storeLocation, setShowAIDoctor } = useAuthStore();
   const [visibleUsers, setVisibleUsers] = useState<any[]>([]);
-  const [visibleEvents, setVisibleEvents] = useState<any[]>([]);
-  const [visibleReports, setVisibleReports] = useState<any[]>([]);
+  const [rawEvents, setRawEvents] = useState<any[]>([]);
+  const [rawReports, setRawReports] = useState<any[]>([]);
   const [activeSOSs, setActiveSOSs] = useState<Record<string, any>>({});
   const [userPos, setUserPos] = useState<[number, number] | null>(null);
   const [debouncedUserPos, setDebouncedUserPos] = useState<[number, number] | null>(null);
   const userPosDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null); 
-  const [flyPos, setFlyPos] = useState<[number, number] | null>(center || null);
+  const [flyTarget, setFlyTarget] = useState<{ pos: [number, number]; nonce: number } | null>(
+    center ? { pos: center, nonce: 0 } : null
+  );
   const [trackedMechanic, setTrackedMechanic] = useState<any>(null);
   const [selectedObj, setSelectedObj] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -385,6 +455,20 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   const mapRef = useRef<L.Map | null>(null);
   const localUsersRef = useRef<Record<string, any>>({});
   const activeUnsubsRef = useRef<any[]>([]);
+  const [mapBootstrapping, setMapBootstrapping] = useState(false);
+  const mapLayersReadyRef = useRef({ events: false, reports: false });
+
+  const flyToPosition = useCallback((pos: [number, number], syncLayers = true) => {
+    setUserPos(pos);
+    if (syncLayers) setDebouncedUserPos(pos);
+    setFlyTarget({ pos, nonce: Date.now() });
+  }, []);
+
+  const tryFinishMapBootstrap = useCallback(() => {
+    if (mapLayersReadyRef.current.events || mapLayersReadyRef.current.reports) {
+      setMapBootstrapping(false);
+    }
+  }, []);
 
   const getFaultTypeTranslation = useCallback((faultType: string | undefined) => {
     if (!faultType) return t('cyclist.other');
@@ -395,54 +479,80 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
   useEffect(() => {
     if (storeLocation) {
-      setUserPos([storeLocation.lat, storeLocation.lng]);
+      const pos: [number, number] = [storeLocation.lat, storeLocation.lng];
+      setUserPos(pos);
+      setDebouncedUserPos((prev) => prev ?? pos);
     }
   }, [storeLocation]);
 
-  // Debounce userPos for geohash listeners to prevent excessive re-subscriptions
+  // Debounce only Firestore geohash re-subscriptions — UI layers use live userPos
   useEffect(() => {
     if (userPosDebounceRef.current) clearTimeout(userPosDebounceRef.current);
     userPosDebounceRef.current = setTimeout(() => {
       setDebouncedUserPos(userPos);
-    }, 500);
+    }, 800);
     return () => {
       if (userPosDebounceRef.current) clearTimeout(userPosDebounceRef.current);
     };
   }, [userPos]);
+
+  const visibleEvents = useMemo(
+    () => filterItemsNearMapCenter(rawEvents, userPos),
+    [rawEvents, userPos]
+  );
+  const visibleReports = useMemo(
+    () => filterItemsNearMapCenter(rawReports, userPos),
+    [rawReports, userPos]
+  );
 
   const lastUpdateRef = useRef<{ time: number, pos: [number, number] | null }>({ time: 0, pos: null });
 
   const updateRealPosition = useCallback((centerMap = true) => {
     if (storeLocation) {
         const newPos: [number, number] = [storeLocation.lat, storeLocation.lng];
-        setUserPos(newPos);
-        if (centerMap) setFlyPos(newPos);
+        if (centerMap) flyToPosition(newPos);
+        else {
+          setUserPos(newPos);
+          setDebouncedUserPos(newPos);
+        }
         return;
     }
 
     if ("geolocation" in navigator) {
       setIsRefreshing(true);
-      getCurrentCoords({ preferHighAccuracy: true, fallbackToIp: true })
+      getFreshGpsCoords()
         .then((coords) => {
           const newPos: [number, number] = [coords.lat, coords.lng];
-          setUserPos(newPos);
-          if (centerMap) setFlyPos(newPos);
+          if (centerMap) flyToPosition(newPos);
+          else {
+            setUserPos(newPos);
+            setDebouncedUserPos(newPos);
+          }
+          const store = useAuthStore.getState();
+          store.setUserLocation({ lat: coords.lat, lng: coords.lng });
+          store.setLocationSource('gps');
         })
         .catch((error: { code?: number }) => {
           if (error?.code === 1) console.warn('Map geolocation permission denied');
-          setUserPos((prev) => prev ?? [45.4642, 9.19]);
+          if (storeLocation) {
+            const p: [number, number] = [storeLocation.lat, storeLocation.lng];
+            if (centerMap) flyToPosition(p);
+            else {
+              setUserPos(p);
+              setDebouncedUserPos(p);
+            }
+          }
         })
         .finally(() => setIsRefreshing(false));
     }
-  }, [center, storeLocation]);
+  }, [storeLocation, flyToPosition]);
 
   useEffect(() => {
     if (center) {
-       
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFlyPos(center);
+      flyToPosition(center, false);
     }
-  }, [center]);
+  }, [center, flyToPosition]);
 
   useEffect(() => {
     if (!minimal) {
@@ -481,11 +591,12 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
     for (const b of bounds) {
       const qUsers = query(
-        collection(db, 'users'), 
+        collection(db, 'mapPresence'),
+        where('role', 'in', [...MAP_VISIBLE_ROLES]),
         orderBy('geohash'),
         startAt(b[0]),
         endAt(b[1]),
-        limit(200) // Increase limit per shard
+        limit(200)
       );
 
       const unsub = onSnapshot(qUsers, (snapshot) => {
@@ -510,6 +621,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         syncUsers();
       }, (error: any) => {
         if (isFirestoreQuotaError(error)) setQuotaError?.(true);
+        else console.warn('Map mapPresence geohash listener:', error);
       });
       unsubs.push(unsub);
     }
@@ -525,11 +637,24 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     }
   }, [isAdmin, adminUsers, currentUser]);
 
+  useEffect(() => {
+    if (minimal) {
+      setMapBootstrapping(false);
+      return;
+    }
+    if (userPos || storeLocation) {
+      setMapBootstrapping(false);
+      return;
+    }
+    setMapBootstrapping(true);
+    mapLayersReadyRef.current = { events: false, reports: false };
+  }, [minimal, currentUser?.uid, userPos, storeLocation]);
+
   // 2-4. Real-time listeners for Events, SOS, and Reports
   useEffect(() => {
     if (!currentUser) {
-      setVisibleEvents([]);
-      setVisibleReports([]);
+      setRawEvents([]);
+      setRawReports([]);
       setActiveSOSs({});
       return;
     }
@@ -544,9 +669,13 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       const events = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter((event: any) => (event.lastLat ?? event.lat ?? event.location?.latitude) != null && (event.lastLng ?? event.lng ?? event.location?.longitude) != null);
-      setVisibleEvents(events);
+      setRawEvents(events);
+      mapLayersReadyRef.current.events = true;
+      tryFinishMapBootstrap();
     }, (err) => {
       console.warn("Events listener error:", err);
+      mapLayersReadyRef.current.events = true;
+      tryFinishMapBootstrap();
     });
 
     // 3. SOS real-time
@@ -576,7 +705,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     const q = query(
       collection(db, 'roadReports'),
       where('status', 'in', ['open', 'confirmed', 'in_review']),
-      limit(300)
+      limit(100)
     );
     const unsubReports = onSnapshot(q, (snapshot) => {
       const reports = snapshot.docs
@@ -586,9 +715,13 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           const dateB = b.createdAt?.seconds || 0;
           return dateB - dateA;
         });
-      setVisibleReports(reports);
+      setRawReports(reports);
+      mapLayersReadyRef.current.reports = true;
+      tryFinishMapBootstrap();
     }, (err) => {
        console.warn("Reports listener error:", err);
+       mapLayersReadyRef.current.reports = true;
+       tryFinishMapBootstrap();
     });
 
     // Mechanic tracking
@@ -609,7 +742,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       unsubReports();
       unsubTrack();
     };
-  }, [mechanicToTrackId, currentUser]);
+  }, [mechanicToTrackId, currentUser, tryFinishMapBootstrap]);
 
 
   const openExternalMap = (provider: 'google' | 'waze') => {
@@ -635,9 +768,10 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
   return (
     <div className="w-full h-full relative z-0">
+      {mapBootstrapping && !minimal && <MapLoadingOverlay />}
       {/* Top-Left Controls: Online Counters */}
       {!minimal && (
-        <div className="absolute top-4 left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
+        <div className="absolute top-[calc(env(safe-area-inset-top)+0.75rem)] left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
            <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
              <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length} Meccanici online</span>
@@ -687,17 +821,6 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
              </motion.button>
            </div>
 
-           {/* Dark Mode Toggle */}
-           <motion.button
-             whileHover={{ scale: 1.05 }}
-             whileTap={{ scale: 0.95 }}
-             onClick={toggleDarkMode}
-             className="bg-white text-primary p-3 rounded-xl shadow-xl border border-grey/10 cursor-pointer transition-all flex items-center justify-center"
-             title={isDarkMode ? 'Modalità chiara' : 'Modalità scura'}
-           >
-             {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-           </motion.button>
-
            {/* AI Assistant Toggle */}
            <motion.button
              whileHover={{ scale: 1.05 }}
@@ -714,27 +837,35 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={async () => {
-                if (!("geolocation" in navigator)) {
-                  toast.error('Geolocalizzazione non disponibile');
+                const known: [number, number] | null = userPos
+                  ?? (storeLocation ? [storeLocation.lat, storeLocation.lng] : null);
+                if (known) flyToPosition(known);
+
+                if (!('geolocation' in navigator)) {
+                  if (!known) toast.error('Geolocalizzazione non disponibile');
                   return;
                 }
+
                 setIsRefreshing(true);
                 try {
-                  const coords = await getCurrentCoords({ preferHighAccuracy: true, fallbackToIp: true });
+                  const coords = await getFreshGpsCoords();
                   const newPos: [number, number] = [coords.lat, coords.lng];
-                  setUserPos(newPos);
-                  setFlyPos(newPos);
-                  if (coords.source === 'ip' || coords.source === 'default') {
-                    toast(coords.source === 'ip' ? geoSuccessToast('ip') : geoSuccessToast('default'), {
-                      icon: 'ℹ️',
-                      duration: 5000,
-                    });
+                  flyToPosition(newPos);
+                  const store = useAuthStore.getState();
+                  store.setUserLocation({ lat: coords.lat, lng: coords.lng });
+                  store.setLocationSource(toStoreLocationSource(coords.source));
+                  if (coords.source === 'gps-low') {
+                    toast(geoSuccessToast('gps-low'), { icon: 'ℹ️', duration: 3000 });
                   } else {
-                    toast.success(geoSuccessToast(coords.source));
+                    toast.success(geoSuccessToast('gps-high'));
                   }
-                } catch (error: unknown) {
-                  const code = (error as { code?: number })?.code ?? 0;
-                  toast.error(geolocationErrorMessage(code));
+                } catch (err: unknown) {
+                  const code = (err as { code?: number })?.code ?? 2;
+                  if (!known) {
+                    toast.error(geolocationErrorMessage(code));
+                  } else {
+                    toast('GPS non aggiornato — resti sulla ultima posizione nota', { icon: 'ℹ️', duration: 4000 });
+                  }
                 } finally {
                   setIsRefreshing(false);
                 }
@@ -762,7 +893,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         } as any)}
       >
         <MapClickEvents onClick={() => setSelectedObj(null)} />
-        <MapFlyController flyPos={flyPos} />
+        <MapFlyController flyTarget={flyTarget} />
         <TileLayer
           {...({
             attribution: mapType === 'satellite' ? 'Esri' : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -772,8 +903,10 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         {/* User's own location marker - respect isOnline status for "live" feel */}
         {userPos && (profile?.isOnline !== false || isAdmin) && (
           <LocationMarker 
-            position={userPos} 
-            avatarUrl={isAdmin ? null : (profile?.photoURL || currentUser?.photoURL)}
+            position={userPos}
+            userId={currentUser?.uid || 'me'}
+            role={profile?.role || currentUserRole || 'CYCLIST'}
+            displayName={profile?.name || currentUser?.displayName || undefined}
           />
         )}{/* Route Track */}
         {trackedMechanic?.lastLat && trackedMechanic?.lastLng && userPos && (
@@ -829,7 +962,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
           if (!u.lastLat || !u.lastLng) return null;
           let roleColor = 'primary';
           if (u.role === 'MECHANIC') roleColor = 'warning';
-          else if (u.role === 'PEER_MECHANIC') roleColor = '[#8B5CF6]';
+          else if (u.role === 'PEER_MECHANIC') roleColor = 'peer';
 
           return (
             <UserMarker
@@ -861,6 +994,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               isSelected={isSelected}
               t={t}
               onClick={() => setSelectedObj(report)}
+              onViewDetails={onViewReportDetails ? () => onViewReportDetails(report) : undefined}
             />
           );
         })}
@@ -880,6 +1014,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
                 setSelectedObj(event);
                 onViewEventDetails?.(event);
               }}
+              onViewDetails={onViewEventDetails ? () => onViewEventDetails(event) : undefined}
               onJoin={onJoinEvent}
               isJoining={joiningEventId === event.id}
               currentUser={currentUser}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../store/useAuthStore';
 
 interface AIPromptProps {
   onOpenAssistant: () => void;
@@ -9,13 +10,18 @@ interface AIPromptProps {
 
 export function AIPrompt({ onOpenAssistant }: AIPromptProps) {
   const { t } = useTranslation();
+  const { showAIDoctor, hasActiveSOS, activeChatId } = useAuthStore();
   const [isVisible, setIsVisible] = useState(false);
   const hasBeenDismissedRef = useRef(false);
   const promptCountRef = useRef(0);
   const MAX_PROMPTS = 3;
 
   useEffect(() => {
-    // Show first time after 2 minutes
+    if (showAIDoctor || hasActiveSOS || activeChatId) {
+      setIsVisible(false);
+      return;
+    }
+
     const initialTimer = setTimeout(() => {
       if (!hasBeenDismissedRef.current && promptCountRef.current < MAX_PROMPTS) {
         setIsVisible(true);
@@ -23,13 +29,12 @@ export function AIPrompt({ onOpenAssistant }: AIPromptProps) {
       }
     }, 120000);
 
-    // Then every 5 minutes, but only if not dismissed and under max prompts
     const interval = setInterval(() => {
+      if (showAIDoctor || hasActiveSOS || activeChatId) return;
       if (!hasBeenDismissedRef.current && promptCountRef.current < MAX_PROMPTS) {
         setIsVisible(true);
         promptCountRef.current++;
       } else if (promptCountRef.current >= MAX_PROMPTS) {
-        // Stop the interval once max prompts reached
         clearInterval(interval);
       }
     }, 300000);
@@ -38,7 +43,7 @@ export function AIPrompt({ onOpenAssistant }: AIPromptProps) {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, []);
+  }, [showAIDoctor, hasActiveSOS, activeChatId]);
 
   const handleDismiss = () => {
     hasBeenDismissedRef.current = true;

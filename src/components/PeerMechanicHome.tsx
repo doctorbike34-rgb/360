@@ -16,14 +16,17 @@ import {
   Zap, 
   AlertTriangle, 
   X, 
-  ArrowRight 
+  ArrowRight,
+  Calendar,
+  MapPin,
+  Users,
 } from 'lucide-react';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, orderBy, limit, increment, GeoPoint } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, arrayRemove, orderBy, limit, increment, GeoPoint } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { ProfileView } from './ProfileView';
 import { Map as BicycleMap } from './Map';
-import { RoadReportDetailModal } from './RoadReportDetailModal';
+import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { ChatListView } from './ChatListView';
 import { ChatHeader } from './ChatHeader';
 import { PublicProfileModal } from './PublicProfileModal';
@@ -32,6 +35,11 @@ import { Chat } from './Chat';
 import { motion, AnimatePresence } from 'motion/react';
 import { soundService } from '../lib/sounds';
 import { useTranslation } from 'react-i18next';
+import { ConfirmDialog } from './ConfirmDialog';
+import { JobCardSkeleton } from './Skeleton';
+import { syncMapPresence } from '../services/mapPresenceService';
+import { geohashForLocation } from 'geofire-common';
+import { formatFeePercentLabel, PEER_MECHANIC_FEE_PERCENT } from '../lib/platformFees';
 
 export function PeerMechanicHome() {
   const { user, profile, setShowAIDoctor, addToast } = useAuthStore();
@@ -39,12 +47,23 @@ export function PeerMechanicHome() {
   const [activeTab, setActiveTab] = useState<'WORK' | 'MAP' | 'PROFILE' | 'CHAT' | 'COMMUNITY'>('WORK');
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
   const [allPendingJobs, setAllPendingJobs] = useState<any[]>([]);
+  const [jobsDataLoading, setJobsDataLoading] = useState(true);
+  const jobsListenersReadyRef = useRef({ sos: false, active: false });
   
   const [showChat, setShowChat] = useState(false);
   const [viewProfileId, setViewProfileId] = useState<string | null>(null);
   const [directChat, setDirectChat] = useState<{ id: string, name: string, isAdminSupport?: boolean } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [selectedEventDetails, setSelectedEventDetails] = useState<any | null>(null);
+  const [isJoiningEventId, setIsJoiningEventId] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'danger' | 'primary';
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
   const [newSOS, setNewSOS] = useState<any>(null);
   const [showNewSOSBanner, setShowNewSOSBanner] = useState(false);
 
@@ -74,11 +93,72 @@ export function PeerMechanicHome() {
     setActiveTab('CHAT');
   };
 
+  const toggleJoin = async (event: { id: string; participantCount: number; maxParticipants: number; participants?: string[]; title?: string }) => {
+    if (!user) return;
+    const isJoined = event.participants?.includes(user.uid);
+    setIsJoiningEventId(event.id);
+
+    try {
+      if (isJoined) {
+        await updateDoc(doc(db, 'events', event.id), {
+          participants: arrayRemove(user.uid),
+          participantCount: increment(-1),
+        });
+        await updateDoc(doc(db, 'chats', event.id), {
+          participants: arrayRemove(user.uid),
+        });
+        if (selectedEventDetails?.id === event.id) {
+          setSelectedEventDetails({
+            ...selectedEventDetails,
+            participants: (selectedEventDetails.participants || []).filter((id: string) => id !== user.uid),
+            participantCount: Math.max(0, selectedEventDetails.participantCount - 1),
+          });
+        }
+      } else {
+        if (event.participantCount >= event.maxParticipants) {
+          toast.error(t('social.groupFullAlert'));
+          return;
+        }
+        await updateDoc(doc(db, 'events', event.id), {
+          participants: arrayUnion(user.uid),
+          participantCount: increment(1),
+        });
+        await updateDoc(doc(db, 'chats', event.id), {
+          participants: arrayUnion(user.uid),
+        });
+        if (selectedEventDetails?.id === event.id) {
+          setSelectedEventDetails({
+            ...selectedEventDetails,
+            participants: [...(selectedEventDetails.participants || []), user.uid],
+            participantCount: selectedEventDetails.participantCount + 1,
+          });
+        }
+        setDirectChat({ id: event.id, name: event.title || t('cyclist.groupEvent') });
+        setShowChat(true);
+        setActiveTab('CHAT');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(t('common.error', { defaultValue: 'Impossibile aggiornare la partecipazione all\'evento' }));
+    } finally {
+      setIsJoiningEventId(null);
+    }
+  };
+
   const activeJobsRef = useRef(activeJobs);
   activeJobsRef.current = activeJobs;
 
+  const markJobsDataLoaded = () => {
+    if (jobsListenersReadyRef.current.sos && jobsListenersReadyRef.current.active) {
+      setJobsDataLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
+
+    jobsListenersReadyRef.current = { sos: false, active: false };
+    setJobsDataLoading(true);
     
     const sosQuery = query(
       collection(db, 'sosRequests'), 
@@ -110,15 +190,23 @@ export function PeerMechanicHome() {
       });
       
       setAllPendingJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      jobsListenersReadyRef.current.sos = true;
+      markJobsDataLoaded();
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'sosRequests (PEER_DISPATCHER)');
+      jobsListenersReadyRef.current.sos = true;
+      markJobsDataLoaded();
     });
     
     const activeQ = query(collection(db, 'sosRequests'), where('mechanicId', '==', user.uid), where('status', 'in', ['ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'DISPUTED']));
     const unsubB = onSnapshot(activeQ, (snapshot) => {
         setActiveJobs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        jobsListenersReadyRef.current.active = true;
+        markJobsDataLoaded();
     }, error => {
         handleFirestoreError(error, OperationType.LIST, 'sosRequests');
+        jobsListenersReadyRef.current.active = true;
+        markJobsDataLoaded();
     });
 
     return () => {
@@ -206,6 +294,7 @@ export function PeerMechanicHome() {
   }, [activeJobs]);
 
   const [recentChats, setRecentChats] = useState<any[]>([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
 
   const displayChats = React.useMemo(() => {
     const list = [...recentChats];
@@ -247,6 +336,7 @@ export function PeerMechanicHome() {
         const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         chats.sort((a: any, b: any) => (b.lastMessageAt?.seconds || 0) - (a.lastMessageAt?.seconds || 0));
         setRecentChats(chats);
+        setChatsLoading(false);
         const totalUnread = chats.reduce((acc: number, chat: any) => {
           const nestedUnread = chat.unreadCount?.[user.uid] || 0;
           const flatUnread = chat[`unreadCount.${user.uid}`] || 0;
@@ -296,7 +386,16 @@ export function PeerMechanicHome() {
                 lastLat: latitude,
                 lastLng: longitude,
                 location: new GeoPoint(latitude, longitude),
+                geohash: geohashForLocation([latitude, longitude]),
                 updatedAt: serverTimestamp()
+              });
+              await syncMapPresence({
+                uid: user.uid,
+                role: 'PEER_MECHANIC',
+                name: profile?.name,
+                lastLat: latitude,
+                lastLng: longitude,
+                isOnline: profile?.isOnline !== false,
               });
               peerLastUpdateRef.current = now;
               peerLastCoordsRef.current.lat = latitude;
@@ -364,7 +463,7 @@ export function PeerMechanicHome() {
   };
 
   return (
-    <div className="flex flex-col w-full bg-white text-black transition-colors duration-500 pt-safe pb-safe" style={{ height: '100dvh', width: '100%', minHeight: '100dvh' }}>
+    <div className="flex flex-col w-full bg-white text-black transition-colors duration-500 h-full min-h-0 flex-1">
       <div className="flex-1 overflow-hidden relative">
         <AnimatePresence>
           {showNewSOSBanner && newSOS && (
@@ -439,6 +538,9 @@ export function PeerMechanicHome() {
                             <p className="text-2xl font-black text-accent mt-1">{profile?.peerMechanicJobsCompleted || 0}</p>
                         </div>
                     </div>
+                    <p className="text-[10px] font-bold text-grey/80 mt-3 leading-relaxed">
+                      Commissione piattaforma {formatFeePercentLabel(PEER_MECHANIC_FEE_PERCENT)} su ogni intervento (tariffa ciclista esperto).
+                    </p>
                     <div className="mt-4">
                         <p className="text-xs font-bold text-grey mb-2">Competenze (Tariffa: ⚡{profile?.peerMechanicRate}/intervento)</p>
                         <div className="flex flex-wrap gap-2">
@@ -453,6 +555,10 @@ export function PeerMechanicHome() {
 
                 <div className="space-y-4">
                     <h3 className="text-sm font-black uppercase text-grey">Richieste Attive</h3>
+                    {jobsDataLoading ? (
+                      <JobCardSkeleton count={3} />
+                    ) : (
+                      <>
                     {activeJobs.length === 0 && <p className="text-xs text-grey font-bold">Nessun lavoro attivo.</p>}
                     {activeJobs.map(job => (
                         <div key={job.id} className={`${job.status === 'COMPLETED' ? 'bg-green-50/50 border-green-200' : job.status === 'DISPUTED' ? 'bg-danger/10 border-danger/40' : 'bg-accent/10 border-accent/20'} border p-4 rounded-3xl relative overflow-hidden transition-colors`}>
@@ -500,7 +606,16 @@ export function PeerMechanicHome() {
                                     </button>
                                     <button 
                                       className={`flex-1 ${job.mechanicConfirmed ? 'bg-grey/10 text-grey cursor-default' : 'bg-accent text-white shadow-lg shadow-accent/20'} py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 active:scale-95 transition-all`} 
-                                      onClick={() => !job.mechanicConfirmed && completeJob(job.id)}
+                                      onClick={() => !job.mechanicConfirmed && setConfirmDialog({
+                                        title: 'Concludi intervento',
+                                        message: 'Confermi di aver completato la riparazione? Il ciclista dovrà confermare per sbloccare il pagamento.',
+                                        confirmLabel: 'Concludi',
+                                        variant: 'primary',
+                                        onConfirm: async () => {
+                                          setConfirmDialog(null);
+                                          await completeJob(job.id);
+                                        },
+                                      })}
                                       disabled={job.mechanicConfirmed}
                                     >
                                         {job.mechanicConfirmed ? (
@@ -513,10 +628,16 @@ export function PeerMechanicHome() {
                             )}
                         </div>
                     ))}
+                      </>
+                    )}
                 </div>
 
                 <div className="space-y-4">
                     <h3 className="text-sm font-black uppercase text-grey">Nelle vicinanze ({profile?.peerMechanicRadius || 10} km)</h3>
+                    {jobsDataLoading ? (
+                      <JobCardSkeleton count={2} />
+                    ) : (
+                      <>
                     {allPendingJobs.length === 0 && <p className="text-xs text-grey font-bold">Nessuna emergenza in zona.</p>}
                     {/* Simplified mapping for new jobs */}
                     {allPendingJobs.filter(j => j.status === 'PENDING').map(job => (
@@ -526,7 +647,13 @@ export function PeerMechanicHome() {
                               <span className="text-accent font-black text-xs bg-accent/10 px-2 py-1 rounded-lg">⚡{job.estimatedPrice || 15} DBC</span>
                             </div>
                             <p className="text-xs mt-2">{job.description}</p>
-                            <button className="w-full mt-4 bg-primary text-white py-3 rounded-xl text-xs font-bold uppercase transition-transform active:scale-95" onClick={async () => {
+                            <button className="w-full mt-4 bg-primary text-white py-3 rounded-xl text-xs font-bold uppercase transition-transform active:scale-95 min-h-[44px]" onClick={() => setConfirmDialog({
+                              title: 'Accetta intervento',
+                              message: `Vuoi accettare "${getFaultTypeTranslation(job.faultType)}"? Verrai messo in contatto con il ciclista.`,
+                              confirmLabel: 'Accetta',
+                              variant: 'primary',
+                              onConfirm: async () => {
+                                setConfirmDialog(null);
                                 try {
                                     await runTransaction(db, async (transaction) => {
                                       const sosRef = doc(db, 'sosRequests', job.id);
@@ -554,18 +681,22 @@ export function PeerMechanicHome() {
                                       }, { merge: true });
                                     });
                                     toast.success(t('mechanic.jobAccepted', { defaultValue: 'Richiesta accettata con successo! Il ciclista è stato informato.' }));
-                                } catch(e: any) {
-                                  if (e.message === 'SOS already accepted or invalid') {
+                                } catch (e: unknown) {
+                                  const err = e as { message?: string };
+                                  if (err.message === 'SOS already accepted or invalid') {
                                      toast.error(t('peerMechanic.sosAlreadyAccepted', { defaultValue: "Questa richiesta SOS è già stata presa in carico da un altro utente." }));
                                   } else {
                                      handleFirestoreError(e, OperationType.UPDATE, `sosRequests/${job.id}`);
                                   }
                                 }
-                            }}>
+                              },
+                            })}>
                                 Accetta Intervento
                             </button>
                         </div>
                     ))}
+                      </>
+                    )}
                 </div>
                 </div>
             </div>
@@ -573,8 +704,11 @@ export function PeerMechanicHome() {
         {activeTab === 'MAP' && (
            <>
             <BicycleMap 
-              onStartChat={startDirectChat} 
+              onStartChat={startDirectChat}
+              onViewEventDetails={(event) => setSelectedEventDetails(event)}
               onViewReportDetails={(report) => setSelectedReport(report)}
+              onJoinEvent={toggleJoin}
+              joiningEventId={isJoiningEventId}
             />
             <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-40 flex flex-col gap-3">
               <button 
@@ -602,7 +736,10 @@ export function PeerMechanicHome() {
                exit={{ opacity: 0 }} 
                className="absolute inset-0 z-10 bg-white text-black"
             >
-                <SocialView onStartChat={startDirectChat} />
+                <SocialView
+                  onStartChat={startDirectChat}
+                  onViewEventDetails={(event) => setSelectedEventDetails(event)}
+                />
                 <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-40 flex flex-col gap-3">
                   <button 
                     onClick={() => setShowAIDoctor(true)}
@@ -653,6 +790,7 @@ export function PeerMechanicHome() {
                   <div className="h-full overflow-y-auto">
                     <ChatListView 
                       chats={displayChats}
+                      loading={chatsLoading}
                       currentUserId={user?.uid || ''}
                       onSelectChat={(chat: any) => setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' })}
                     />
@@ -667,7 +805,7 @@ export function PeerMechanicHome() {
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           {/* Left Side (Flex 1) */}
           <div className="flex-1 flex justify-around items-center">
-              <NavButton active={activeTab === 'MAP'} icon={<Navigation2 />} label={t('map.locate')} onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />
+              <NavButton active={activeTab === 'MAP'} icon={<Navigation2 />} label="Mappa" onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />
               <NavButton active={activeTab === 'WORK'} icon={<Wrench />} label={t('mechanic.work')} onClick={() => { setShowChat(false); setActiveTab('WORK'); }} />
           </div>
           
@@ -699,13 +837,137 @@ export function PeerMechanicHome() {
       </nav>
       <PublicProfileModal userId={viewProfileId as string} onClose={() => setViewProfileId(null)} />
       <AnimatePresence>
+        {selectedEventDetails && (
+          <motion.div className="fixed inset-0 z-[150] flex items-center justify-center px-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedEventDetails(null)}
+              className="absolute inset-0 bg-dark/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white text-black w-full max-w-[calc(100vw-2rem)] sm:max-w-md rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-8 relative shadow-2xl mx-auto z-[151]"
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedEventDetails(null)}
+                className="absolute top-6 right-6 text-grey hover:text-black transition-colors"
+              >
+                <X size={24} />
+              </button>
+
+              <motion.div className="flex items-center gap-4 mb-6">
+                <motion.div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
+                  <Calendar size={32} />
+                </motion.div>
+                <motion.div>
+                  <h3 className="text-2xl font-black text-black uppercase tracking-tight">{selectedEventDetails.title}</h3>
+                  <p className="text-xs text-grey italic">
+                    {selectedEventDetails.organizerName
+                      ? t('cyclist.organizedBy', { organizerName: selectedEventDetails.organizerName })
+                      : t('cyclist.groupEvent')}
+                  </p>
+                </motion.div>
+              </motion.div>
+
+              <motion.div className="space-y-4 mb-8">
+                <motion.div className="flex items-center gap-3 text-sm text-black font-bold">
+                  <Clock size={18} className="text-primary shrink-0" />
+                  {selectedEventDetails.startAt
+                    ? new Date(
+                        selectedEventDetails.startAt?.seconds
+                          ? selectedEventDetails.startAt.seconds * 1000
+                          : selectedEventDetails.startAt
+                      ).toLocaleString()
+                    : '—'}
+                </motion.div>
+                <motion.div className="flex items-start gap-3 text-sm text-black font-bold">
+                  <MapPin size={18} className="text-primary shrink-0 mt-0.5" />
+                  <span className="leading-snug">{selectedEventDetails.address || t('cyclist.locationNotSpecified')}</span>
+                </motion.div>
+                <motion.div className="flex items-center gap-3 text-sm text-black font-bold">
+                  <Users size={18} className="text-primary shrink-0" />
+                  {selectedEventDetails.participantCount} / {selectedEventDetails.maxParticipants} Partecipanti
+                </motion.div>
+                {selectedEventDetails.targetLevel && (
+                  <motion.div className="flex items-center gap-3 text-sm text-black font-bold">
+                    <Bike size={18} className="text-primary shrink-0" />
+                    Livello richiesto: {selectedEventDetails.targetLevel}
+                  </motion.div>
+                )}
+                {selectedEventDetails.description && (
+                  <motion.div className="mt-4 p-4 bg-white border border-grey/10 shadow-sm rounded-2xl">
+                    <p className="text-xs text-grey leading-relaxed italic">{selectedEventDetails.description}</p>
+                  </motion.div>
+                )}
+              </motion.div>
+
+              {selectedEventDetails.participants?.includes(user?.uid) ? (
+                <motion.div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDirectChat({ id: selectedEventDetails.id, name: selectedEventDetails.title });
+                      setShowChat(true);
+                      setActiveTab('CHAT');
+                      setSelectedEventDetails(null);
+                    }}
+                    className="flex-1 bg-primary text-white font-black py-4 rounded-2xl shadow-xl shadow-primary/20 flex items-center justify-center gap-2 text-xs sm:text-sm"
+                  >
+                    <MessageCircle size={20} className="shrink-0" /> CHAT GRUPPO
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleJoin(selectedEventDetails)}
+                    disabled={isJoiningEventId === selectedEventDetails.id}
+                    className="flex-shrink-0 px-6 py-4 sm:py-0 bg-red-50 text-red-500 font-bold rounded-2xl text-xs sm:text-sm shadow-sm transition-transform active:scale-95 disabled:opacity-50"
+                  >
+                    {isJoiningEventId === selectedEventDetails.id ? 'ATTENDI...' : 'ABBANDONA'}
+                  </button>
+                </motion.div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggleJoin(selectedEventDetails)}
+                  disabled={
+                    selectedEventDetails.participantCount >= selectedEventDetails.maxParticipants ||
+                    isJoiningEventId === selectedEventDetails.id
+                  }
+                  className="w-full bg-primary text-white font-black py-4 rounded-2xl shadow-xl shadow-primary/20 disabled:bg-grey/20 disabled:shadow-none transition-transform active:scale-95"
+                >
+                  {isJoiningEventId === selectedEventDetails.id
+                    ? 'ATTENDI...'
+                    : selectedEventDetails.participantCount >= selectedEventDetails.maxParticipants
+                      ? 'GRUPPO PIENO'
+                      : 'PARTECIPA ORA'}
+                </button>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
         {selectedReport && (
-          <RoadReportDetailModal 
-            report={selectedReport} 
-            onClose={() => setSelectedReport(null)} 
-          />
+          <ModalSuspense>
+            <RoadReportDetailModalLazy
+              report={selectedReport}
+              onClose={() => setSelectedReport(null)}
+            />
+          </ModalSuspense>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={Boolean(confirmDialog)}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        confirmLabel={confirmDialog?.confirmLabel}
+        variant={confirmDialog?.variant}
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </div>
   );
 }

@@ -5,6 +5,10 @@ import { Mail, RefreshCw, Send, LogOut, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Logo } from './Logo';
+import { safeStorage } from '../lib/storage';
+import toast from 'react-hot-toast';
+
+const EMAIL_EXPLORE_KEY = 'email_verify_explore_mode';
 
 export function EmailVerificationGuard({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState(auth.currentUser);
@@ -12,6 +16,9 @@ export function EmailVerificationGuard({ children }: { children: React.ReactNode
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+  const [exploreWithoutVerify, setExploreWithoutVerify] = useState(
+    () => safeStorage.getItem(EMAIL_EXPLORE_KEY) === '1'
+  );
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -72,6 +79,10 @@ export function EmailVerificationGuard({ children }: { children: React.ReactNode
     return <>{children}</>;
   }
 
+  if (exploreWithoutVerify) {
+    return <>{children}</>;
+  }
+
   // Skip admin
   if (user.email && user.email.toLowerCase() === 'doctorbike34@gmail.com') {
     return <>{children}</>;
@@ -126,6 +137,18 @@ export function EmailVerificationGuard({ children }: { children: React.ReactNode
         )}
 
         <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => {
+              safeStorage.setItem(EMAIL_EXPLORE_KEY, '1');
+              setExploreWithoutVerify(true);
+              toast('Modalità limitata: verifica l\'email per SOS e pagamenti', { icon: 'ℹ️', duration: 5000 });
+            }}
+            className="w-full bg-grey/10 text-black font-bold py-4 rounded-[1.5rem] flex items-center justify-center gap-3 hover:bg-grey/15 transition-all uppercase tracking-widest text-xs border border-grey/10"
+          >
+            Continua in modalità limitata
+          </button>
+
           <button
             onClick={checkVerification}
             disabled={loading}

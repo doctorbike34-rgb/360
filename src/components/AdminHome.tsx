@@ -40,13 +40,16 @@ import { it } from 'date-fns/locale';
 import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/useAuthStore';
-import { Transaction, Subscription, SupportTicket, AIConversation, PlatformStats, UserProfile, SOSRequest, RoadReport } from '../types';
+import { Transaction, Subscription, SupportTicket, AIConversation, PlatformStats, UserProfile, SOSRequest, RoadReport, PayoutRequest } from '../types';
+import { processEurPayout } from '../lib/payoutService';
 import { Map } from './Map';
-import { RoadReportDetailModal } from './RoadReportDetailModal';
+import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
 import { ManualInvoiceModal } from './ManualInvoiceModal';
 import ReactMarkdown from 'react-markdown';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { getSosPlatformFeePercent } from '../lib/platformFees';
 
 class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   constructor(props: { children: ReactNode }) {
@@ -75,12 +78,14 @@ type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTA
 export function AdminHome() {
   const { t } = useTranslation();
   const { user } = useAuthStore();
+  const { requestConfirm, ConfirmDialogPortal } = useConfirmDialog();
   const [disputedJobs, setDisputedJobs] = useState<SOSRequest[]>([]);
   const [roadReports, setRoadReports] = useState<RoadReport[]>([]);
   const [allUsers, setAllUsers] = useState<(UserProfile & { id: string })[]>([]);
   const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
   const [activeSupportChats, setActiveSupportChats] = useState<SOSRequest[]>([]);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [payoutRequests, setPayoutRequests] = useState<PayoutRequest[]>([]);
   const [aiConversations, setAiConversations] = useState<AIConversation[]>([]);
   const [aiGuidelines, setAiGuidelines] = useState('');
   const [isSavingAI, setIsSavingAI] = useState(false);
@@ -169,6 +174,10 @@ export function AdminHome() {
         setSubscriptions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
       }, (err) => handleSnapError(err, 'subscriptions')));
 
+      listeners.push(onSnapshot(query(collection(db, 'payoutRequests'), where('status', '==', 'PENDING'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
+        setPayoutRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PayoutRequest)));
+      }, (err) => handleSnapError(err, 'payoutRequests')));
+
       listeners.push(onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
         setFinancialTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
       }, (err) => handleSnapError(err, 'transactions')));
@@ -196,8 +205,6 @@ export function AdminHome() {
   };
 
   const resolveDispute = async (jobId: string, favorOf: 'CYCLIST' | 'MECHANIC') => {
-    if (!window.confirm(`Sei sicuro di voler risolvere in favore del ${favorOf === 'CYCLIST' ? 'ciclista' : 'meccanico'}?`)) return;
-
     try {
       await runTransaction(db, async (transaction) => {
         const sosRef = doc(db, 'sosRequests', jobId);
@@ -220,9 +227,9 @@ export function AdminHome() {
               transaction.get(mechRef)
             ]);
             
-            const plan = mechanicUserSnap.exists() ? (mechanicUserSnap.data()?.plan || 'BASE') : 'BASE';
-            const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
-            const feePercent = feeMultipliers[plan as string] || 0.15;
+            const mechData = mechanicUserSnap.exists() ? mechanicUserSnap.data() : null;
+            const plan = mechData?.plan || 'BASE';
+            const feePercent = getSosPlatformFeePercent(mechData?.role, plan);
             const fee = price * feePercent;
             const netAmount = price - fee;
             
@@ -341,7 +348,6 @@ export function AdminHome() {
   });
 
   const updateUserRole = async (userId: string, newRole: string) => {
-    if (!window.confirm(`Cambiare ruolo a ${newRole}?`)) return;
     try {
       await updateDoc(doc(db, 'users', userId), { role: newRole, updatedAt: serverTimestamp() });
       toast.success(t('admin.roleUpdated'));
@@ -352,7 +358,6 @@ export function AdminHome() {
   };
 
   const updateUserPlan = async (userId: string, newPlan: string) => {
-    if (!window.confirm(`Assegnare piano ${newPlan}?`)) return;
     try {
       await updateDoc(doc(db, 'users', userId), { plan: newPlan, updatedAt: serverTimestamp() });
       toast.success(t('admin.planUpdated'));
@@ -829,7 +834,12 @@ export function AdminHome() {
                          {(['CYCLIST', 'MECHANIC', 'PEER_MECHANIC', 'ADMIN'] as const).map(r => (
                            <button
                              key={r}
-                             onClick={() => updateUserRole(u.id, r)}
+                             onClick={() => requestConfirm({
+                               title: 'Cambia ruolo',
+                               message: `Assegnare il ruolo ${r} a questo utente?`,
+                               confirmLabel: 'Conferma',
+                               onConfirm: () => updateUserRole(u.id, r),
+                             })}
                              className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.role === r ? 'bg-primary text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
                            >
                              {r === 'PEER_MECHANIC' ? 'PEER' : r}
@@ -844,7 +854,12 @@ export function AdminHome() {
                              {(['BASE', 'CLUB', 'PRO'] as const).map(p => (
                                <button
                                  key={p}
-                                 onClick={() => updateUserPlan(u.id, p)}
+                                 onClick={() => requestConfirm({
+                                   title: 'Cambia piano',
+                                   message: `Assegnare il piano ${p} a questo utente?`,
+                                   confirmLabel: 'Conferma',
+                                   onConfirm: () => updateUserPlan(u.id, p),
+                                 })}
                                  className={`px-2 py-1.5 rounded-lg text-[8px] font-black transition-all ${u.plan === p ? 'bg-accent text-white shadow-sm' : 'text-grey hover:bg-grey/10'}`}
                                >
                                  {p}
@@ -1166,13 +1181,25 @@ export function AdminHome() {
                       {selectedChat.status === 'DISPUTED' && (
                         <div className="p-4 bg-danger/5 border-t border-danger/20 flex gap-3 shrink-0">
                           <button 
-                            onClick={() => resolveDispute(selectedChat.id, 'CYCLIST')}
+                            onClick={() => requestConfirm({
+                              title: 'Risolvi controversia',
+                              message: 'Risolvere in favore del ciclista?',
+                              variant: 'danger',
+                              confirmLabel: 'Conferma',
+                              onConfirm: () => resolveDispute(selectedChat.id, 'CYCLIST'),
+                            })}
                             className="flex-1 bg-white border-2 border-danger text-danger py-3 rounded-2xl font-black text-[10px] uppercase shadow-sm active:scale-95 transition-all"
                           >
                             Rimborsa Ciclista
                           </button>
                           <button 
-                            onClick={() => resolveDispute(selectedChat.id, 'MECHANIC')}
+                            onClick={() => requestConfirm({
+                              title: 'Risolvi controversia',
+                              message: 'Risolvere in favore del meccanico?',
+                              variant: 'danger',
+                              confirmLabel: 'Conferma',
+                              onConfirm: () => resolveDispute(selectedChat.id, 'MECHANIC'),
+                            })}
                             className="flex-1 bg-danger text-white py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-danger/20 active:scale-95 transition-all"
                           >
                             Paga Meccanico
@@ -1195,23 +1222,28 @@ export function AdminHome() {
                           </div>
                         </div>
                         <button 
-                          onClick={async () => {
-                            if(!window.confirm('Chiudere questo ticket?')) return;
-                            try {
-                              await updateDoc(doc(db, 'supportTickets', selectedTicket.id), { 
-                                status: 'CLOSED', 
-                                updatedAt: serverTimestamp(),
-                                closedBy: user?.uid,
-                                closedAt: serverTimestamp(),
-                                closedByAdmin: true
-                              });
-                              toast.success('Ticket chiuso');
-                              setSelectedTicket(null);
-                            } catch (err) {
-                              console.error(err);
-                              toast.error('Errore nella chiusura del ticket');
-                            }
-                          }}
+                          onClick={() => requestConfirm({
+                            title: 'Chiudi ticket',
+                            message: 'Chiudere questo ticket di assistenza?',
+                            variant: 'danger',
+                            confirmLabel: 'Chiudi',
+                            onConfirm: async () => {
+                              try {
+                                await updateDoc(doc(db, 'supportTickets', selectedTicket.id), { 
+                                  status: 'CLOSED', 
+                                  updatedAt: serverTimestamp(),
+                                  closedBy: user?.uid,
+                                  closedAt: serverTimestamp(),
+                                  closedByAdmin: true
+                                });
+                                toast.success('Ticket chiuso');
+                                setSelectedTicket(null);
+                              } catch (err) {
+                                console.error(err);
+                                toast.error('Errore nella chiusura del ticket');
+                              }
+                            },
+                          })}
                           className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all"
                         >
                           Chiudi Ticket
@@ -1463,13 +1495,31 @@ export function AdminHome() {
 
                         <div className="flex flex-col sm:flex-row gap-3">
                           <button 
-                            onClick={(e) => { e.stopPropagation(); resolveDispute(job.id, 'CYCLIST'); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestConfirm({
+                                title: 'Risolvi controversia',
+                                message: 'Risolvere in favore del ciclista?',
+                                variant: 'danger',
+                                confirmLabel: 'Conferma',
+                                onConfirm: () => resolveDispute(job.id, 'CYCLIST'),
+                              });
+                            }}
                           className="flex-1 bg-white border-2 border-danger text-danger py-4 rounded-xl font-black flex items-center justify-center gap-3 hover:bg-danger hover:text-white uppercase tracking-widest text-[10px] transition-all shadow-md active:scale-95"
                         >
                           <XCircle size={18} /> Rimborsa Ciclista
                         </button>
                         <button 
-                          onClick={(e) => { e.stopPropagation(); resolveDispute(job.id, 'MECHANIC'); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            requestConfirm({
+                              title: 'Risolvi controversia',
+                              message: 'Risolvere in favore del meccanico?',
+                              variant: 'danger',
+                              confirmLabel: 'Conferma',
+                              onConfirm: () => resolveDispute(job.id, 'MECHANIC'),
+                            });
+                          }}
                           className="flex-1 bg-primary text-white py-4 rounded-xl font-black flex items-center justify-center gap-3 shadow-lg shadow-primary/30 hover:brightness-110 uppercase tracking-widest text-[10px] transition-all active:scale-95"
                         >
                           <CheckCircle size={18} /> Paga Meccanico
@@ -1626,6 +1676,59 @@ export function AdminHome() {
                 </div>
               </div>
 
+              {/* Prelievi EUR pendenti */}
+              <div className="bg-white rounded-[2.5rem] p-8 border border-grey/5 shadow-sm">
+                <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.3em] mb-6 flex items-center gap-3">
+                  <DollarSign size={18} /> Prelievi EUR in attesa ({payoutRequests.length})
+                </h3>
+                {payoutRequests.length === 0 ? (
+                  <p className="text-xs text-grey font-bold">Nessuna richiesta di prelievo pendente.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {payoutRequests.map((p) => (
+                      <div key={p.id} className="p-4 rounded-2xl border border-grey/10 bg-grey/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <p className="font-black text-black">{p.userName}</p>
+                          <p className="text-[10px] text-grey font-bold uppercase">{p.userRole} · €{p.amountEur} · {p.iban}</p>
+                          <p className="text-[10px] text-grey">{p.accountHolder}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await processEurPayout({ payoutId: p.id, action: 'PAID' });
+                                toast.success('Prelievo segnato come pagato');
+                              } catch (e: any) {
+                                toast.error(e?.message || 'Errore');
+                              }
+                            }}
+                            className="px-4 py-2 bg-primary text-white rounded-xl text-[10px] font-black uppercase"
+                          >
+                            Bonifico inviato
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const reason = window.prompt('Motivo rifiuto (opzionale):') || undefined;
+                              try {
+                                await processEurPayout({ payoutId: p.id, action: 'REJECT', rejectionReason: reason });
+                                toast.success('Prelievo rifiutato e saldo rimborsato');
+                              } catch (e: any) {
+                                toast.error(e?.message || 'Errore');
+                              }
+                            }}
+                            className="px-4 py-2 bg-danger/10 text-danger rounded-xl text-[10px] font-black uppercase"
+                          >
+                            Rifiuta
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Detailed Lists */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 {/* Subscriptions List */}
@@ -1681,8 +1784,12 @@ export function AdminHome() {
                                 {sub.status !== 'REFUNDED' && (
                                   <button 
                                     title="Rimborsa"
-                                    onClick={async () => {
-                                      if (!window.confirm("Sicuro di voler rimborsare questo abbonamento?")) return;
+                                    onClick={() => requestConfirm({
+                                      title: 'Rimborsa abbonamento',
+                                      message: 'Confermi il rimborso di questo abbonamento?',
+                                      variant: 'danger',
+                                      confirmLabel: 'Rimborsa',
+                                      onConfirm: async () => {
                                       setIsRefunding(sub.id);
                                       try {
                                         if (sub.stripePaymentIntentId) {
@@ -1702,7 +1809,8 @@ export function AdminHome() {
                                       } finally {
                                         setIsRefunding(null);
                                       }
-                                    }}
+                                    },
+                                  })}
                                     className="p-2 bg-danger/5 text-danger rounded-xl hover:bg-danger/10"
                                   >
                                     <RotateCcw size={14} className={isRefunding === sub.id ? 'animate-spin' : ''}/>
@@ -1785,10 +1893,12 @@ export function AdminHome() {
     </main>
       <AnimatePresence>
         {selectedReport && (
-          <RoadReportDetailModal 
-            report={selectedReport} 
-            onClose={() => setSelectedReport(null)} 
-          />
+          <ModalSuspense>
+            <RoadReportDetailModalLazy
+              report={selectedReport}
+              onClose={() => setSelectedReport(null)}
+            />
+          </ModalSuspense>
         )}
       </AnimatePresence>
 
@@ -1797,6 +1907,7 @@ export function AdminHome() {
         onClose={() => setIsInvoiceModalOpen(false)}
         user={selectedUserForInvoice}
       />
+      <ConfirmDialogPortal />
     </div>
   );
 }

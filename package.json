@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
@@ -48,7 +50,6 @@
     "react-markdown": "^10.1.0",
     "react-phone-number-input": "^3.4.16",
     "recharts": "^3.8.1",
-
     "tailwindcss": "^4.1.14",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
@@ -60,6 +61,7 @@
   "devDependencies": {
     "@eslint/js": "^9.21.0",
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@playwright/test": "^1.60.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

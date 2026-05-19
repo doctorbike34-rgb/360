@@ -1,7 +1,12 @@
 import React from 'react';
+import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { Download, Smartphone, CheckCircle2, ChevronRight, Share, Bell, Info } from 'lucide-react';
+import { safeStorage } from '../lib/storage';
+import { markPwaInstalled } from '../lib/pwaInstall';
+
+const PWA_DISMISS_KEY = 'pwa_install_dismissed_until';
 
 export const InstallPWAOverlay: React.FC = () => {
   const { deferredPrompt, setDeferredPrompt } = useAuthStore();
@@ -18,14 +23,27 @@ export const InstallPWAOverlay: React.FC = () => {
   
   if (isStandalone) return null;
 
+  const dismissedUntil = safeStorage.getItem(PWA_DISMISS_KEY);
+  if (dismissedUntil && Date.now() < parseInt(dismissedUntil, 10)) {
+    return null;
+  }
+
   // If we don't have a prompt and it's not IOS (where we show instructions), return null
   if (!deferredPrompt && !isIOS) return null;
+
+  const remindLater = () => {
+    const until = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    safeStorage.setItem(PWA_DISMISS_KEY, String(until));
+    setDeferredPrompt(null);
+    toast('Ti ricorderemo l\'installazione tra qualche giorno', { icon: 'ℹ️' });
+  };
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     console.log(`User response to the install prompt: ${outcome}`);
+    if (outcome === 'accepted') markPwaInstalled();
     setDeferredPrompt(null);
   };
 
@@ -141,8 +159,20 @@ export const InstallPWAOverlay: React.FC = () => {
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={remindLater}
+            className="w-full text-primary font-black py-3 active:scale-95 transition-all text-[11px] uppercase tracking-[0.2em]"
+          >
+            Ricordamelo dopo
+          </button>
+
           <button 
-            onClick={() => setDeferredPrompt(null)}
+            type="button"
+            onClick={() => {
+              setDeferredPrompt(null);
+              toast('Puoi installare l\'app in qualsiasi momento dal menu', { icon: 'ℹ️' });
+            }}
             className="w-full text-grey font-black py-2 active:scale-95 transition-all text-[11px] uppercase tracking-[0.2em] opacity-60 hover:opacity-100"
           >
             Continua nel browser

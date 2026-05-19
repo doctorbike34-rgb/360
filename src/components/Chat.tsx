@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { auth, db, handleFirestoreError, OperationType, storage } from '../lib/firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -153,7 +154,30 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
                }
              });
 
-             setMessages(msgs);
+             setMessages((prev) => {
+               const pending = prev.filter((m) => m.id.startsWith('opt_'));
+               const merged = [...msgs];
+               pending.forEach((p) => {
+                 if (p.id.startsWith('opt_img_') && p.type === 'IMAGE') {
+                   const optSec = p.createdAt?.seconds ?? 0;
+                   const serverImage = merged.find((m) => {
+                     if (m.type !== 'IMAGE' || m.senderId !== p.senderId || m.id.startsWith('opt_')) return false;
+                     if (typeof m.content === 'string' && (m.content.startsWith('http://') || m.content.startsWith('https://'))) return true;
+                     const mSec = m.createdAt?.seconds ?? 0;
+                     return optSec > 0 && mSec > 0 && Math.abs(mSec - optSec) < 30;
+                   });
+                   if (serverImage) {
+                     if (typeof p.content === 'string' && p.content.startsWith('blob:')) URL.revokeObjectURL(p.content);
+                     return;
+                   }
+                 }
+                 const already = merged.some(
+                   (m) => m.senderId === p.senderId && m.content === p.content && m.type === p.type
+                 );
+                 if (!already) merged.push(p);
+               });
+               return merged;
+             });
            }, (error) => {
              if (!auth.currentUser) {
                console.warn('Expected Auth sync error during logout: ', error);
@@ -243,6 +267,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       // Remove optimistic message on error and restore text
       setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
       setNewMessage(msgContent);
+      toast.error('Messaggio non inviato. Riprova.');
       handleFirestoreError(err, OperationType.WRITE, `${collectionPath}/${chatId}`);
       setIsSending(false);
     }
@@ -251,6 +276,22 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    const optimisticId = `opt_img_${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: optimisticId,
+      senderId: user.uid,
+      content: previewUrl,
+      type: 'IMAGE',
+      createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    const clearOptimistic = () => {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      URL.revokeObjectURL(previewUrl);
+    };
     
     setIsSending(true);
     setUploadProgress(0);
@@ -344,6 +385,8 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       } catch (chatUpdateErr) {
         console.error("Chat document update error during photo upload:", chatUpdateErr);
         handleFirestoreError(chatUpdateErr, OperationType.WRITE, `${collectionPath}/${chatId}`);
+        clearOptimistic();
+        toast.error('Foto non inviata. Riprova.');
         setIsSending(false);
         return;
       }
@@ -358,8 +401,12 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
         };
 
         await addDoc(collection(db, collectionPath, chatId, 'messages'), msgData);
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        URL.revokeObjectURL(previewUrl);
       } catch (sendErr) {
         console.error("Photo message send error:", sendErr);
+        clearOptimistic();
+        toast.error('Foto non inviata. Riprova.');
         handleFirestoreError(sendErr, OperationType.WRITE, `${collectionPath}/${chatId}/messages`);
       } finally {
         setIsSending(false);
@@ -367,6 +414,8 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       
     } catch (error) {
       console.error('Image compression or upload error:', error);
+      clearOptimistic();
+      toast.error('Foto non inviata. Riprova.');
       setUploadProgress(null);
       setIsSending(false);
     } finally {
@@ -379,13 +428,13 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
   };
 
   return (
-    <div className={`flex flex-col ${isAdminSupport ? 'flex-1' : 'h-full'} relative bg-white`} style={{ minHeight: 0 }}>
+    <div className={`flex flex-col ${isAdminSupport ? 'flex-1 min-h-0' : 'h-full'} relative bg-white w-full max-w-full overflow-hidden`} style={{ minHeight: 0 }}>
       {/* Messages */}
       <div 
-        className="overflow-y-auto px-4 py-6 space-y-4" 
+        className="overflow-y-auto px-4 py-6 space-y-4 min-h-0" 
         style={{ 
           flex: 1,
-          paddingBottom: '80px',
+          paddingBottom: '12px',
           WebkitOverflowScrolling: 'touch'
         }}
       >
@@ -409,12 +458,22 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
             </div>
           </motion.div>
         )}
+        {messages.length === 0 && (
+          <motion.div className="space-y-3 px-2" aria-hidden>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className={`flex ${i % 2 ? 'justify-end' : 'justify-start'}`}>
+                <div className="h-12 w-48 animate-pulse rounded-3xl bg-grey/10" />
+              </div>
+            ))}
+          </motion.div>
+        )}
         {messages.map((msg) => {
           const isMe = msg.senderId === user?.uid;
+          const isPending = msg.id.startsWith('opt_');
             return (
               <motion.div 
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
+                animate={{ opacity: isPending ? 0.65 : 1, y: 0, scale: 1 }}
                 key={msg.id} 
                 className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
               >
@@ -435,7 +494,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
                     msg.content
                   )}
                   <div className={`text-[8px] mt-1 opacity-60 font-bold ${isMe ? 'text-right' : 'text-left'}`}>
-                    {(msg.createdAt as any)?.toDate ? (msg.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
+                    {isPending ? 'Invio…' : (msg.createdAt as any)?.toDate ? (msg.createdAt as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
                   </div>
                 </div>
               </motion.div>
@@ -453,23 +512,24 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       )}
       <form 
         onSubmit={sendMessage} 
-        className="shrink-0 bg-white text-black border-t border-grey/10 flex gap-2 items-center"
+        className="shrink-0 bg-white text-black border-t border-grey/10 flex gap-1.5 sm:gap-2 items-end w-full max-w-full box-border"
         style={{ 
-          padding: '12px 16px',
-          paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+          padding: '10px 12px',
+          paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
           position: 'relative',
           zIndex: isAdminSupport ? 300 : 20,
-          minHeight: '56px'
+          minHeight: '52px'
         }}
       >
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
             <button 
               type="button" 
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 bg-black text-white rounded-full hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center justify-center shrink-0"
+              className="p-2 bg-black text-white rounded-full hover:bg-black/80 transition-colors disabled:opacity-50 flex items-center justify-center shrink-0 w-9 h-9"
               disabled={isSending}
+              aria-label="Allega foto"
             >
-              <ImageIcon size={18} />
+              <ImageIcon size={17} />
             </button>
             <input 
               type="file" 
@@ -481,10 +541,11 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
             <div className="relative">
                 <button 
                   type="button" 
-                  className={`p-2 transition-colors ${showEmojiPicker ? 'text-primary' : 'text-grey hover:text-primary'}`}
+                  className={`p-2 transition-colors shrink-0 w-9 h-9 flex items-center justify-center ${showEmojiPicker ? 'text-primary' : 'text-grey hover:text-primary'}`}
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  aria-label="Emoji"
                 >
-                  <Smile size={20} />
+                  <Smile size={18} />
                 </button>
                 {showEmojiPicker && (
                     <div ref={pickerRef} className="absolute bottom-full left-0 z-50 mb-4 shadow-2xl">
@@ -506,13 +567,14 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
           placeholder={t('chat.placeholder')}
-          className="flex-1 bg-white text-black border border-grey/10 shadow-sm rounded-full px-4 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="flex-1 min-w-0 w-0 bg-white text-black border border-grey/10 shadow-sm rounded-full px-3 sm:px-4 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary/30"
           style={{ fontSize: '16px' }}
         />
         <button 
           type="submit"
           disabled={!newMessage.trim() || isSending}
-          className="w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform cursor-pointer shrink-0"
+          aria-label="Invia messaggio"
+          className="w-10 h-10 shrink-0 bg-primary text-white rounded-full flex items-center justify-center disabled:opacity-30 active:scale-90 transition-transform cursor-pointer mb-0.5"
         >
           {isSending ? (
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

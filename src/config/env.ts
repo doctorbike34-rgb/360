@@ -8,6 +8,7 @@ function readEnv(key: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** @deprecated Gemini runs on Cloud Functions — use GEMINI_API_KEY in functions env only. */
 export const GEMINI_API_KEY = readEnv('VITE_GEMINI_API_KEY');
 
 export const STRIPE_PUBLISHABLE_KEY = readEnv('VITE_STRIPE_PUBLISHABLE_KEY');
@@ -34,6 +35,9 @@ export const MIXPANEL_TOKEN = readEnv('VITE_MIXPANEL_TOKEN');
 export const SENTRY_DSN = readEnv('VITE_SENTRY_DSN');
 
 export const APP_URL = readEnv('VITE_APP_URL');
+
+/** Landing intro phone mockup (mp4 URL or path, e.g. /landing-demo.mp4) */
+export const LANDING_VIDEO_URL = readEnv('VITE_LANDING_VIDEO_URL');
 
 export const FIREBASE_FUNCTIONS_REGION =
   readEnv('VITE_FIREBASE_FUNCTIONS_REGION') || 'europe-west1';
@@ -72,7 +76,6 @@ export function getCloudFunctionUrl(functionName: string): string {
 const CLIENT_ENV_CHECKS: Array<{ key: string; value: string; label: string }> = [
   { key: 'VITE_FIREBASE_API_KEY', value: FIREBASE_CONFIG.apiKey, label: 'Firebase' },
   { key: 'VITE_FIREBASE_PROJECT_ID', value: FIREBASE_CONFIG.projectId, label: 'Firebase project' },
-  { key: 'VITE_GEMINI_API_KEY', value: GEMINI_API_KEY, label: 'Gemini AI' },
   { key: 'VITE_STRIPE_PUBLISHABLE_KEY', value: STRIPE_PUBLISHABLE_KEY, label: 'Stripe' },
   { key: 'VITE_FIREBASE_VAPID_KEY', value: FIREBASE_VAPID_KEY, label: 'Push (VAPID)' },
 ];

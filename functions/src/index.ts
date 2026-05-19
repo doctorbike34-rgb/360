@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import * as nodemailer from 'nodemailer';
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { getSosPlatformFeePercent } from './platformFees';
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -138,17 +139,8 @@ export const completeSOS = functions.region('europe-west1').https.onCall(async (
         amount = serverCalculatedPrice;
       }
 
-      const plan = sosData.mechanicPlan || 'BASE';
-      
-      // Calculate Fee
-      let feePercent = 0.15; // default 15%
-      if (mechanicData.role === 'PEER_MECHANIC') {
-        feePercent = 0.05; // 5% for expert cyclists
-      } else {
-        const feeMultipliers: Record<string, number> = { PRO: 0.05, CLUB: 0.10, BASE: 0.15 };
-        feePercent = feeMultipliers[plan] !== undefined ? feeMultipliers[plan] : 0.15;
-      }
-
+      const plan = sosData.mechanicPlan || mechanicData.plan || 'BASE';
+      const feePercent = getSosPlatformFeePercent(mechanicData.role, plan);
       const feeAmount = amount * feePercent;
       const netAmount = amount - feeAmount;
 
@@ -401,6 +393,144 @@ export const rewardRoadReport = onDocumentUpdated({
   }
 });
 
+const PLAN_DURATION_DAYS = 30;
+
+async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session) {
+  const userId = session.metadata?.userId || session.client_reference_id;
+  const planId = session.metadata?.planId;
+  if (!userId || !planId) {
+    console.warn('activateSubscriptionFromCheckout: missing userId or planId', session.id);
+    return;
+  }
+
+  const paymentIntentId =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id || session.id;
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + PLAN_DURATION_DAYS);
+
+  const subsSnap = await db
+    .collection('subscriptions')
+    .where('stripeCheckoutSessionId', '==', session.id)
+    .limit(1)
+    .get();
+
+  const userRef = db.collection('users').doc(userId);
+  const userPlan = planId as string;
+
+  await db.runTransaction(async (t) => {
+    const userSnap = await t.get(userRef);
+    if (!userSnap.exists) return;
+
+    if (!subsSnap.empty) {
+      t.update(subsSnap.docs[0].ref, {
+        status: 'PAID',
+        stripePaymentIntentId: paymentIntentId,
+        expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      const subRef = db.collection('subscriptions').doc();
+      t.set(subRef, {
+        userId,
+        userName: userSnap.data()?.name || 'Meccanico',
+        userEmail: userSnap.data()?.email || '',
+        planId: userPlan,
+        amount: (session.amount_total || 0) / 100,
+        currency: session.currency || 'eur',
+        status: 'PAID',
+        stripeCheckoutSessionId: session.id,
+        stripePaymentIntentId: paymentIntentId,
+        expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    const txRef = db.collection('transactions').doc(paymentIntentId);
+    const txSnap = await t.get(txRef);
+    const txPayload = {
+      fromId: userId,
+      toId: 'PLATFORM',
+      amount: (session.amount_total || 0) / 100,
+      type: 'SUBSCRIPTION',
+      status: 'COMPLETED',
+      stripePaymentId: paymentIntentId,
+      stripePaymentIntentId: paymentIntentId,
+      planId: userPlan,
+      stripeCheckoutSessionId: session.id,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (txSnap.exists) {
+      t.update(txRef, txPayload);
+    } else {
+      t.set(txRef, {
+        ...txPayload,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    t.update(userRef, {
+      plan: userPlan,
+      planExpiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+      subscriptionPaymentIntentId: paymentIntentId,
+      subscriptionPendingPlan: admin.firestore.FieldValue.delete(),
+      subscriptionCheckoutSessionId: admin.firestore.FieldValue.delete(),
+      hasCompletedOnboarding: true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  const statsRef = db.collection('platformStats').doc('global');
+  await db.runTransaction(async (t) => {
+    const snap = await t.get(statsRef);
+    const revenue = (session.amount_total || 0) / 100;
+    if (snap.exists) {
+      t.update(statsRef, {
+        totalSubscriptionRevenue: admin.firestore.FieldValue.increment(revenue),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      t.set(statsRef, {
+        totalSubscriptionRevenue: revenue,
+        totalFees: 0,
+        totalTransactions: 0,
+        completedJobs: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  });
+}
+
+export const confirmSubscriptionCheckout = functions.region('europe-west1').https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Login richiesto.');
+  }
+  const sessionId = data?.sessionId as string;
+  if (!sessionId) {
+    throw new functions.https.HttpsError('invalid-argument', 'sessionId mancante.');
+  }
+
+  try {
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
+    const userId = session.metadata?.userId || session.client_reference_id;
+    if (userId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Sessione non valida per questo utente.');
+    }
+    if (session.payment_status !== 'paid') {
+      return { success: false, pending: true, planId: session.metadata?.planId || null };
+    }
+    await activateSubscriptionFromCheckout(session);
+    return { success: true, planId: session.metadata?.planId || null };
+  } catch (error) {
+    console.error('confirmSubscriptionCheckout failed:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Conferma abbonamento fallita.');
+  }
+});
+
 export const stripeWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || functions.config().stripe?.webhook_secret;
@@ -421,60 +551,45 @@ export const stripeWebhook = functions.region('europe-west1').https.onRequest(as
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
-    const userId = session.metadata?.userId || session.client_reference_id;
-    const amountStr = session.metadata?.dbcAmount;
     const sessionType = session.metadata?.type || 'TOPUP';
-    const planId = session.metadata?.planId;
-    const paymentIntentId = session.payment_intent as string;
 
-    if (userId && amountStr && paymentIntentId) {
-      const dbcAmount = parseFloat(amountStr);
-      if (isNaN(dbcAmount)) { console.error(`Invalid dbcAmount: ${amountStr}`); res.json({received: true}); return; }
-      const txRef = db.collection('transactions').doc(paymentIntentId);
-      
+    if (sessionType === 'SUBSCRIPTION') {
       try {
-        await db.runTransaction(async (t) => {
-          const userRef = db.collection('users').doc(userId);
-          
-          // ALWAYS create transaction and increment balance (new Checkout Sessions flow)
-          t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
-          t.set(txRef, {
-            fromId: 'STRIPE_TOPUP',
-            toId: userId,
-            amount: dbcAmount,
-            type: sessionType === 'SUBSCRIPTION' ? 'SUBSCRIPTION' : 'TOPUP',
-            status: 'COMPLETED',
-            stripePaymentId: paymentIntentId,
-            planId: planId || '',
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-          });
-        });
+        if (session.payment_status === 'paid') {
+          await activateSubscriptionFromCheckout(session);
+        }
       } catch (e) {
-        console.error("Checkout session transaction failed:", e);
+        console.error('Subscription checkout.session.completed failed:', e);
       }
+    } else {
+      const userId = session.metadata?.userId || session.client_reference_id;
+      const amountStr = session.metadata?.dbcAmount;
+      const paymentIntentId =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id;
 
-      // Handle subscription payments
-      if (sessionType === 'SUBSCRIPTION') {
-        try {
-          const subsQuery = await db.collection('subscriptions')
-            .where('stripePaymentIntentId', '==', paymentIntentId)
-            .where('status', '==', 'PENDING')
-            .limit(1)
-            .get();
-          
-          if (!subsQuery.empty) {
-            const subDoc = subsQuery.docs[0];
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + 30);
-            
-            await subDoc.ref.update({
-              status: 'PAID',
-              expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
-              updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      if (userId && amountStr && paymentIntentId) {
+        const dbcAmount = parseFloat(amountStr);
+        if (!isNaN(dbcAmount)) {
+          const txRef = db.collection('transactions').doc(paymentIntentId);
+          try {
+            await db.runTransaction(async (t) => {
+              const userRef = db.collection('users').doc(userId);
+              t.update(userRef, { balance: admin.firestore.FieldValue.increment(dbcAmount) });
+              t.set(txRef, {
+                fromId: 'STRIPE_TOPUP',
+                toId: userId,
+                amount: dbcAmount,
+                type: 'TOPUP',
+                status: 'COMPLETED',
+                stripePaymentId: paymentIntentId,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
             });
+          } catch (e) {
+            console.error('Top-up checkout session failed:', e);
           }
-        } catch (e) {
-          console.error("Subscription confirmation failed:", e);
         }
       }
     }
@@ -745,9 +860,35 @@ export const createCheckoutSession = functions.region('europe-west1').https.onRe
       },
     });
 
-    res.json({ 
+    if (isSubscription && planId) {
+      const userSnap = await db.collection('users').doc(userId).get();
+      const userData = userSnap.data() || {};
+      const subRef = db.collection('subscriptions').doc();
+      await subRef.set({
+        userId,
+        userName: userData.name || decodedToken.name || 'Meccanico',
+        userEmail: userData.email || decodedToken.email || '',
+        planId,
+        amount,
+        currency,
+        status: 'PENDING',
+        stripeCheckoutSessionId: session.id,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await db.collection('users').doc(userId).set(
+        {
+          subscriptionPendingPlan: planId,
+          subscriptionCheckoutSessionId: session.id,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
+    res.json({
       sessionId: session.id,
-      url: session.url 
+      url: session.url,
     });
   } catch (error) {
     console.error('Checkout Session Error:', error);
@@ -1078,7 +1219,7 @@ export const sendDailyBonusReminder = functions
         const message = {
           notification: {
             title: '🎁 Bonus giornaliero DB360!',
-            body: `Hai ${userData.dailyStreak || 1} giorni di streak! Riscuoti +0.01 DBC ora.`,
+            body: `Hai ${userData.dailyStreak || 1} giorni di streak! Riscuoti +10 punti reputazione ora.`,
           },
           data: {
             type: 'daily_bonus',
@@ -1102,3 +1243,8 @@ export const sendDailyBonusReminder = functions
       return { success: false, error };
     }
   });
+
+export { askBikeDoctor, analyzeBikeIssue } from './gemini';
+export { disputeSOS } from './disputes';
+export { requestEurPayout, processEurPayout } from './payouts';
+export { resetWeeklyPoints } from './leaderboard';

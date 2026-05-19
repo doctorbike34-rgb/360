@@ -2,6 +2,8 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { MessageCircle, ChevronRight, Users, Shield, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { formatFaultTypeTitle } from '../lib/uxLabels';
+import { ChatListSkeleton } from './Skeleton';
 
 type ChatItem = {
   id: string;
@@ -33,7 +35,7 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: ChatItem, c
   if (isDirect) {
     title = chat.fetchedProfileName || chat.otherPartyName || (otherId ? `Utente ${otherId.substring(0, 4)}` : 'Chat Privata');
   } else if (isSOS) {
-    title = `SOS${chat.faultType ? ' - ' + chat.faultType : ''}`;
+    title = formatFaultTypeTitle(chat.faultType as string | undefined, t);
   } else if (isGroup) {
     title = chat.title || 'Uscita di Gruppo';
   }
@@ -115,8 +117,12 @@ interface ChatListViewProps {
   currentUserId: string;
 }
 
-export const ChatListView: React.FC<ChatListViewProps> = ({ chats, onSelectChat, currentUserId }) => {
+export const ChatListView: React.FC<ChatListViewProps & { loading?: boolean }> = ({ chats, onSelectChat, currentUserId, loading }) => {
   const { t } = useTranslation();
+
+  if (loading) {
+    return <ChatListSkeleton />;
+  }
 
   if (chats.length === 0) {
     return (

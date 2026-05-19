@@ -2,8 +2,7 @@ import toast from 'react-hot-toast';
 import React, { useState } from 'react';
 import { Star, X, MessageSquare, Send, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { disputeSOS } from '../lib/disputeService';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useTranslation } from 'react-i18next';
 
@@ -56,15 +55,18 @@ export function ReviewModal({ isOpen, onClose, sosRequest, mechanicName, mechani
   const handleDispute = async () => {
     setIsSubmitting(true);
     try {
-      await updateDoc(doc(db, 'sosRequests', sosRequest.id), {
-        status: 'DISPUTED',
-        paymentStatus: 'DISPUTED'
-      });
-      toast.error('Contestazione inviata all\'assistenza. I fondi rimarranno bloccati e verrai contattato a breve.');
+      const { ticketId } = await disputeSOS(
+        sosRequest.id,
+        comment.trim() || 'Contestazione intervento SOS avviata dal ciclista.'
+      );
+      toast.success(
+        `Contestazione inviata. Ticket assistenza #${ticketId.slice(0, 6)} — i fondi restano bloccati.`,
+        { duration: 5000 }
+      );
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       logger.error('Error creating dispute', { error: err, sosId: sosRequest.id });
-      handleFirestoreError(err, OperationType.UPDATE, 'sosRequests');
+      toast.error(err?.message || 'Errore durante la contestazione.');
     } finally {
       setIsSubmitting(false);
     }

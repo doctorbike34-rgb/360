@@ -39,9 +39,8 @@ export function InterventionHistory({ onClose }: { onClose?: () => void }) {
     setAnalyzingId(inv.id);
     try {
       const diagnosis = await analyzeBikeIssue(inv.problemDescription);
-      const updatedDiagnosis = diagnosis === "Could not analyze issue." 
-        ? "Impossibile analizzare il problema. Riprova più tardi."
-        : diagnosis;
+      const updatedDiagnosis =
+        diagnosis ?? 'Impossibile analizzare il problema. Riprova più tardi.';
 
       await updateDoc(doc(db, 'interventions', inv.id), {
         aiDiagnosis: updatedDiagnosis
