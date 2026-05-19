@@ -1301,7 +1301,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.settings')}</h3>
-                  <button onClick={() => setShowSettings(false)} className="p-2 text-grey"><X size={24}/></button>
+                  <button onClick={() => setShowSettings(false)} aria-label="Close settings" className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 <div className="space-y-6">
                   <div className="bg-grey/5 p-6 rounded-[2rem]">
@@ -1354,7 +1354,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.safety')}</h3>
-                  <button onClick={() => setShowSafety(false)} className="p-2 text-grey"><X size={24}/></button>
+                  <button onClick={() => setShowSafety(false)} aria-label="Close safety center" className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 <div className="space-y-6">
                   <div className="bg-accent/5 p-6 rounded-[2rem] border border-accent/10">
@@ -1390,7 +1390,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                    <h3 className="text-2xl font-black text-primary uppercase italic">
                      {planUpgradeStep === 'SELECT' ? 'Piani Abbonamento' : 'Conferma Piano'}
                    </h3>
-                   <button onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} className="p-2 text-grey"><X size={24}/></button>
+                   <button onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} aria-label="Close plans" className="p-2 text-grey"><X size={24}/></button>
                 </div>
 
                 {planUpgradeStep === 'SELECT' ? (
@@ -1494,7 +1494,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.privacyAndLegal')}</h3>
-                  <button onClick={() => setShowPrivacy(false)} className="p-2 text-grey"><X size={24}/></button>
+                  <button onClick={() => setShowPrivacy(false)} aria-label="Close privacy policy" className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 <div className="space-y-6">
                   <div className="bg-grey/5 p-6 rounded-[2rem] border border-grey/10 space-y-6">
@@ -1737,7 +1737,7 @@ function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; o
         <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">Metodi di Pagamento</h3>
-          <button onClick={onClose} className="p-2 text-grey"><X size={24}/></button>
+          <button onClick={onClose} aria-label="Close payment methods" className="p-2 text-grey"><X size={24}/></button>
         </div>
 
         {isLoading ? (
