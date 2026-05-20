@@ -32,8 +32,10 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
-  --app-nav-block: calc(var(--app-nav-height) + var(--safe-bottom));
-  --fab-gap-above-nav: 1.25rem;
+  /* Nav height alone — safe-bottom is no longer reserved as padding
+     inside the nav, so FABs only need to clear the nav itself. */
+  --app-nav-block: var(--app-nav-height);
+  --fab-gap-above-nav: 0.5rem;
   /* Legacy aliases */
   --home-nav-height: var(--app-nav-height);
   --home-nav-total-height: var(--app-nav-block);
@@ -83,11 +85,10 @@
   flex-shrink: 0;
   box-sizing: border-box;
   background-color: #ffffff;
-  padding-top: 0.5rem;
-  /* Pull content as close as possible to the home-indicator: only ~4px
-     below the labels on iPhone (the gesture bar still works on top of
-     the white nav background thanks to iOS handling). */
-  padding-bottom: max(0.25rem, calc(var(--safe-bottom) - 1.75rem));
+  padding-top: 0.25rem;
+  /* Sit flush at the bottom: no extra safe-area padding. The iOS gesture
+     bar is rendered by the system over our nav background. */
+  padding-bottom: 0;
   padding-left: max(0.25rem, var(--safe-left));
   padding-right: max(0.25rem, var(--safe-right));
   min-height: var(--app-nav-height);
