@@ -130,8 +130,9 @@ export function MechanicHome() {
   }, [user]);
 
   // Listen for mechanic transactions to build real earnings chart
+  // Only open when user is on PROFILE tab — this is 50 docs, not needed immediately
   useEffect(() => {
-    if (!user) return;
+    if (!user || activeTab !== 'PROFILE') return;
     const q = query(
       collection(db, 'transactions'),
       where('toId', '==', user.uid),
@@ -640,10 +641,9 @@ export function MechanicHome() {
     };
   }, [user, isAvailable, activeJobs.length > 0]);
 
+  // Nearby cyclists count — only needed on MAP tab
   useEffect(() => {
-    if (!user) return;
-    // Use mapPresence (open read for all signed-in users) instead of users collection
-    // to avoid Missing or insufficient permissions error
+    if (!user || activeTab !== 'MAP') return;
     const q = query(
       collection(db, 'mapPresence'),
       where('role', '==', 'CYCLIST'),
@@ -669,7 +669,7 @@ export function MechanicHome() {
     });
     
     return () => unsub();
-  }, [user]);
+  }, [user, activeTab]);
 
   useEffect(() => {
     if (!user) return;
@@ -702,9 +702,9 @@ export function MechanicHome() {
     return () => unsubscribe();
   }, [user]);
 
-  // Handle Ratings calculation
+  // Reviews/ratings — only needed when on WORK or PROFILE tab
   useEffect(() => {
-    if (!user) return;
+    if (!user || (activeTab !== 'WORK' && activeTab !== 'PROFILE')) return;
     const q = query(
       collection(db, 'reviews'),
       where('mechanicId', '==', user?.uid),
@@ -722,7 +722,7 @@ export function MechanicHome() {
       }
     });
     return () => unsub();
-  }, [user]);
+  }, [user, activeTab]);
 
   const toggleAvailability = async () => {
     if (!user) return;
