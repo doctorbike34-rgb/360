@@ -17,7 +17,8 @@ import {
   increment,
   arrayUnion,
   FieldPath,
-  deleteField
+  deleteField,
+  Timestamp
 } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { Send, Image as ImageIcon, Smile, MessageSquare } from 'lucide-react';
@@ -27,11 +28,21 @@ import { soundService } from '../lib/sounds';
 
 const LazyEmojiPicker = lazy(() => import('emoji-picker-react'));
 
+type MessageCreatedAt =
+  | Timestamp
+  | { seconds: number; nanoseconds: number };
+
+function messageCreatedAtSeconds(createdAt: MessageCreatedAt | undefined): number | undefined {
+  if (!createdAt || typeof createdAt !== 'object') return undefined;
+  if ('seconds' in createdAt && typeof createdAt.seconds === 'number') return createdAt.seconds;
+  return undefined;
+}
+
 interface Message {
   id: string;
   senderId: string;
   content: string;
-  createdAt: ReturnType<typeof serverTimestamp>;
+  createdAt: MessageCreatedAt;
   type: 'TEXT' | 'IMAGE';
 }
 
@@ -143,7 +154,8 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
                if (change.type === 'added') {
                  const msgData = change.doc.data();
                  if (msgData.senderId && msgData.senderId !== user?.uid) {
-                    const isRecent = msgData.createdAt?.seconds && (Date.now() / 1000 - msgData.createdAt.seconds < 10);
+                    const msgSec = messageCreatedAtSeconds(msgData.createdAt as MessageCreatedAt | undefined);
+                    const isRecent = msgSec != null && Date.now() / 1000 - msgSec < 10;
                     if (isRecent && useAuthStore.getState().profile?.notificationsEnabled) {
                       const role = useAuthStore.getState().role;
                       soundService.play(role === 'MECHANIC' || role === 'PEER_MECHANIC' ? 'MESSAGE_MECHANIC' : 'MESSAGE_CYCLIST');
@@ -157,11 +169,11 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
                const merged = [...msgs];
                pending.forEach((p) => {
                  if (p.id.startsWith('opt_img_') && p.type === 'IMAGE') {
-                   const optSec = p.createdAt?.seconds ?? 0;
+                   const optSec = messageCreatedAtSeconds(p.createdAt) ?? 0;
                    const serverImage = merged.find((m) => {
                      if (m.type !== 'IMAGE' || m.senderId !== p.senderId || m.id.startsWith('opt_')) return false;
                      if (typeof m.content === 'string' && (m.content.startsWith('http://') || m.content.startsWith('https://'))) return true;
-                     const mSec = m.createdAt?.seconds ?? 0;
+                     const mSec = messageCreatedAtSeconds(m.createdAt) ?? 0;
                      return optSec > 0 && mSec > 0 && Math.abs(mSec - optSec) < 30;
                    });
                    if (serverImage) {
@@ -201,9 +213,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
 
   const sendMessage = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e) e.preventDefault();
-    console.log('Attempting to send message:', newMessage);
     if (!newMessage.trim() || !user || isSending) {
-      console.log('SendMessage aborted: message empty, user null, or already sending');
       return;
     }
 
@@ -219,7 +229,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       senderId: user.uid,
       content: msgContent,
       type: 'TEXT',
-      createdAt: { seconds: Math.floor(Date.now()/1000), nanoseconds: 0 } as any, // Mock timestamp
+      createdAt: { seconds: Math.floor(Date.now()/1000), nanoseconds: 0 },
     };
     setMessages(prev => [...prev, optimisticMsg]);
     
@@ -284,7 +294,7 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       senderId: user.uid,
       content: previewUrl,
       type: 'IMAGE',
-      createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 

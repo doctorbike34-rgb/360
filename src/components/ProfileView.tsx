@@ -76,8 +76,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User response to the install prompt: ${outcome}`);
+    await deferredPrompt.userChoice;
     setDeferredPrompt(null);
   };
   
@@ -262,7 +261,6 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setIsUpgrading(selectedPlanForUpgrade.id);
     try {
       const idToken = await user.getIdToken();
-      console.log('Generated ID Token (exists):', !!idToken);
       const returnUrl = `${window.location.origin}/profile`;
       const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',

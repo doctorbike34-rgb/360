@@ -114,7 +114,14 @@ export interface SOSRequest {
   lng: number;
   estimatedPrice?: number;
   createdAt: number;
-  paymentStatus?: 'HELD' | 'RELEASED' | 'REFUNDED' | 'DISPUTED';
+  paymentStatus?:
+    | 'ESCROW'
+    | 'HELD'
+    | 'RELEASED'
+    | 'RELEASED_ADMIN'
+    | 'REFUNDED'
+    | 'REFUNDED_ADMIN'
+    | 'DISPUTED';
   mechanicConfirmed?: boolean;
   cyclistConfirmed?: boolean;
   cyclistName?: string;

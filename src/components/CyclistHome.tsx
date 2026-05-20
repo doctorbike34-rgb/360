@@ -557,16 +557,12 @@ export function CyclistHome() {
 
 
   const finalizeJob = async () => {
-    console.log('FinalizeJob clicked! activeSOS:', activeSOS?.id);
     if (!activeSOS || !user) return;
     
     setIsFinishing(true);
     try {
-      console.log('Calling completeSOS Cloud Function...');
       const completeSOS = httpsCallable(functions, 'completeSOS');
       await completeSOS({ sosId: activeSOS.id });
-      
-      console.log('Cloud Function success, showing review modal...');
       toast.success(t('cyclist.repairConfirmed'));
       setCompletedJobToReview(activeSOS);
       setShowReviewModal(true);
@@ -755,7 +751,6 @@ export function CyclistHome() {
         
         // IDEMPOTENCY CHECK: If this transaction ID was already processed, skip
         if (userData.lastTxId === txRef.id) {
-          console.log("Transaction already processed, skipping balance decrement.");
           return;
         }
 
@@ -1064,7 +1059,7 @@ export function CyclistHome() {
   };
 
   return (
-    <div className="flex flex-col relative bg-white transition-colors duration-500 h-full min-h-0 w-full flex-1">
+    <div className="flex flex-col relative bg-slate-50 transition-colors duration-500 h-full min-h-0 w-full flex-1 overflow-hidden">
       <AnimatePresence>
         {showAcceptedToast && (
           <motion.div
@@ -1092,7 +1087,7 @@ export function CyclistHome() {
 
       {/* HUD & Top UI */}
       {activeTab === 'MAP' && locationSource && locationSource !== 'gps' && (
-        <div className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] left-4 right-4 z-[15] pointer-events-none">
+        <div className="absolute top-content-banner left-4 right-4 z-[15] pointer-events-none">
           <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[10px] font-bold px-4 py-2.5 rounded-2xl shadow-md text-center">
             Posizione approssimativa — attiva il GPS per una precisione migliore
           </div>
@@ -1100,7 +1095,7 @@ export function CyclistHome() {
       )}
 
       {activeTab === 'MAP' && (
-        <div className="absolute top-0 left-0 right-0 z-10 p-4 pt-[calc(1rem+env(safe-area-inset-top))] pointer-events-none">
+        <div className="absolute top-0 left-0 right-0 z-10 p-4 pt-content-top pointer-events-none">
           <div className="flex justify-between items-start">
             <div className="flex flex-col gap-3">
               <div className="pointer-events-auto flex items-center gap-3 bg-white/90  backdrop-blur-md px-2.5 py-2 rounded-2xl shadow-lg transition-colors border border-grey/10  w-fit">
@@ -1228,7 +1223,7 @@ export function CyclistHome() {
           </div>
 
           {/* Chat Tab List */}
-          <div className={`absolute inset-0 z-20 flex flex-col bg-white pb-[110px] transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 z-20 flex flex-col bg-white pb-32 transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {directChat && !showChat ? (
                 <>
                   <ChatHeader 
@@ -1423,8 +1418,8 @@ export function CyclistHome() {
       {/* Floating SOS Button and Road Report (Only on Map Tab if no active SOS) */}
       {activeTab === 'MAP' && !activeSOS && (
         <div
-          className="absolute inset-x-0 z-20 flex justify-center gap-4 pb-2 pointer-events-none"
-          style={{ bottom: 'calc(var(--home-nav-height, 5.75rem) + env(safe-area-inset-bottom, 0px))' }}
+          className="absolute inset-x-0 z-20 flex justify-center gap-4 pointer-events-none"
+          style={{ bottom: 'calc(var(--home-nav-height, 5.75rem) + var(--content-inset-bottom))' }}
         >
            <button 
              onClick={() => setShowRoadReportModal(true)}

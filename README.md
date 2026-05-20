@@ -1,20 +1,34 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# DoctorBike Italia (DB360)
 
-# Run and deploy your AI Studio app
+PWA per assistenza meccanica bici on-demand: SOS, chat, pagamenti escrow, community social e pannello admin.
 
-This contains everything you need to run your app locally.
+## Stack
 
-View your app in AI Studio: https://ai.studio/apps/f8184a47-96af-4c1c-8b82-c7fa5996510c
+- **Client:** React 19, Vite, Tailwind CSS v4, Zustand, i18next, Leaflet
+- **Backend:** Firebase (Auth, Firestore, Storage, Cloud Functions, FCM, Hosting)
+- **Pagamenti:** Stripe · **AI:** Gemini (Cloud Functions)
 
-## Run Locally
+## Sviluppo locale
 
-**Prerequisites:**  Node.js
+**Prerequisiti:** Node.js 20+
 
+```bash
+npm install
+cp .env.example .env.local   # compila le variabili VITE_* e GEMINI_API_KEY
+npm run dev
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+| Comando | Descrizione |
+|---------|-------------|
+| `npm run lint` | Typecheck (`tsc --noEmit`) |
+| `npm run build` | Build produzione |
+| `npm test` | Unit test (Vitest) |
+| `npm run test:e2e` | Smoke Playwright |
+
+Variabili ambiente: vedi [`.env.example`](.env.example) (client `VITE_*`, server in `functions/.env`).
+
+## Deploy hosting
+
+```bash
+npx -y firebase-tools@latest deploy --only hosting --project doctorbike-v2
+```

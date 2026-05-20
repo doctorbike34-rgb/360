@@ -164,7 +164,7 @@ export default function App() {
   // Default viewport background for iOS safe-area outside app container
   useEffect(() => {
     const prev = document.documentElement.style.getPropertyValue('--app-viewport-bg');
-    document.documentElement.style.setProperty('--app-viewport-bg', '#ffffff');
+    document.documentElement.style.setProperty('--app-viewport-bg', '#f8fafc');
     return () => {
       if (prev) document.documentElement.style.setProperty('--app-viewport-bg', prev);
       else document.documentElement.style.removeProperty('--app-viewport-bg');
@@ -542,7 +542,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="pwa-fixed-shell flex items-center justify-center bg-white">
+      <div className="pwa-fixed-shell flex items-center justify-center bg-slate-50">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
       </div>
     );
@@ -561,25 +561,29 @@ export default function App() {
   if (!user || isCompletingProfile) {
     if (showLanding) {
       return (
-        <LandingPage
-          onStart={() => dismissLanding(false)}
-          onLogin={() => dismissLanding(true)}
-          onSkip={() => dismissLanding(true)}
-        />
+        <div className="pwa-fixed-shell h-full w-full min-h-0 overflow-hidden flex flex-col">
+          <LandingPage
+            onStart={() => dismissLanding(false)}
+            onLogin={() => dismissLanding(true)}
+            onSkip={() => dismissLanding(true)}
+          />
+        </div>
       );
     }
     return (
-      <Auth
-        initialIsLogin={authStartLogin}
-        onShowLanding={() => setShowLanding(true)}
-      />
+      <div className="h-full w-full min-h-0 overflow-hidden">
+        <Auth
+          initialIsLogin={authStartLogin}
+          onShowLanding={() => setShowLanding(true)}
+        />
+      </div>
     );
   }
 
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className="pwa-fixed-shell flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black">
+    <div className="pwa-app-shell flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-slate-50 text-black">
       <>
         <AnimatePresence>
           {quotaError && (
@@ -605,21 +609,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {(!user || !role) ? (
-          showLanding ? (
-            <LandingPage
-              onStart={() => dismissLanding(false)}
-              onLogin={() => dismissLanding(true)}
-              onSkip={() => dismissLanding(true)}
-            />
-          ) : (
-            <Auth
-              initialIsLogin={authStartLogin}
-              onShowLanding={() => setShowLanding(true)}
-            />
-          )
-        ) : (
-          <EmailVerificationGuard>
+        <EmailVerificationGuard>
             <NotificationManager />
             <GlobalNotifications />
             <InstallPWAOverlay />
@@ -838,12 +828,9 @@ export default function App() {
                 />
               )}
             </AnimatePresence>
-          </EmailVerificationGuard>
-        )}
+        </EmailVerificationGuard>
       </>
 
-      {/* Home Indicator (Barra di movimento) */}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[10000] pointer-events-none pb-safe" />
       <Toaster position="bottom-center" toastOptions={{ style: { background: '#333', color: '#fff', fontSize: '14px', borderRadius: '16px' } }} />
     </div>
   );

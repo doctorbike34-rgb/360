@@ -22,19 +22,11 @@
   --spacing-safe-right: env(safe-area-inset-right);
 }
 
-/* PWA: safe area — top con respiro sotto status bar, bottom solo inset nativo (no banda bianca) */
-html.pwa-standalone {
-  --pwa-inset-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
-  --pwa-inset-bottom: env(safe-area-inset-bottom, 0px);
+/* PWA: single safe-area source — shell is full-bleed; children use content-inset vars */
+:root {
   --home-nav-height: 5.75rem;
-}
-
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  :root {
-    --pwa-inset-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
-    --pwa-inset-bottom: env(safe-area-inset-bottom, 0px);
-    --home-nav-height: 5.75rem;
-  }
+  --content-inset-top: env(safe-area-inset-top, 0px);
+  --content-inset-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .pwa-fixed-shell {
@@ -47,59 +39,124 @@ html.pwa-standalone {
   box-sizing: border-box;
 }
 
-/* Shell PWA: riempie lo schermo senza padding che sposta la UI (fix iOS banda bianca) */
 html.pwa-standalone .pwa-fixed-shell {
   position: fixed;
-  top: var(--pwa-inset-top, env(safe-area-inset-top));
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 0;
   width: auto;
   height: auto;
+  min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
   background-color: var(--app-viewport-bg);
 }
 
+.pwa-app-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  min-height: 100svh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--app-viewport-bg);
+}
+
+html.pwa-standalone .pwa-app-shell {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+}
+
 @media (display-mode: standalone), (display-mode: fullscreen) {
+  .pwa-app-shell,
   .pwa-fixed-shell {
     position: fixed;
-    top: var(--pwa-inset-top, env(safe-area-inset-top));
-    right: 0;
-    bottom: 0;
-    left: 0;
+    inset: 0;
     width: auto;
     height: auto;
+    min-height: 0;
     overflow: hidden;
     box-sizing: border-box;
     background-color: var(--app-viewport-bg);
   }
 
   .top-pwa-safe {
-    top: var(--pwa-inset-top, env(safe-area-inset-top));
+    top: var(--content-inset-top);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
   }
 }
 
-html.pwa-standalone .top-pwa-safe {
-  top: var(--pwa-inset-top, env(safe-area-inset-top));
+/*
+ * Tall iPhones in standalone PWA (e.g. 15 Pro Max): pb-safe + full-bleed shell
+ * double-counts safe-area-inset-bottom (~1cm gap). Shell absorbs bottom inset;
+ * children use --content-inset-bottom: 0. Shorter phones (Galaxy S23) unchanged.
+ */
+@media (display-mode: standalone) and (min-height: 900px) {
+  html.pwa-standalone {
+    --content-inset-bottom: 0px;
+  }
+
+  html.pwa-standalone .pwa-app-shell,
+  html.pwa-standalone .pwa-fixed-shell {
+    top: 0;
+    right: 0;
+    left: 0;
+    bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+html.pwa-standalone,
+html.pwa-standalone body,
+html.pwa-standalone #root {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 @layer utilities {
   .pt-safe { padding-top: env(safe-area-inset-top); }
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-  .pt-pwa { padding-top: var(--pwa-inset-top); }
-  .pb-pwa { padding-bottom: var(--pwa-inset-bottom); }
+  html.pwa-standalone .pb-safe {
+    padding-bottom: var(--content-inset-bottom);
+  }
+  .pt-pwa { padding-top: var(--content-inset-top); }
+  .pb-pwa { padding-bottom: var(--content-inset-bottom); }
 
   .pwa-fixed-shell {
     box-sizing: border-box;
   }
 
   .home-nav-stack {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    flex-shrink: 0;
+    margin-top: auto;
+  }
+
+  .pt-content-top {
+    padding-top: calc(1rem + var(--content-inset-top));
+  }
+
+  .pt-slide-header {
+    padding-top: calc(3.75rem + var(--content-inset-top));
+  }
+
+  .top-content-banner {
+    top: calc(0.5rem + var(--content-inset-top));
   }
 
   .home-nav-fab-offset {
-    bottom: calc(var(--home-nav-height, 5.75rem) + env(safe-area-inset-bottom, 0px) + 3.5rem);
+    bottom: calc(var(--home-nav-height, 5.75rem) + var(--content-inset-bottom, 0px) + 3.5rem);
   }
 
   .px-safe { 

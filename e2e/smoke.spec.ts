@@ -10,6 +10,13 @@ test.describe('DB360 smoke', () => {
 
   test('has document title', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/doctorbike|db360|360/i);
+    await expect(page).toHaveTitle(/DoctorBike/i);
+  });
+
+  test('manifest is served', async ({ request }) => {
+    const res = await request.get('/manifest.json');
+    expect(res.ok()).toBeTruthy();
+    const manifest = await res.json();
+    expect(manifest.name).toMatch(/DoctorBike/i);
   });
 });

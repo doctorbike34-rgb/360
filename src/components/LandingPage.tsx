@@ -68,7 +68,7 @@ function PhoneMockup({
   return (
     <motion.div
       style={{ transform, opacity: phoneOpacity }}
-      className="landing-3d-layer relative w-full aspect-[9/17] mx-auto shrink-0"
+      className="landing-3d-layer relative w-full aspect-[9/17] mx-auto shrink-0 overflow-hidden"
     >
       <div className="absolute inset-0 rounded-[1.75rem] lg:rounded-[2rem] xl:rounded-[2.25rem] bg-gradient-to-b from-slate-900 to-slate-950 p-1.5 lg:p-2 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)] border border-white/15">
         <motion.div
@@ -133,7 +133,7 @@ function SlidePanel({
 
   return (
     <section
-      className="min-w-full w-full h-full snap-center snap-always shrink-0 flex flex-col px-4 sm:px-6 lg:px-10 xl:px-16 pt-[3.75rem] sm:pt-16 lg:pt-[4.5rem] pb-[8.75rem] sm:pb-[9rem] lg:pb-[9.5rem] overflow-y-auto no-scrollbar"
+      className="min-w-full w-full h-full snap-center snap-always shrink-0 flex flex-col px-4 sm:px-6 lg:px-10 xl:px-16 pt-slide-header sm:pt-16 lg:pt-[4.5rem] pb-6 lg:pb-8 overflow-x-hidden overflow-y-auto no-scrollbar"
       aria-label={title}
     >
       <div className={slideStage}>
@@ -150,7 +150,7 @@ function SlidePanel({
           <p className="text-accent text-[10px] sm:text-xs lg:text-sm font-black uppercase tracking-[0.15em] mb-1 lg:mb-2">
             {badge}
           </p>
-          <h2 className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-black uppercase italic leading-[1.1] text-white px-1 lg:px-0">
+          <h2 className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-black uppercase italic leading-[1.1] text-white px-1 lg:px-0 break-words">
             {title}
           </h2>
           <p className="text-white/80 text-xs sm:text-sm lg:text-base xl:text-lg mt-2 lg:mt-3 leading-relaxed font-medium max-w-[20rem] lg:max-w-xl xl:max-w-2xl">
@@ -258,13 +258,8 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
   }, []);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="h-full w-full max-w-[100vw] bg-[#020f0e] text-white overflow-hidden relative select-none lg:flex lg:items-stretch lg:justify-center lg:bg-[#010a09] lg:p-4 xl:p-6 pwa-fixed-shell"
-    >
-      <motion.div className="relative h-full w-full min-w-0 lg:max-w-[1280px] xl:max-w-[1400px] lg:rounded-[1.75rem] xl:rounded-[2rem] lg:overflow-hidden lg:shadow-[0_32px_80px_-24px_rgba(0,0,0,0.85)] lg:ring-1 lg:ring-white/10">
+    <div className="h-full w-full max-w-[100vw] bg-[#020f0e] text-white overflow-hidden relative select-none lg:flex lg:items-stretch lg:justify-center lg:bg-[#010a09] lg:p-4 xl:p-6 flex flex-col flex-1 min-h-0">
+      <div className="relative flex flex-col flex-1 min-h-0 w-full min-w-0 overflow-hidden lg:max-w-[1280px] xl:max-w-[1400px] lg:mx-auto lg:rounded-[1.75rem] xl:rounded-[2rem] lg:overflow-hidden lg:shadow-[0_32px_80px_-24px_rgba(0,0,0,0.85)] lg:ring-1 lg:ring-white/10">
       {/* Sfondo 3D laterale */}
       <motion.div className="pointer-events-none absolute inset-0 landing-3d-stage overflow-hidden" aria-hidden>
         <motion.div
@@ -285,7 +280,7 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
       </motion.div>
 
       {/* Header app */}
-      <header className="absolute top-pwa-safe left-0 right-0 z-50 flex items-center justify-between gap-2 px-4 sm:px-6 lg:px-8 pb-2 lg:pb-3">
+      <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between gap-2 px-4 sm:px-6 lg:px-8 pt-content-top pb-2 lg:pb-3">
         <Logo size="sm" className="brightness-0 invert shrink-0 lg:scale-110" />
         {!installedApp && (
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 lg:px-3 lg:py-2 rounded-full bg-white/5 border border-white/10">
@@ -295,7 +290,7 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
             </span>
           </div>
         )}
-        <div className="flex items-center gap-2 lg:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 lg:gap-2 shrink-0 min-w-0">
           <button
             type="button"
             onClick={onSkip}
@@ -313,7 +308,8 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
         </div>
       </header>
 
-      {/* Scroll orizzontale */}
+      {/* Scroll orizzontale — flex-1, footer fuori dallo scroll */}
+      <div className="relative flex-1 min-h-0 w-full overflow-hidden">
       <motion.div
         ref={scrollRef}
         className="h-full w-full overflow-x-auto overflow-y-hidden flex flex-row snap-x snap-mandatory no-scrollbar landing-3d-stage relative z-10"
@@ -386,9 +382,9 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
           bullets={[t('landing.slide5B1'), t('landing.slide5B2'), t('landing.slide5B3')]}
         />
 
-        {/* CTA finale */}
-        <section className="min-w-full w-full h-full snap-center shrink-0 flex flex-col px-4 sm:px-6 lg:px-10 xl:px-16 pt-14 sm:pt-16 lg:pt-[4.5rem] pb-[8.75rem] sm:pb-[9rem] lg:pb-[9.5rem]">
-          <div className={`${slideStage} text-center lg:text-left`}>
+        {/* Slide finale */}
+        <section className="min-w-full w-full h-full snap-center shrink-0 flex flex-col px-4 sm:px-6 lg:px-10 xl:px-16 pt-slide-header sm:pt-16 lg:pt-[4.5rem] pb-6 overflow-x-hidden overflow-y-auto no-scrollbar">
+          <div className={slideStage}>
             <div className={phoneCol}>
               <PhoneMockup scrollXProgress={smoothX} slideIndex={6} accent="primary">
                 <div className="absolute inset-0 p-3 lg:p-4 flex flex-col items-center justify-center gap-2">
@@ -413,10 +409,11 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
           </div>
         </section>
       </motion.div>
+      </div>
 
-      {/* Footer navigazione app */}
-      <footer className="absolute bottom-0 left-0 right-0 z-50 px-4 sm:px-6 lg:px-8 pb-safe pt-3 lg:pt-4 bg-gradient-to-t from-[#020f0e] from-80% to-transparent">
-        <div className="flex items-center justify-between gap-2 mb-2 sm:mb-3 max-w-md sm:max-w-lg lg:max-w-2xl mx-auto">
+      {/* Footer: dots + CTA (non absolute, niente barra teal gigante) */}
+      <footer className="shrink-0 z-50 px-4 sm:px-6 lg:px-8 pt-3 pb-safe border-t border-white/10 bg-[#020f0e]">
+        <div className="flex items-center justify-between gap-2 mb-2 max-w-md sm:max-w-lg lg:max-w-2xl mx-auto">
           <span className="text-white/40 text-[8px] sm:text-[9px] lg:text-[10px] font-black uppercase tracking-widest">
             <span className="lg:hidden">{t('landing.swipeHint')}</span>
             <span className="hidden lg:inline">{t('landing.swipeHintDesktop')}</span>
@@ -438,7 +435,7 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
         <button
           type="button"
           onClick={handleInstallApp}
-          className="w-full max-w-md sm:max-w-lg lg:max-w-2xl mx-auto block py-3.5 lg:py-4 rounded-2xl bg-primary text-white font-black uppercase tracking-widest text-xs sm:text-sm lg:text-base border border-white/10 shadow-[0_8px_32px_-8px_rgba(0,132,125,0.8)] active:scale-[0.98] hover:brightness-110 transition-all"
+          className="w-full max-w-md sm:max-w-lg lg:max-w-2xl mx-auto block py-3.5 rounded-2xl bg-primary text-white font-black uppercase tracking-widest text-xs sm:text-sm shadow-lg shadow-primary/30 active:scale-[0.98] transition-all"
         >
           {installedApp ? t('landing.openApp') : t('landing.stickyCta')}
         </button>
@@ -446,13 +443,13 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
           <button
             type="button"
             onClick={onStart}
-            className="w-full max-w-md sm:max-w-lg lg:max-w-2xl mx-auto block mt-1.5 lg:mt-2 py-2 lg:py-2.5 text-[10px] sm:text-xs lg:text-sm font-bold text-white/45 uppercase tracking-wider hover:text-white/60 transition-colors"
+            className="w-full max-w-md sm:max-w-lg lg:max-w-2xl mx-auto block mt-1.5 py-2 text-[10px] sm:text-xs font-bold text-white/45 uppercase tracking-wider hover:text-white/60 transition-colors"
           >
             {t('landing.continueBrowser')}
           </button>
         )}
       </footer>
-      </motion.div>
+      </div>
 
       <AnimatePresence>
         {showInstallSheet && (
@@ -465,6 +462,6 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
           />
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
