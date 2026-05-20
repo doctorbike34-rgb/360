@@ -35,7 +35,7 @@
   /* Nav height alone — safe-bottom is no longer reserved as padding
      inside the nav, so FABs only need to clear the nav itself. */
   --app-nav-block: var(--app-nav-height);
-  --fab-gap-above-nav: 0.5rem;
+  --fab-gap-above-nav: 1cm;
   /* Legacy aliases */
   --home-nav-height: var(--app-nav-height);
   --home-nav-total-height: var(--app-nav-block);
