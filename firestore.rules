@@ -186,13 +186,25 @@ service cloud.firestore {
       allow delete: if isOwner(existing().organizerId) || isAdmin();
     }
 
+    function isRoadReportUpvoteByUser() {
+      return isSignedIn() &&
+        request.auth.uid in incoming().upvotes &&
+        !(request.auth.uid in existing().get('upvotes', [])) &&
+        incoming().upvotes.size() == existing().get('upvotes', []).size() + 1 &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'updatedAt']) ||
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'updatedAt', 'status']) &&
+            existing().status == 'open' &&
+            incoming().status == 'confirmed'
+          )
+        );
+    }
+
     match /roadReports/{reportId} {
       allow read: if isSignedIn();
       allow create: if isEmailVerified() && isValidRoadReport(incoming());
-      allow update: if isAdmin() || (isSignedIn() && (
-        isOwner(existing().reporterId) || 
-        incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'updatedAt'])
-      ));
+      allow update: if isAdmin() || isOwner(existing().reporterId) || isRoadReportUpvoteByUser();
       allow delete: if isAdmin();
     }
 
