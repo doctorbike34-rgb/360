@@ -9,6 +9,7 @@ import { doc, updateDoc, serverTimestamp, collection, query, where, orderBy, lim
 import { useTranslation } from 'react-i18next';
 import { UserPlan } from '../types';
 import { getCloudFunctionUrl } from '../config/env';
+import { peekStripeSessionId, clearStripeReturnStorage } from '../lib/stripeReturnStorage';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { 
   CreditCard, 
@@ -112,27 +113,41 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   
   const processedStripeRef = useRef(false);
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
+    const sessionId = peekStripeSessionId();
     if (!sessionId || !user || processedStripeRef.current) return;
 
     processedStripeRef.current = true;
-    window.history.replaceState({}, document.title, window.location.pathname);
 
     const handleReturn = async () => {
       if (profile?.subscriptionPendingPlan || profile?.role === 'MECHANIC') {
         setPlanUpgradeStep('PROCESSING');
         try {
           const { confirmSubscriptionCheckout } = await import('../lib/subscriptionCheckout');
-          const result = await confirmSubscriptionCheckout(sessionId);
+          let result = await confirmSubscriptionCheckout(sessionId);
+          if (result.pending) {
+            await new Promise((r) => setTimeout(r, 2500));
+            result = await confirmSubscriptionCheckout(sessionId);
+          }
           if (result.success) {
+            clearStripeReturnStorage();
             toast.success(`Piano ${result.planId || ''} attivato! 🎉`);
             setPlanUpgradeStep('SUCCESS');
             setShowPlans(false);
             return;
           }
+          if (profile?.plan) {
+            clearStripeReturnStorage();
+            toast.success(`Piano ${profile.plan} già attivo.`);
+            setPlanUpgradeStep('SUCCESS');
+            return;
+          }
         } catch (e) {
           console.error(e);
+          if (profile?.plan) {
+            clearStripeReturnStorage();
+            toast.success(`Piano ${profile.plan} attivo.`);
+            return;
+          }
         }
         setPlanUpgradeStep('SELECT');
       }
@@ -261,7 +276,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setIsUpgrading(selectedPlanForUpgrade.id);
     try {
       const idToken = await user.getIdToken();
-      const returnUrl = `${window.location.origin}/profile`;
+      const returnUrl = `${window.location.origin}/?stripe_return=profile`;
       const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',
         headers: {
@@ -520,7 +535,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
     setIsProcessing(true);
     try {
       const idToken = await user.getIdToken();
-      const returnUrl = `${window.location.origin}/profile`;
+      const returnUrl = `${window.location.origin}/?stripe_return=profile`;
       const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',
         headers: {

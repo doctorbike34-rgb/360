@@ -24,6 +24,7 @@ import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from '../store/useAuthStore';
 import { getCloudFunctionUrl } from '../config/env';
 import { confirmSubscriptionCheckout } from '../lib/subscriptionCheckout';
+import { peekStripeSessionId, clearStripeReturnStorage } from '../lib/stripeReturnStorage';
 import { formatFeePercentLabel, PEER_MECHANIC_FEE_PERCENT } from '../lib/platformFees';
 
 interface OnboardingProps {
@@ -210,34 +211,48 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
 
   useEffect(() => {
     if (!user || stripeReturnRef.current || profile?.role !== 'MECHANIC') return;
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
+    const sessionId = peekStripeSessionId();
     if (!sessionId) return;
 
     stripeReturnRef.current = true;
-    window.history.replaceState({}, document.title, window.location.pathname);
 
     void (async () => {
       setIsFinishing(true);
       try {
-        const result = await confirmSubscriptionCheckout(sessionId);
+        let result = await confirmSubscriptionCheckout(sessionId);
+        if (result.pending) {
+          await new Promise((r) => setTimeout(r, 2500));
+          result = await confirmSubscriptionCheckout(sessionId);
+        }
         if (result.success && result.planId) {
+          clearStripeReturnStorage();
           setSelectedPlan(result.planId);
           setConfirmingPlan(null);
           toast.success(`Piano ${result.planId} attivato!`);
           const finalIdx = activeSteps.findIndex((s) => s.id === 'final');
           if (finalIdx >= 0) setStep(finalIdx);
         } else if (result.pending) {
-          toast('Pagamento in elaborazione. Attendi qualche secondo.', { icon: '⏳' });
+          toast('Pagamento in elaborazione. Attendi qualche secondo e riapri l\'app.', { icon: '⏳' });
+        } else if (profile?.plan) {
+          clearStripeReturnStorage();
+          setSelectedPlan(profile.plan);
+          toast.success(`Piano ${profile.plan} già attivo.`);
+          const finalIdx = activeSteps.findIndex((s) => s.id === 'final');
+          if (finalIdx >= 0) setStep(finalIdx);
         }
       } catch (e) {
         console.error('Stripe return onboarding', e);
-        toast.error('Errore attivazione abbonamento. Contatta assistenza se il pagamento è andato a buon fine.');
+        if (profile?.plan) {
+          clearStripeReturnStorage();
+          toast.success(`Pagamento ricevuto. Piano ${profile.plan} attivo.`);
+        } else {
+          toast.error('Errore attivazione abbonamento. Contatta assistenza se il pagamento è andato a buon fine.');
+        }
       } finally {
         setIsFinishing(false);
       }
     })();
-  }, [user, profile?.role]);
+  }, [user, profile?.role, profile?.plan]);
 
   const initStripeUpgrade = async (planId: string) => {
     if (!user) return false;
@@ -248,7 +263,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       console.log('Initializing Stripe payment for plan:', planId, 'Amount:', plan.priceValue);
       
       const idToken = await user.getIdToken();
-      const returnUrl = `${window.location.origin}/onboarding`;
+      const returnUrl = `${window.location.origin}/?stripe_return=onboarding`;
       const response = await fetch(getCloudFunctionUrl('createCheckoutSession'), {
         method: 'POST',
         headers: {

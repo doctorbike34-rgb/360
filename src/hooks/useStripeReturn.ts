@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { confirmSubscriptionCheckout } from '../lib/subscriptionCheckout';
+import { peekStripeSessionId, clearStripeReturnStorage } from '../lib/stripeReturnStorage';
 
 type StripeReturnMode = 'profile' | 'onboarding';
 
@@ -18,21 +19,23 @@ export function useStripeReturn(
 
   useEffect(() => {
     if (!userId) return;
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
+    const sessionId = peekStripeSessionId();
     if (!sessionId || processedRef.current) return;
 
     processedRef.current = true;
-    window.history.replaceState({}, document.title, window.location.pathname);
 
     const run = async () => {
-      const pendingPlan = params.get('plan');
-      const isLikelySubscription = mode === 'onboarding' || !!pendingPlan;
+      const isLikelySubscription = mode === 'onboarding';
 
       if (isLikelySubscription) {
         try {
-          const result = await confirmSubscriptionCheckout(sessionId);
+          let result = await confirmSubscriptionCheckout(sessionId);
+          if (result.pending) {
+            await new Promise((r) => setTimeout(r, 2500));
+            result = await confirmSubscriptionCheckout(sessionId);
+          }
           if (result.success && result.planId) {
+            clearStripeReturnStorage();
             toast.success(`Piano ${result.planId} attivato! 🎉`);
             onSubscriptionActivated?.(result.planId);
             return;

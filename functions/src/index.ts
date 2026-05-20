@@ -8,6 +8,15 @@ import { getSosPlatformFeePercent } from './platformFees';
 admin.initializeApp();
 const db = admin.firestore();
 
+const ALLOWED_ORIGINS = [
+  'https://www.db360app.it',
+  'https://db360app.it',
+  'https://doctorbike-v2.web.app',
+  'https://doctorbike-v2.firebaseapp.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
 // Lazy initialization to avoid crashes in v2 (Cloud Run) container.
 // functions.config() is NOT available in v2 functions.
 let _stripe: Stripe | null = null;
@@ -395,6 +404,60 @@ export const rewardRoadReport = onDocumentUpdated({
 
 const PLAN_DURATION_DAYS = 30;
 
+function checkoutSessionIsPaid(session: Stripe.Checkout.Session): boolean {
+  if (session.payment_status === 'paid') return true;
+  return session.status === 'complete';
+}
+
+function resolveCheckoutPaymentId(session: Stripe.Checkout.Session): string {
+  if (typeof session.payment_intent === 'string') return session.payment_intent;
+  if (session.payment_intent && typeof session.payment_intent === 'object') {
+    return session.payment_intent.id;
+  }
+  if (typeof session.subscription === 'string') return session.subscription;
+  if (session.subscription && typeof session.subscription === 'object') {
+    return session.subscription.id;
+  }
+  return session.id;
+}
+
+function resolveCheckoutReturnUrl(
+  returnUrl: string | undefined,
+  requestOrigin: string | undefined
+): string {
+  const fallback = process.env.APP_URL || ALLOWED_ORIGINS[0];
+  let fallbackOrigin: string;
+  try {
+    fallbackOrigin = new URL(fallback).origin;
+  } catch {
+    fallbackOrigin = ALLOWED_ORIGINS[0];
+  }
+
+  const tryOrigin = (origin: string, pathname = '/', search = '') => {
+    if (!ALLOWED_ORIGINS.includes(origin)) return null;
+    const path = pathname === '/onboarding' ? '/' : pathname || '/';
+    return `${origin}${path}${search}`;
+  };
+
+  if (returnUrl) {
+    try {
+      const parsed = new URL(returnUrl);
+      const resolved = tryOrigin(parsed.origin, parsed.pathname, parsed.search);
+      if (resolved) return resolved;
+      console.warn(`Blocked returnUrl origin: ${parsed.origin}`);
+    } catch (e) {
+      console.warn(`Invalid returnUrl: ${returnUrl}`);
+    }
+  }
+
+  if (requestOrigin) {
+    const fromRequest = tryOrigin(requestOrigin);
+    if (fromRequest) return fromRequest;
+  }
+
+  return `${fallbackOrigin}/`;
+}
+
 async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session) {
   const userId = session.metadata?.userId || session.client_reference_id;
   const planId = session.metadata?.planId;
@@ -403,10 +466,7 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
     return;
   }
 
-  const paymentIntentId =
-    typeof session.payment_intent === 'string'
-      ? session.payment_intent
-      : session.payment_intent?.id || session.id;
+  const paymentIntentId = resolveCheckoutPaymentId(session);
 
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + PLAN_DURATION_DAYS);
@@ -478,7 +538,6 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
       subscriptionPaymentIntentId: paymentIntentId,
       subscriptionPendingPlan: admin.firestore.FieldValue.delete(),
       subscriptionCheckoutSessionId: admin.firestore.FieldValue.delete(),
-      hasCompletedOnboarding: true,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   });
@@ -519,7 +578,7 @@ export const confirmSubscriptionCheckout = functions.region('europe-west1').http
     if (userId !== context.auth.uid) {
       throw new functions.https.HttpsError('permission-denied', 'Sessione non valida per questo utente.');
     }
-    if (session.payment_status !== 'paid') {
+    if (!checkoutSessionIsPaid(session)) {
       return { success: false, pending: true, planId: session.metadata?.planId || null };
     }
     await activateSubscriptionFromCheckout(session);
@@ -555,7 +614,7 @@ export const stripeWebhook = functions.region('europe-west1').https.onRequest(as
 
     if (sessionType === 'SUBSCRIPTION') {
       try {
-        if (session.payment_status === 'paid') {
+        if (checkoutSessionIsPaid(session)) {
           await activateSubscriptionFromCheckout(session);
         }
       } catch (e) {
@@ -679,14 +738,6 @@ export const stripeWebhook = functions.region('europe-west1').https.onRequest(as
 /**
  * Create Stripe Payment Intent (HTTP Request version to bypass CORS issues)
  */
-const ALLOWED_ORIGINS = [
-  'https://www.db360app.it',
-  'https://doctorbike-v2.web.app',
-  'https://doctorbike-v2.firebaseapp.com',
-  'http://localhost:5173',
-  'http://localhost:3000',
-];
-
 function setCorsHeaders(res: any, req: any) {
   const origin = req.headers.origin;
   const allowedOrigin = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -802,37 +853,18 @@ export const createCheckoutSession = functions.region('europe-west1').https.onRe
       return;
     }
 
-    const rawAppUrl = process.env.APP_URL || 'https://www.db360app.it';
-    // Ensure appUrl has a valid scheme
-    let appUrl: string;
-    try {
-      const parsed = new URL(rawAppUrl);
-      appUrl = parsed.origin;
-    } catch {
-      appUrl = 'https://www.db360app.it';
+    const isSubscription = type === 'SUBSCRIPTION';
+    const requestOrigin = req.headers.origin as string | undefined;
+    let validatedReturnUrl = resolveCheckoutReturnUrl(returnUrl, requestOrigin);
+    if (isSubscription && !validatedReturnUrl.includes('stripe_return=')) {
+      const sep = validatedReturnUrl.includes('?') ? '&' : '?';
+      validatedReturnUrl = `${validatedReturnUrl}${sep}stripe_return=onboarding`;
     }
-    // Validate returnUrl to prevent open redirect vulnerability
-    let validatedReturnUrl = appUrl;
-    if (returnUrl) {
-      try {
-        const parsed = new URL(returnUrl);
-        const allowedOrigin = new URL(appUrl).origin;
-        if (parsed.origin === allowedOrigin) {
-          validatedReturnUrl = parsed.origin + parsed.pathname;
-        } else {
-          console.warn(`Blocked open redirect attempt: ${returnUrl}`);
-        }
-      } catch (e) {
-        console.warn(`Invalid returnUrl: ${returnUrl}`);
-      }
-    }
-    // Handle existing query params in returnUrl
     const separator = validatedReturnUrl.includes('?') ? '&' : '?';
     const successUrl = `${validatedReturnUrl}${separator}session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${validatedReturnUrl}${separator}session_id={CHECKOUT_SESSION_ID}`;
 
     // 4. Create Checkout Session
-    const isSubscription = type === 'SUBSCRIPTION';
     const session = await getStripe().checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{

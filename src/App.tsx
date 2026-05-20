@@ -20,6 +20,8 @@ import { isFirestoreQuotaError } from './lib/firestoreErrors';
 import { getCurrentCoords, fetchIpLocation, shouldApplyLocationSource, toStoreLocationSource } from './lib/geolocation';
 import { syncMapPresence, clearMapPresence } from './services/mapPresenceService';
 import { isPwaStandalone, markPwaInstalled } from './lib/pwaInstall';
+import { captureStripeReturnFromUrl, peekStripeSessionId, clearStripeReturnStorage } from './lib/stripeReturnStorage';
+import { confirmSubscriptionCheckout } from './lib/subscriptionCheckout';
 
 import { Auth } from './components/Auth';
 import { LandingPage } from './components/LandingPage';
@@ -58,6 +60,14 @@ export default function App() {
   const hasClaimedDailyBonusRef = useRef(false);
   const adminBootstrappedRef = useRef(false);
   const loyaltySanitizeAttemptedRef = useRef<string | null>(null);
+  const stripeReturnProcessedRef = useRef(false);
+
+  useEffect(() => {
+    const { sessionId, captured } = captureStripeReturnFromUrl();
+    if (captured && sessionId) {
+      setShowLanding(false);
+    }
+  }, []);
 
   const withIntegerLoyaltyPoints = (profileData: UserProfile): UserProfile => ({
     ...profileData,
@@ -160,6 +170,60 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const sessionId =
+      peekStripeSessionId() || profile?.subscriptionCheckoutSessionId || null;
+    if (!sessionId || !user || loading || stripeReturnProcessedRef.current) return;
+
+    stripeReturnProcessedRef.current = true;
+    setShowLanding(false);
+
+    void (async () => {
+      try {
+        let result = await confirmSubscriptionCheckout(sessionId);
+        if (result.pending) {
+          await new Promise((r) => setTimeout(r, 2500));
+          result = await confirmSubscriptionCheckout(sessionId);
+        }
+        if (result.success && result.planId) {
+          clearStripeReturnStorage();
+          toast.success(`Abbonamento ${result.planId} attivato correttamente.`);
+          if (profile && !profile.hasCompletedOnboarding && profile.role === 'MECHANIC') {
+            setProfile({ ...profile, plan: result.planId as UserProfile['plan'], subscriptionPendingPlan: undefined });
+          }
+          return;
+        }
+        if (profile?.plan) {
+          clearStripeReturnStorage();
+          toast.success(`Piano ${profile.plan} già attivo sul tuo account.`);
+          return;
+        }
+        if (result.pending) {
+          toast('Pagamento in elaborazione. Riapri l\'app tra poco.', { icon: '⏳' });
+        }
+      } catch (e) {
+        console.error('Stripe return confirm failed', e);
+        if (profile?.plan) {
+          clearStripeReturnStorage();
+          toast.success(`Pagamento registrato. Piano ${profile.plan} attivo.`);
+        } else {
+          toast.error(
+            'Non siamo riusciti a confermare il pagamento automaticamente. Se Stripe ha addebitato, contatta assistenza con la ricevuta.'
+          );
+        }
+      }
+    })();
+  }, [
+    user,
+    loading,
+    profile?.plan,
+    profile?.hasCompletedOnboarding,
+    profile?.role,
+    profile?.subscriptionCheckoutSessionId,
+    profile?.subscriptionPendingPlan,
+    setProfile,
+  ]);
 
   // Default viewport background for iOS safe-area outside app container
   useEffect(() => {
