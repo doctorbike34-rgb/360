@@ -183,6 +183,19 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
   const [showInstallSheet, setShowInstallSheet] = useState(false);
   const installedApp = isPwaInstalled();
 
+  // Ensure iOS safe-area/background outside the app container
+  // matches the landing (avoids the white strip under the CTA).
+  useEffect(() => {
+    const prevHtmlBg = document.documentElement.style.backgroundColor;
+    const prevBodyBg = document.body.style.backgroundColor;
+    document.documentElement.style.backgroundColor = '#020f0e';
+    document.body.style.backgroundColor = '#020f0e';
+    return () => {
+      document.documentElement.style.backgroundColor = prevHtmlBg;
+      document.body.style.backgroundColor = prevBodyBg;
+    };
+  }, []);
+
   const handleInstallApp = async () => {
     if (installedApp) {
       onStart();
