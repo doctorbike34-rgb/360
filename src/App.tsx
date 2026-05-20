@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, Suspense } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, setDoc, GeoPoint } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { analyticsTracker } from './lib/analytics';
@@ -23,6 +23,7 @@ import { isPwaStandalone, markPwaInstalled } from './lib/pwaInstall';
 import { captureStripeReturnFromUrl, peekStripeSessionId, clearStripeReturnStorage } from './lib/stripeReturnStorage';
 import { confirmSubscriptionCheckout } from './lib/subscriptionCheckout';
 import { lazyWithRetry } from './lib/lazyWithRetry';
+import { needsProfileCompletion, setAuthIntent } from './lib/authFlow';
 
 import { Auth } from './components/Auth';
 import { LandingPage } from './components/LandingPage';
@@ -414,8 +415,12 @@ export default function App() {
   }, [setUser, setRole, setProfile, setLoading, setQuotaError, setUserLocation]);
 
   useEffect(() => {
-    if (!loading && !user) setShowLanding(true);
-  }, [loading, user]);
+    if (user) {
+      setShowLanding(false);
+    } else if (!loading) {
+      setShowLanding(true);
+    }
+  }, [user, loading]);
 
   const appLastUpdateRef = useRef<{time: number, lat: number|null, lng: number|null, isWriting: boolean}>({ time: 0, lat: null, lng: null, isWriting: false });
 
@@ -615,7 +620,9 @@ export default function App() {
     };
   }, [user, role, profile?.isOnline, setQuotaError]);
 
-  if (loading) {
+  const completingProfile = needsProfileCompletion(user, role);
+
+  if (loading && !user) {
     return (
       <div className="pwa-fixed-shell flex items-center justify-center bg-slate-50">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
@@ -623,18 +630,14 @@ export default function App() {
     );
   }
 
-
-
-  // Determine if we should show Auth for profile completion
-  const isCompletingProfile = !!user && !role;
-
   const dismissLanding = (toLogin: boolean) => {
+    setAuthIntent(toLogin ? 'login' : 'signup');
     setAuthStartLogin(toLogin);
     setShowLanding(false);
   };
 
-  if (!user || isCompletingProfile) {
-    if (showLanding) {
+  if (!user || completingProfile) {
+    if (!user && showLanding) {
       return (
         <div className="pwa-fixed-shell h-full w-full min-h-0 overflow-hidden flex flex-col">
           <LandingPage
@@ -648,8 +651,11 @@ export default function App() {
     return (
       <div className="h-full w-full min-h-0 overflow-hidden">
         <Auth
-          initialIsLogin={authStartLogin}
-          onShowLanding={() => setShowLanding(true)}
+          initialIsLogin={completingProfile ? false : authStartLogin}
+          onShowLanding={() => {
+            void signOut(auth).catch(() => {});
+            setShowLanding(true);
+          }}
         />
       </div>
     );

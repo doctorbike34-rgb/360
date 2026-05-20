@@ -29,6 +29,7 @@ import { Bike, Loader2, Wrench, Languages, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../types';
 import { useAuthStore } from '../store/useAuthStore';
+import { clearAuthIntent, getAuthIntent, needsProfileCompletion, setAuthIntent } from '../lib/authFlow';
 import 'react-phone-number-input/style.css';
 import PhoneInput from 'react-phone-number-input';
 import { useTranslation } from 'react-i18next';
@@ -82,10 +83,15 @@ interface AuthProps {
 }
 
 export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
-  const { user, setUser, setRole } = useAuthStore();
-  const [isLogin, setIsLogin] = useState(() =>
-    initialIsLogin !== undefined ? initialIsLogin : !user
-  );
+  const { user, setUser, setRole, role: storeRole } = useAuthStore();
+  const completingProfile = needsProfileCompletion(user, storeRole);
+  const [isLogin, setIsLogin] = useState(() => {
+    if (completingProfile) return false;
+    const intent = getAuthIntent();
+    if (intent === 'signup') return false;
+    if (intent === 'login') return true;
+    return initialIsLogin !== undefined ? initialIsLogin : !user;
+  });
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
@@ -100,9 +106,8 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
     i18n.changeLanguage(newLang);
   };
 
-  // Use current user from store if available but missing profile
   const firebaseUser = user;
-  const isCompletingProfile = !!firebaseUser && !isLogin && !loading;
+  const isCompletingProfile = completingProfile;
 
   const { register, handleSubmit, formState: { errors }, watch, setValue, getValues } = useForm<AuthForm>({
     resolver: zodResolver(authSchema),
@@ -121,55 +126,65 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
   }, [isLogin, authMethod, setValue]);
 
   React.useEffect(() => {
+    if (completingProfile) {
+      setIsLogin(false);
+      return;
+    }
     if (initialIsLogin !== undefined) setIsLogin(initialIsLogin);
-  }, [initialIsLogin]);
+  }, [initialIsLogin, completingProfile]);
+
+  React.useEffect(() => {
+    if (completingProfile) setIsLogin(false);
+  }, [completingProfile]);
 
   const selectedRole = watch('role');
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError('');
+    if (!isLogin) setAuthIntent('signup');
     try {
       const provider = new GoogleAuthProvider();
-      // Prova prima con popup (nessun reload), se bloccato usa redirect
       const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      const userDoc = await getDoc(doc(db, 'users', user?.uid)).catch(e => {
-        handleFirestoreError(e, OperationType.GET, `users/${user?.uid}`);
+      const googleUser = result.user;
+
+      const userDoc = await getDoc(doc(db, 'users', googleUser.uid)).catch((e) => {
+        handleFirestoreError(e, OperationType.GET, `users/${googleUser.uid}`);
         throw e;
       });
-      
+
       if (userDoc.exists()) {
         const profile = userDoc.data() as UserProfile;
-        if (user.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+        if (googleUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
           if (profile.role !== 'ADMIN') {
-            await updateDoc(doc(db, 'users', user.uid), { role: 'ADMIN' });
+            await updateDoc(doc(db, 'users', googleUser.uid), { role: 'ADMIN' });
           }
-          await setDoc(doc(db, 'admins', user.uid), {
-            uid: user.uid,
-            email: user.email,
-            updatedAt: serverTimestamp()
-          }, { merge: true });
+          await setDoc(
+            doc(db, 'admins', googleUser.uid),
+            { uid: googleUser.uid, email: googleUser.email, updatedAt: serverTimestamp() },
+            { merge: true }
+          );
           setRole('ADMIN');
         } else {
           setRole(profile.role);
         }
-        setUser(user);
+        setUser(googleUser);
+        clearAuthIntent();
       } else {
-        setUser(user);
+        setAuthIntent('signup');
+        setUser(googleUser);
         setIsLogin(false);
-        setValue('name', user?.displayName || '');
-        setValue('email', user?.email || '');
+        setValue('name', googleUser.displayName || '');
+        setValue('email', googleUser.email || '');
+        setValue('isLogin', false);
       }
     } catch (err: any) {
       if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
-        // Fallback automatico a redirect se il popup è bloccato
         try {
+          setAuthIntent(isLogin ? 'login' : 'signup');
           await signInWithRedirect(auth, new GoogleAuthProvider());
         } catch (redirectErr: any) {
           setError(redirectErr.message || 'Errore durante il login con Google');
-          setLoading(false);
         }
         return;
       }
@@ -178,45 +193,52 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
       } else {
         setError(err?.message || 'Errore durante il login con Google');
       }
+    } finally {
       setLoading(false);
     }
   };
 
   // Gestisce il ritorno dal redirect Google (fallback da popup bloccato)
   React.useEffect(() => {
-    getRedirectResult(auth).then(async (result) => {
-      if (!result) return;
-      setLoading(true);
-      const user = result.user;
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user?.uid));
-        if (userDoc.exists()) {
-          const profile = userDoc.data() as UserProfile;
-          if (user.email?.toLowerCase() === 'doctorbike34@gmail.com') {
-            setRole('ADMIN');
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (!result) return;
+        setLoading(true);
+        const googleUser = result.user;
+        try {
+          const userDoc = await getDoc(doc(db, 'users', googleUser.uid));
+          if (userDoc.exists()) {
+            const profile = userDoc.data() as UserProfile;
+            if (googleUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
+              setRole('ADMIN');
+            } else {
+              setRole(profile.role);
+            }
+            setUser(googleUser);
+            clearAuthIntent();
           } else {
-            setRole(profile.role);
+            setAuthIntent('signup');
+            setUser(googleUser);
+            setIsLogin(false);
+            setValue('name', googleUser.displayName || '');
+            setValue('email', googleUser.email || '');
+            setValue('isLogin', false);
           }
-          setUser(user);
-        } else {
-          setUser(user);
+        } catch (e: any) {
+          console.error('Redirect result Firestore error:', e);
+          setAuthIntent('signup');
+          setUser(googleUser);
           setIsLogin(false);
-          setValue('name', user?.displayName || '');
-          setValue('email', user?.email || '');
+        } finally {
+          setLoading(false);
         }
-      } catch (e: any) {
-        console.error('Redirect result Firestore error:', e);
-        // Se Firestore fallisce, onAuthStateChanged in App.tsx gestirà il profilo
-        setUser(user);
-      } finally {
-        setLoading(false);
-      }
-    }).catch((err: any) => {
-      if (err?.code !== 'auth/no-auth-event') {
-        console.warn('getRedirectResult error:', err?.code);
-      }
-    });
-  }, []);
+      })
+      .catch((err: any) => {
+        if (err?.code !== 'auth/no-auth-event') {
+          console.warn('getRedirectResult error:', err?.code);
+        }
+      });
+  }, [setUser, setRole, setValue]);
 
 
   const setupRecaptcha = () => {
@@ -492,6 +514,7 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
         }
         
         setRole(userDoc.exists() ? userDoc.data().role : finalRole);
+        clearAuthIntent();
       }
     } catch (err) {
       console.error(err);
@@ -555,7 +578,10 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
         {!isLogin && !isCompletingProfile && (
           <button 
             type="button" 
-            onClick={() => setIsLogin(true)} 
+            onClick={() => {
+              setIsLogin(true);
+              setAuthIntent('login');
+            }} 
             className="absolute top-6 right-6 p-2 text-grey bg-grey/10 rounded-full hover:bg-grey/20 active:scale-95 transition-all"
           >
             <X size={20} />
@@ -767,7 +793,11 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
           <motion.div className="mt-4 text-center space-y-2">
             <button
               type="button"
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                const next = !isLogin;
+                setIsLogin(next);
+                setAuthIntent(next ? 'login' : 'signup');
+              }}
               className="text-xs font-bold text-grey hover:text-primary transition-colors block w-full"
             >
               {isLogin ? t('auth.needAccount') : t('auth.haveAccount')}
