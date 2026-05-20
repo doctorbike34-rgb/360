@@ -375,7 +375,11 @@ export function CyclistHome() {
   }, []);
 
   useEffect(() => {
+    // Only open the expensive geohash query when the user is on the MAP tab
+    // OR when there is an active SOS (they need to track mechanic position).
+    // This is the single biggest Firestore cost reduction in the app.
     if (!user || isBackground) return;
+    if (activeTab !== 'MAP' && !activeSOS) return;
 
     // Geohashing Unified Query for Mechanics & Cyclists (Radius: 20km)
     if (!userLocation) return;
@@ -452,7 +456,7 @@ export function CyclistHome() {
     return () => {
       unsubs.forEach(u => u());
     };
-  }, [user, setQuotaError, isBackground]); // CRITICAL: Removed userLocation to prevent quota burn on small movements
+  }, [user, setQuotaError, isBackground, activeTab, activeSOS]); // Gate to MAP tab or active SOS
 
   // Calculate nearest mechanic without hitting database
   useEffect(() => {
