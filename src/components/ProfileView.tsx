@@ -460,26 +460,68 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   }, [showHistory, user, role]);
 
   useEffect(() => {
-    if (showReviews && user && role === 'MECHANIC') {
-      const fetchReviews = async () => {
-        setIsReviewsLoading(true);
+    if (!showReviews || !user) return;
+    const isMechanicRole = role === 'MECHANIC' || role === 'PEER_MECHANIC';
+    if (!isMechanicRole) {
+      setReviews([]);
+      return;
+    }
+    const fetchReviews = async () => {
+      setIsReviewsLoading(true);
+      try {
+        let snap;
         try {
           const q = query(
             collection(db, 'reviews'),
-            where('mechanicId', '==', user?.uid),
+            where('mechanicId', '==', user.uid),
             orderBy('createdAt', 'desc'),
             limit(20)
           );
-          const snap = await getDocs(q);
-          setReviews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        } catch (err) {
-          console.warn('Error fetching reviews:', err);
-        } finally {
-          setIsReviewsLoading(false);
+          snap = await getDocs(q);
+        } catch {
+          const qFallback = query(
+            collection(db, 'reviews'),
+            where('mechanicId', '==', user.uid),
+            limit(50)
+          );
+          snap = await getDocs(qFallback);
         }
-      };
-      fetchReviews();
-    }
+        const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as any[];
+        const enriched = await Promise.all(
+          raw.map(async (review) => {
+            if (review.cyclistName) return review;
+            if (!review.cyclistId) return { ...review, cyclistName: 'Ciclista' };
+            try {
+              const cyclistSnap = await getDoc(doc(db, 'users', review.cyclistId));
+              const cyclistData = cyclistSnap.data();
+              return {
+                ...review,
+                cyclistName: cyclistData?.name || cyclistData?.displayName || 'Ciclista',
+              };
+            } catch {
+              return { ...review, cyclistName: 'Ciclista' };
+            }
+          })
+        );
+        enriched.sort((a, b) => {
+          const toMs = (r: any) => {
+            if (r.createdAt?.toDate) return r.createdAt.toDate().getTime();
+            if (r.createdAt?.seconds) return r.createdAt.seconds * 1000;
+            return 0;
+          };
+          return toMs(b) - toMs(a);
+        });
+        setReviews(enriched);
+      } catch (err) {
+        console.warn('Error fetching reviews:', err);
+        handleFirestoreError(err, OperationType.LIST, 'reviews');
+        toast.error('Impossibile caricare le recensioni');
+        setReviews([]);
+      } finally {
+        setIsReviewsLoading(false);
+      }
+    };
+    void fetchReviews();
   }, [showReviews, user, role]);
 
   const amounts = [10, 20, 50, 100];
@@ -1016,7 +1058,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         <div className="space-y-2">
             <MenuButton icon={<CreditCard size={18}/>} label={t('profile.paymentMethods')} onClick={() => setShowPaymentMethods(true)} />
            <MenuButton icon={<History size={18}/>} label={'Storico Interventi (PDF)'} onClick={() => setShowInterventionHistory(true)} />
-           {role === 'MECHANIC' && (
+           {(role === 'MECHANIC' || role === 'PEER_MECHANIC') && (
              <MenuButton icon={<Star size={18}/>} label="Recensioni Ricevute" onClick={() => setShowReviews(true)} />
            )}
            {role === 'MECHANIC' && (
@@ -1279,12 +1321,13 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           )}
         </AnimatePresence>
 
-        {/* Reviews Modal */}
+        {/* Reviews Modal — portal escapes home tab stacking (nav z-40) */}
         <AnimatePresence>
           {showReviews && (
-            <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReviews(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pad-bottom-sheet">
+            <FullScreenPortal>
+            <div className="flex flex-col flex-1 min-h-0 justify-end sm:justify-center overflow-hidden">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReviews(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md" />
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 shadow-2xl pad-bottom-composer">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
                    <h3 className="text-2xl font-black text-primary  uppercase italic">Le tue Recensioni</h3>
@@ -1338,6 +1381,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                  </div>
               </motion.div>
             </div>
+            </FullScreenPortal>
           )}
         </AnimatePresence>
 
@@ -1794,9 +1838,10 @@ function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; o
   };
 
   return (
-    <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
-      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-sheet">
+    <FullScreenPortal>
+    <div className="flex flex-col flex-1 min-h-0 justify-end sm:justify-center overflow-hidden">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-dark/60 backdrop-blur-xl"/>
+      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-composer">
         <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">Metodi di Pagamento</h3>
@@ -1846,6 +1891,7 @@ function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; o
         </div>
       </motion.div>
     </div>
+    </FullScreenPortal>
   );
 }
 
