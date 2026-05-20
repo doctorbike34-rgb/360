@@ -2,7 +2,8 @@ import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
 import { Map, MapErrorBoundary } from './Map';
-import { getSosLatLng, isValidLatLngPair, mapCenterOrDefault } from '../lib/mapCoords';
+import { getSosLatLng, getLatLngFromRecord, isValidLatLngPair, mapCenterOrDefault } from '../lib/mapCoords';
+import { NavigateToEventButton } from './NavigationButtons';
 import { 
   Bell, 
   MapPin, 
@@ -1348,10 +1349,15 @@ export function CyclistHome() {
                   <Clock size={18} className="text-primary" />
                   {new Date(selectedEventDetails.startAt).toLocaleString()}
                 </div>
-                <div className="flex items-center gap-3 text-sm text-black  font-bold transition-colors">
-                  <MapPin size={18} className="text-primary" />
-                  {selectedEventDetails.address || t('cyclist.locationNotSpecified')}
+                <div className="flex items-start gap-3 text-sm text-black font-bold transition-colors">
+                  <MapPin size={18} className="text-primary shrink-0 mt-0.5" />
+                  <span className="leading-snug">{selectedEventDetails.address || t('cyclist.locationNotSpecified')}</span>
                 </div>
+                {(() => {
+                  const eventCoords = getLatLngFromRecord(selectedEventDetails);
+                  if (!eventCoords) return null;
+                  return <NavigateToEventButton lat={eventCoords[0]} lng={eventCoords[1]} />;
+                })()}
                 <div className="flex items-center gap-3 text-sm text-black  font-bold transition-colors">
                   <Users size={18} className="text-primary" />
                   {selectedEventDetails.participantCount} / {selectedEventDetails.maxParticipants} Partecipanti

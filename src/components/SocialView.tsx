@@ -10,6 +10,7 @@ import { gamificationService } from '../services/gamificationService';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 import { getLatLngFromRecord } from '../lib/mapCoords';
+import { NavigationButtons } from './NavigationButtons';
 
 function DraggableMarker({ position, setPosition }: { position: [number, number], setPosition: (pos: [number, number]) => void }) {
   const map = useMap();
@@ -495,9 +496,17 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
                           <Calendar size={12} /> {time}
                         </div>
                         {event.address && (
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-grey uppercase transition-colors truncate max-w-[150px]">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedEventId(event.id);
+                            }}
+                            className="flex items-center gap-1 text-[10px] font-bold text-primary uppercase transition-colors truncate max-w-[180px] hover:underline text-left"
+                            title="Indirizzo — espandi per navigazione"
+                          >
                             <MapPin size={12} /> {event.address}
-                          </div>
+                          </button>
                         )}
                         <div className="flex items-center gap-1 text-[10px] font-bold text-grey uppercase transition-colors">
                           <Users size={12} /> {event.participantCount || 0}/{event.maxParticipants}
@@ -572,6 +581,15 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
                             <p className="text-sm text-black font-medium leading-relaxed">{event.description}</p>
                           </div>
                         )}
+                        {(() => {
+                          const coords = getLatLngFromRecord(event);
+                          if (!coords) return null;
+                          return (
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <NavigationButtons lat={coords[0]} lng={coords[1]} compact />
+                            </div>
+                          );
+                        })()}
                       </div>
                     </motion.div>
                   )}

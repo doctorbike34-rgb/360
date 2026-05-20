@@ -26,6 +26,8 @@ import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTim
 import { useAuthStore } from '../store/useAuthStore';
 import { ProfileView } from './ProfileView';
 import { Map as BicycleMap, MapErrorBoundary } from './Map';
+import { getLatLngFromRecord } from '../lib/mapCoords';
+import { NavigateToEventButton } from './NavigationButtons';
 import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { ChatListView } from './ChatListView';
 import { ChatHeader } from './ChatHeader';
@@ -890,6 +892,11 @@ export function PeerMechanicHome() {
                   <MapPin size={18} className="text-primary shrink-0 mt-0.5" />
                   <span className="leading-snug">{selectedEventDetails.address || t('cyclist.locationNotSpecified')}</span>
                 </motion.div>
+                {(() => {
+                  const eventCoords = getLatLngFromRecord(selectedEventDetails);
+                  if (!eventCoords) return null;
+                  return <NavigateToEventButton lat={eventCoords[0]} lng={eventCoords[1]} />;
+                })()}
                 <motion.div className="flex items-center gap-3 text-sm text-black font-bold">
                   <Users size={18} className="text-primary shrink-0" />
                   {selectedEventDetails.participantCount} / {selectedEventDetails.maxParticipants} Partecipanti

@@ -27,6 +27,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { isFirestoreQuotaError } from '../lib/firestoreErrors';
 import { UserProfile, SOSRequest } from '../types';
 import { Crosshair, Navigation, Map as MapIcon, Layers, Users, Clock, Star, Clock4, MessageCircle, Sun, Moon, Sparkles } from 'lucide-react';
+import { NavigationButtons } from './NavigationButtons';
 import { motion } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -338,6 +339,7 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
               📍 {event.address}
             </div>
           )}
+          <NavigationButtons lat={lat} lng={lng} compact className="mb-2" />
           <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-2">
             <div className="flex items-center gap-1">👥 {event.participantCount}/{event.maxParticipants}</div>
           </div>
