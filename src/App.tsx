@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
+import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, setDoc, GeoPoint } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
@@ -22,6 +22,7 @@ import { syncMapPresence, clearMapPresence } from './services/mapPresenceService
 import { isPwaStandalone, markPwaInstalled } from './lib/pwaInstall';
 import { captureStripeReturnFromUrl, peekStripeSessionId, clearStripeReturnStorage } from './lib/stripeReturnStorage';
 import { confirmSubscriptionCheckout } from './lib/subscriptionCheckout';
+import { lazyWithRetry } from './lib/lazyWithRetry';
 
 import { Auth } from './components/Auth';
 import { LandingPage } from './components/LandingPage';
@@ -34,11 +35,21 @@ import { EmailVerificationGuard } from './components/EmailVerificationGuard';
 import { InstallPWAOverlay } from './components/InstallPWAOverlay';
 import { Toaster, toast } from 'react-hot-toast';
 
-const CyclistHome = lazy(() => import('./components/CyclistHome').then(module => ({ default: module.CyclistHome })));
-const MechanicHome = lazy(() => import('./components/MechanicHome').then(module => ({ default: module.MechanicHome })));
-const PeerMechanicHome = lazy(() => import('./components/PeerMechanicHome').then(module => ({ default: module.PeerMechanicHome })));
-const AdminHome = lazy(() => import('./components/AdminHome').then(module => ({ default: module.AdminHome })));
-const AIBikeDoctor = lazy(() => import('./components/AIBikeDoctor').then(module => ({ default: module.AIBikeDoctor })));
+const CyclistHome = lazyWithRetry(() =>
+  import('./components/CyclistHome').then((module) => ({ default: module.CyclistHome }))
+);
+const MechanicHome = lazyWithRetry(() =>
+  import('./components/MechanicHome').then((module) => ({ default: module.MechanicHome }))
+);
+const PeerMechanicHome = lazyWithRetry(() =>
+  import('./components/PeerMechanicHome').then((module) => ({ default: module.PeerMechanicHome }))
+);
+const AdminHome = lazyWithRetry(() =>
+  import('./components/AdminHome').then((module) => ({ default: module.AdminHome }))
+);
+const AIBikeDoctor = lazyWithRetry(() =>
+  import('./components/AIBikeDoctor').then((module) => ({ default: module.AIBikeDoctor }))
+);
 
 
 if (typeof window !== 'undefined' && !(window as any).__app_boot_started) {

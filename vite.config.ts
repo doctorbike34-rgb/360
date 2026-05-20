@@ -11,15 +11,17 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
+    base: '/',
     plugins: [
       react(), 
       tailwindcss(),
       VitePWA({
-        registerType: 'prompt',
+        registerType: 'autoUpdate',
         manifest: false, // Use public/manifest.json
         injectRegister: false,
         includeManifestIcons: true,
         workbox: {
+          cleanupOutdatedCaches: true,
           skipWaiting: true,
           clientsClaim: true,
           importScripts: ['firebase-messaging-sw-import.js'],

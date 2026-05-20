@@ -27,9 +27,7 @@ import { registerSW } from 'virtual:pwa-register';
 registerSW({
   immediate: true,
   onNeedRefresh() {
-    if (confirm('Nuova versione disponibile. Ricarico per applicare gli aggiornamenti layout.')) {
-      window.location.reload();
-    }
+    void clearAppCaches().then(() => window.location.reload());
   },
   onRegisteredSW(_swUrl, registration) {
     if (!registration) return;
@@ -46,8 +44,20 @@ initLogger();
 initAnalytics();
 
 
+window.addEventListener('unhandledrejection', (event) => {
+  if (isStaleChunkLoadError(event.reason)) {
+    event.preventDefault();
+    void recoverFromStaleChunks();
+  }
+});
+
 // Global error catcher for module loading
 window.addEventListener('error', (event) => {
+  if (isStaleChunkLoadError(event.error ?? event.message)) {
+    event.preventDefault();
+    void recoverFromStaleChunks();
+    return;
+  }
   logger.error(event.error, { message: event.message, filename: event.filename, lineno: event.lineno });
   const root = document.getElementById('root');
   if (root && root.innerHTML === '') {
@@ -75,10 +85,18 @@ import './i18n';
 import App from './App';
 import './index.css';
 import { isPwaStandalone } from './lib/pwaInstall';
+import {
+  clearAppCaches,
+  clearChunkReloadFlag,
+  isStaleChunkLoadError,
+  recoverFromStaleChunks,
+} from './lib/appCache';
 
 if (typeof document !== 'undefined' && isPwaStandalone()) {
   document.documentElement.classList.add('pwa-standalone');
 }
+
+clearChunkReloadFlag();
 
 class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: ReactNode}) {
@@ -96,11 +114,26 @@ class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean,
 
   render() {
     if (this.state.hasError) {
+      const staleChunk = isStaleChunkLoadError(this.state.error);
+      if (staleChunk) {
+        void recoverFromStaleChunks();
+        return (
+          <div style={{ padding: 20, color: '#00847d', backgroundColor: 'white', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+            <p style={{ fontWeight: 700 }}>Aggiornamento app in corso…</p>
+          </div>
+        );
+      }
       return (
         <div style={{ padding: 20, color: 'red', backgroundColor: 'white', height: '100vh', overflow: 'auto' }}>
           <h1 style={{fontSize: '20px', fontWeight: 'bold'}}>App crashed</h1>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>{this.state.error?.toString()}</pre>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', marginTop: '10px' }}>{this.state.error?.stack}</pre>
+          <button
+            type="button"
+            style={{ marginTop: 16, padding: '12px 20px', background: '#00847d', color: 'white', borderRadius: 12, fontWeight: 700 }}
+            onClick={() => void clearAppCaches().then(() => window.location.reload())}
+          >
+            Ricarica app
+          </button>
         </div>
       );
     }
