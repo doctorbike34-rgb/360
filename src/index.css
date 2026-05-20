@@ -41,6 +41,12 @@
   --content-inset-bottom: var(--safe-bottom);
 }
 
+/*
+ * Use height: 100% (inherited from html/body/#root which fill the visible
+ * viewport via the initial containing block). Avoid 100dvh because on iOS
+ * standalone PWAs (iOS 17.x) it can be shorter than the visible viewport,
+ * leaving a strip of body/root background below the nav.
+ */
 .app-viewport,
 .pwa-app-shell,
 .pwa-fixed-shell {
@@ -48,21 +54,17 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
+  min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
   background-color: var(--app-viewport-bg);
 }
 
-/* Full-screen overlays (support chat, etc.) — fill visible viewport once */
+/* Full-screen overlays (support chat, etc.) — position: fixed inset:0 from
+   Tailwind handles sizing; we only need flex layout + clipping here. */
 .app-fullscreen-overlay {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
@@ -209,10 +211,20 @@
   }
 
   html,
-  body,
+  body {
+    height: 100%;
+    min-height: 100svh;
+    background-color: var(--app-viewport-bg);
+  }
+
+  /*
+   * #root deliberately has NO background so if any sub-pixel gap appears
+   * below the in-flow nav (iOS PWA dvh/safe-area quirks), it shows body
+   * white (which matches the nav) instead of a colored band.
+   */
   #root {
     height: 100%;
-    background-color: var(--app-viewport-bg);
+    min-height: 100svh;
   }
 }
 
@@ -233,7 +245,6 @@ input::placeholder, textarea::placeholder {
 }
 
 html, body, #root {
-  height: 100%;
   width: 100%;
   overflow: hidden;
 }
