@@ -132,6 +132,8 @@ html.pwa-standalone .bottom-pwa-safe,
     --color-bg: #FFFFFF;
     --color-text: #000000;
     --color-card: #FFFFFF;
+    /* Background used to paint iOS safe-area outside the app container */
+    --app-viewport-bg: var(--color-bg);
   }
 
   /* Dark mode variables */
@@ -140,6 +142,11 @@ html.pwa-standalone .bottom-pwa-safe,
     --color-text: #e0e0e0;
     --color-card: #16213e;
     --color-light-bg: #0f3460;
+    --app-viewport-bg: var(--color-bg);
+  }
+
+  html, body {
+    background-color: var(--app-viewport-bg);
   }
 }
 

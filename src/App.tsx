@@ -161,6 +161,16 @@ export default function App() {
     document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
+  // Default viewport background for iOS safe-area outside app container
+  useEffect(() => {
+    const prev = document.documentElement.style.getPropertyValue('--app-viewport-bg');
+    document.documentElement.style.setProperty('--app-viewport-bg', '#ffffff');
+    return () => {
+      if (prev) document.documentElement.style.setProperty('--app-viewport-bg', prev);
+      else document.documentElement.style.removeProperty('--app-viewport-bg');
+    };
+  }, []);
+
   useEffect(() => {
     let unsubscribeProfile: () => void = () => {};
 

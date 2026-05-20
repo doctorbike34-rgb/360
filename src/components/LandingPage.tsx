@@ -186,13 +186,11 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
   // Ensure iOS safe-area/background outside the app container
   // matches the landing (avoids the white strip under the CTA).
   useEffect(() => {
-    const prevHtmlBg = document.documentElement.style.backgroundColor;
-    const prevBodyBg = document.body.style.backgroundColor;
-    document.documentElement.style.backgroundColor = '#020f0e';
-    document.body.style.backgroundColor = '#020f0e';
+    const prev = document.documentElement.style.getPropertyValue('--app-viewport-bg');
+    document.documentElement.style.setProperty('--app-viewport-bg', '#020f0e');
     return () => {
-      document.documentElement.style.backgroundColor = prevHtmlBg;
-      document.body.style.backgroundColor = prevBodyBg;
+      if (prev) document.documentElement.style.setProperty('--app-viewport-bg', prev);
+      else document.documentElement.style.removeProperty('--app-viewport-bg');
     };
   }, []);
 
