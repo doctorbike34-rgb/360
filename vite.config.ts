@@ -63,11 +63,27 @@ export default defineConfig(({mode}) => {
       outDir: 'dist',
       rollupOptions: {
         output: {
-          manualChunks: {
-            'react-vendor': ['react', 'react-dom', 'zustand'],
-            'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage', 'firebase/functions'],
-            'ui-vendor': ['motion', 'lucide-react', 'react-hot-toast'],
-            'map-vendor': ['react-leaflet']
+          manualChunks(id) {
+            // Firebase — keep together, already small
+            if (id.includes('node_modules/firebase')) return 'firebase-vendor';
+            // React core
+            if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/zustand')) return 'react-vendor';
+            // UI libs
+            if (id.includes('node_modules/motion') || id.includes('node_modules/lucide-react') || id.includes('node_modules/react-hot-toast')) return 'ui-vendor';
+            // Map libs (Leaflet is heavy)
+            if (id.includes('node_modules/leaflet') || id.includes('node_modules/react-leaflet') || id.includes('node_modules/geofire')) return 'map-vendor';
+            // i18n
+            if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) return 'i18n-vendor';
+            // Stripe / payments
+            if (id.includes('node_modules/@stripe')) return 'stripe-vendor';
+            // Date utils
+            if (id.includes('node_modules/date-fns')) return 'date-vendor';
+            // Form libs
+            if (id.includes('node_modules/react-hook-form') || id.includes('node_modules/zod') || id.includes('node_modules/@hookform')) return 'forms-vendor';
+            // Phone input
+            if (id.includes('node_modules/react-phone')) return 'phone-vendor';
+            // Sentry (monitoring, not critical path)
+            if (id.includes('node_modules/@sentry')) return 'sentry-vendor';
           }
         }
       }

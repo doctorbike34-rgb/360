@@ -41,7 +41,7 @@ interface MechanicPopupProps {
   getFaultTypeTranslation: (type: string | undefined) => string;
 }
 
-function MechanicPopup({ 
+const MechanicPopup = React.memo(function MechanicPopup({ 
   mechanic, 
   onStartChat, 
   t, 
@@ -180,9 +180,9 @@ function MechanicPopup({
       )}
     </div>
   );
-}
+});
 
-function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslation }: {
+const TrackedMechanicMarker = React.memo(function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslation }: {
   mechanic: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
@@ -206,9 +206,9 @@ function TrackedMechanicMarker({ mechanic, onStartChat, t, getFaultTypeTranslati
       </Popup>
     </Marker>
   );
-}
+});
 
-function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick, sos, currentUser, currentUserRole }: {
+const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick, sos, currentUser, currentUserRole }: {
   user: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
@@ -247,9 +247,9 @@ function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColo
       </Popup>
     </Marker>
   );
-}
+});
 
-function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
+const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
   report: any;
   isSelected: boolean;
   t: TFunction;
@@ -300,9 +300,9 @@ function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
       </Popup>
     </Marker>
   );
-}
+});
 
-function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
+const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
   event: any;
   onClick: () => void;
   onViewDetails?: () => void;
@@ -375,7 +375,7 @@ function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, current
       </Popup>
     </Marker>
   );
-}
+});
 
 function MapFlyController({ flyTarget }: { flyTarget: { pos: [number, number]; nonce: number } | null }) {
   const map = useMap();
@@ -705,7 +705,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     const q = query(
       collection(db, 'roadReports'),
       where('status', 'in', ['open', 'confirmed', 'in_review']),
-      limit(100)
+      limit(60)  // Ridotto da 100 per minimizzare i costi Firestore
     );
     const unsubReports = onSnapshot(q, (snapshot) => {
       const reports = snapshot.docs

@@ -13,6 +13,18 @@
     <base href="/" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icon.svg" />
+
+    <!-- DNS prefetch + preconnect for all external services -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" />
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
+    <link rel="preconnect" href="https://securetoken.googleapis.com" />
+    <link rel="preconnect" href="https://europe-west1-doctorbike-v2.cloudfunctions.net" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://mt1.google.com" />
+    <link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
+    <link rel="dns-prefetch" href="https://storage.googleapis.com" />
+    <link rel="dns-prefetch" href="https://www.googleapis.com" />
   </head>
   <body style="background-color: var(--app-viewport-bg, #020f0e);">
     <script>
