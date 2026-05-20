@@ -37,7 +37,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   const [step, setStep] = useState(0);
   const { user, deferredPrompt } = useAuthStore();
   const [isFinishing, setIsFinishing] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  // Pre-populate from profile.plan so returning-from-Stripe users don't get blocked
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(profile?.plan || null);
 
   const installPWA = async () => {
     if (!deferredPrompt) return;
@@ -173,14 +174,17 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
       image: 'https://images.unsplash.com/photo-1512314889357-e157c22f938d?auto=format&fit=crop&q=80&w=1000'
   };
 
-  let activeSteps: any[] = [];
-  if (profile?.role === 'MECHANIC') {
-      activeSteps = [gdprStep, contactStep, ...mechanicBaseSteps, planStep, finalStep];
-  } else if (profile?.role === 'PEER_MECHANIC') {
-      activeSteps = [gdprStep, ...peerMechanicBaseSteps, peerSkillsStep, peerTermsStep, finalStep];
-  } else {
-      activeSteps = [gdprStep, ...cyclistBaseSteps, finalStep];
-  }
+  // useMemo to stabilize activeSteps reference for useEffect closure
+  const activeSteps: any[] = React.useMemo(() => {
+    if (profile?.role === 'MECHANIC') {
+      return [gdprStep, contactStep, ...mechanicBaseSteps, planStep, finalStep];
+    } else if (profile?.role === 'PEER_MECHANIC') {
+      return [gdprStep, ...peerMechanicBaseSteps, peerSkillsStep, peerTermsStep, finalStep];
+    } else {
+      return [gdprStep, ...cyclistBaseSteps, finalStep];
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.role]);
 
   const plans = [
     { 
@@ -216,6 +220,17 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
 
     stripeReturnRef.current = true;
 
+    // Fast path: if Firestore already updated the plan (webhook beat us back),
+    // skip the Cloud Function call and jump straight to the final step.
+    if (profile?.plan && profile.plan !== 'MECHANIC_FREE') {
+      clearStripeReturnStorage();
+      setSelectedPlan(profile.plan);
+      toast.success(`Piano ${profile.plan} attivato!`);
+      const finalIdx = activeSteps.findIndex((s: any) => s.id === 'final');
+      if (finalIdx >= 0) setStep(finalIdx);
+      return;
+    }
+
     void (async () => {
       setIsFinishing(true);
       try {
@@ -229,7 +244,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
           setSelectedPlan(result.planId);
           setConfirmingPlan(null);
           toast.success(`Piano ${result.planId} attivato!`);
-          const finalIdx = activeSteps.findIndex((s) => s.id === 'final');
+          const finalIdx = activeSteps.findIndex((s: any) => s.id === 'final');
           if (finalIdx >= 0) setStep(finalIdx);
         } else if (result.pending) {
           toast('Pagamento in elaborazione. Attendi qualche secondo e riapri l\'app.', { icon: '⏳' });
@@ -237,14 +252,17 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
           clearStripeReturnStorage();
           setSelectedPlan(profile.plan);
           toast.success(`Piano ${profile.plan} già attivo.`);
-          const finalIdx = activeSteps.findIndex((s) => s.id === 'final');
+          const finalIdx = activeSteps.findIndex((s: any) => s.id === 'final');
           if (finalIdx >= 0) setStep(finalIdx);
         }
       } catch (e) {
         console.error('Stripe return onboarding', e);
         if (profile?.plan) {
           clearStripeReturnStorage();
+          setSelectedPlan(profile.plan);
           toast.success(`Pagamento ricevuto. Piano ${profile.plan} attivo.`);
+          const finalIdx = activeSteps.findIndex((s: any) => s.id === 'final');
+          if (finalIdx >= 0) setStep(finalIdx);
         } else {
           toast.error('Errore attivazione abbonamento. Contatta assistenza se il pagamento è andato a buon fine.');
         }
@@ -252,7 +270,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
         setIsFinishing(false);
       }
     })();
-  }, [user, profile?.role, profile?.plan]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, profile?.role, profile?.plan, activeSteps]);
 
   const initStripeUpgrade = async (planId: string) => {
     if (!user) return false;

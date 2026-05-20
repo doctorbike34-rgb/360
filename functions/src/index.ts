@@ -505,9 +505,14 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
   const userPlan = planId as string;
 
   await db.runTransaction(async (t) => {
+    // --- PHASE 1: ALL READS FIRST (Firestore requires reads before writes) ---
     const userSnap = await t.get(userRef);
     if (!userSnap.exists) return;
 
+    const txRef = db.collection('transactions').doc(paymentIntentId);
+    const txSnap = await t.get(txRef);
+
+    // --- PHASE 2: ALL WRITES ---
     if (!subsSnap.empty) {
       t.update(subsSnap.docs[0].ref, {
         status: 'PAID',
@@ -533,8 +538,6 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
       });
     }
 
-    const txRef = db.collection('transactions').doc(paymentIntentId);
-    const txSnap = await t.get(txRef);
     const txPayload = {
       fromId: userId,
       toId: 'PLATFORM',

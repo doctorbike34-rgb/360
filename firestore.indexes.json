@@ -274,7 +274,6 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
-    }
     },
     {
       "collectionGroup": "users",
@@ -290,6 +289,14 @@
       "fields": [
         { "fieldPath": "role",   "order": "ASCENDING" },
         { "fieldPath": "points", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mapPresence",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "isOnline", "order": "ASCENDING" }
       ]
     }
   ],

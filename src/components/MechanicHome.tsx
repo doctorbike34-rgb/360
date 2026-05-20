@@ -642,8 +642,10 @@ export function MechanicHome() {
 
   useEffect(() => {
     if (!user) return;
+    // Use mapPresence (open read for all signed-in users) instead of users collection
+    // to avoid Missing or insufficient permissions error
     const q = query(
-      collection(db, 'users'),
+      collection(db, 'mapPresence'),
       where('role', '==', 'CYCLIST'),
       where('isOnline', '==', true),
       limit(10)
