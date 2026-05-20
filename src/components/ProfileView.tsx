@@ -665,7 +665,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   };
 
   return (
-    <div className="pb-40">
+    <div>
       {/* Profile Header */}
       <div className="bg-primary pad-top-header pb-12 px-8 rounded-b-[3rem] text-center relative">
         <div className="absolute top-6 right-6">
@@ -1579,8 +1579,8 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
         <AnimatePresence>
           {showSupport && userSupportTicket && (
             <FullScreenPortal>
-              <motion.div className="flex flex-col h-full min-h-0">
-              <div className="flex items-center justify-between p-4 bg-primary text-white border-b border-primary/20 shrink-0">
+              <motion.div className="flex flex-col flex-1 min-h-0 h-full">
+              <div className="flex items-center justify-between px-4 pb-3 bg-primary text-white border-b border-primary/20 shrink-0 chat-header-safe">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setShowSupport(false)} className="p-1 rounded-full hover:bg-white/10 transition-colors">
                     <ArrowLeft size={20} />
@@ -1639,7 +1639,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                  <Chat key={userSupportTicket.id} chatId={userSupportTicket.id} otherPartyName="Supporto DB360" isAdminSupport={true} targetUserId="admin" />
+                  <Chat key={userSupportTicket.id} chatId={userSupportTicket.id} otherPartyName="Supporto DB360" isAdminSupport={true} targetUserId="admin" layout="fullscreen" />
                 </div>
               )}
               </motion.div>

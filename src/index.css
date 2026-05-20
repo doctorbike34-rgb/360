@@ -48,11 +48,24 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
-  min-height: 100dvh;
-  min-height: 100svh;
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
   box-sizing: border-box;
   background-color: var(--app-viewport-bg);
+}
+
+/* Full-screen overlays (support chat, etc.) — fill visible viewport once */
+.app-fullscreen-overlay {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .home-with-nav {
@@ -85,6 +98,7 @@
   .pad-top-safe { padding-top: calc(0.75rem + var(--safe-top)); }
   .pad-top-header { padding-top: calc(1.5rem + var(--safe-top)); }
   .pad-bottom-safe { padding-bottom: max(1rem, var(--safe-bottom)); }
+  .pad-bottom-composer { padding-bottom: max(0.625rem, var(--safe-bottom)); }
   .pad-bottom-sheet { padding-bottom: calc(1.5rem + var(--safe-bottom)); }
 
   .pt-content-top { padding-top: calc(1rem + var(--safe-top)); }
@@ -197,9 +211,7 @@
   html,
   body,
   #root {
-    min-height: 100%;
-    min-height: 100dvh;
-    min-height: 100svh;
+    height: 100%;
     background-color: var(--app-viewport-bg);
   }
 }
@@ -223,6 +235,7 @@ input::placeholder, textarea::placeholder {
 html, body, #root {
   height: 100%;
   width: 100%;
+  overflow: hidden;
 }
 
 .no-scrollbar::-webkit-scrollbar {

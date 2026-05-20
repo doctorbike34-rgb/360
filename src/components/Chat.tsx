@@ -46,7 +46,7 @@ interface Message {
   type: 'TEXT' | 'IMAGE';
 }
 
-export type ChatLayout = 'default' | 'home-tab' | 'home-overlay';
+export type ChatLayout = 'default' | 'home-tab' | 'home-overlay' | 'fullscreen';
 
 export function Chat({
   chatId,
@@ -455,12 +455,13 @@ export function Chat({
   };
 
   const inHomeShell = layout === 'home-tab' || layout === 'home-overlay';
-  const inputBottomPad = inHomeShell ? '10px' : undefined;
-  const inputPadClass = inHomeShell ? '' : 'pad-bottom-safe';
+  const inFullscreen = layout === 'fullscreen';
+  const inputBottomPad = inHomeShell ? '0.625rem' : undefined;
+  const inputPadClass = inHomeShell ? '' : inFullscreen ? 'pad-bottom-composer' : 'pad-bottom-safe';
 
   return (
     <div
-      className={`flex flex-col flex-1 min-h-0 relative bg-white w-full max-w-full overflow-hidden ${isAdminSupport || inHomeShell ? '' : 'h-full'}`}
+      className={`flex flex-col flex-1 min-h-0 relative bg-white w-full max-w-full overflow-hidden ${isAdminSupport || inHomeShell || inFullscreen ? '' : 'h-full'}`}
     >
       {/* Messages — anchored to bottom when few messages */}
       <div className="chat-messages-pane px-4 py-4 space-y-3">
