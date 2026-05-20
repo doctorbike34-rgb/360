@@ -1,5 +1,12 @@
 import { initializeApp, type FirebaseOptions } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import {
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+  getAuth,
+  initializeAuth,
+  setPersistence,
+  type Auth,
+} from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFirestore } from 'firebase/firestore';
 import { getMessaging, Messaging, isSupported } from 'firebase/messaging';
@@ -9,12 +16,29 @@ import { useAuthStore } from '../store/useAuthStore';
 import { FIREBASE_CONFIG, FIREBASE_FUNCTIONS_REGION } from '../config/env';
 import { isFirestoreQuotaError } from './firestoreErrors';
 
+const AUTH_DOMAIN_BY_HOST: Record<string, string> = {
+  'www.db360app.it': 'www.db360app.it',
+  'db360app.it': 'www.db360app.it',
+  'doctorbike-v2.web.app': 'doctorbike-v2.web.app',
+  'doctorbike-v2.firebaseapp.com': 'doctorbike-v2.firebaseapp.com',
+};
+
+function resolveAuthDomain(explicit?: string): string {
+  if (typeof window !== 'undefined') {
+    const mapped = AUTH_DOMAIN_BY_HOST[window.location.hostname];
+    if (mapped) return mapped;
+  }
+  if (explicit) return explicit;
+  const fallback = fallbackFirebaseConfig as FirebaseOptions;
+  return fallback.authDomain ?? 'doctorbike-v2.firebaseapp.com';
+}
+
 function resolveFirebaseConfig(): FirebaseOptions {
   const fromEnv = FIREBASE_CONFIG;
   if (fromEnv.apiKey && fromEnv.projectId) {
     return {
       apiKey: fromEnv.apiKey,
-      authDomain: fromEnv.authDomain,
+      authDomain: resolveAuthDomain(fromEnv.authDomain),
       projectId: fromEnv.projectId,
       storageBucket: fromEnv.storageBucket,
       messagingSenderId: fromEnv.messagingSenderId,
@@ -26,7 +50,8 @@ function resolveFirebaseConfig(): FirebaseOptions {
   console.warn(
     '[firebase] VITE_FIREBASE_* missing in .env — using firebase-applet-config.json fallback'
   );
-  return fallbackFirebaseConfig as FirebaseOptions;
+  const fallback = fallbackFirebaseConfig as FirebaseOptions;
+  return { ...fallback, authDomain: resolveAuthDomain(fallback.authDomain) };
 }
 
 const firebaseConfig = resolveFirebaseConfig();
@@ -42,7 +67,21 @@ export const storage = getStorage(app);
 // Using default memory-only cache (no persistence)
 export const db = getFirestore(app);
 
-export const auth = getAuth(app);
+function createAuth(): Auth {
+  try {
+    return getAuth(app);
+  } catch {
+    return initializeAuth(app, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+  }
+}
+
+export const auth = createAuth();
+void setPersistence(auth, browserLocalPersistence).catch((e) => {
+  console.warn('[auth] local persistence unavailable', e);
+});
 export const functions = getFunctions(app, FIREBASE_FUNCTIONS_REGION);
 
 export enum OperationType {

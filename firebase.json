@@ -1,4 +1,19 @@
 {
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "DoctorBike",
+        "supportEmail": "doctorbike34@gmail.com",
+        "authorizedRedirectUris": [
+          "https://www.db360app.it",
+          "https://db360app.it",
+          "https://doctorbike-v2.web.app",
+          "https://doctorbike-v2.firebaseapp.com",
+          "http://localhost"
+        ]
+      }
+    }
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"

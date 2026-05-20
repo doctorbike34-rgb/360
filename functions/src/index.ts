@@ -386,16 +386,40 @@ export const rewardRoadReport = onDocumentUpdated({
 
   if (!before || !after) return;
 
+  // Only fire when status transitions to 'confirmed' for the first time.
   if (before.status !== 'confirmed' && after.status === 'confirmed') {
     const reporterId = after.reporterId;
+    const reportId = event.params.reportId;
     if (!reporterId) return;
 
+    const reportRef = db.collection('roadReports').doc(reportId);
+    const userRef = db.collection('users').doc(reporterId);
+
     try {
-      await db.collection('users').doc(reporterId).update({
-        balance: admin.firestore.FieldValue.increment(1.0),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      await db.runTransaction(async (t) => {
+        const reportSnap = await t.get(reportRef);
+        if (!reportSnap.exists) return;
+
+        // Idempotency sentinel: skip if reward was already issued on a previous retry.
+        if (reportSnap.data()?.reporterRewarded === true) {
+          console.log(`Reporter ${reporterId} already rewarded for report ${reportId} — skipping.`);
+          return;
+        }
+
+        const userSnap = await t.get(userRef);
+        if (!userSnap.exists) return;
+
+        // Atomically increment balance and mark the report as rewarded.
+        t.update(userRef, {
+          balance: admin.firestore.FieldValue.increment(1.0),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        t.update(reportRef, {
+          reporterRewarded: true,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
       });
-      console.log(`Rewarded reporter ${reporterId} for confirmed report ${event.params.reportId}`);
+      console.log(`Rewarded reporter ${reporterId} for confirmed report ${reportId}`);
     } catch (error) {
       console.error('Error rewarding reporter:', error);
     }
@@ -592,10 +616,10 @@ export const confirmSubscriptionCheckout = functions.region('europe-west1').http
 
 export const stripeWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
   const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || functions.config().stripe?.webhook_secret;
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!endpointSecret) {
-    console.error('Missing STRIPE_WEBHOOK_SECRET — set via .env or functions config.');
+    console.error('Missing STRIPE_WEBHOOK_SECRET — imposta la variabile d\'ambiente STRIPE_WEBHOOK_SECRET.');
     res.status(500).send('Webhook secret not configured.');
     return;
   }

@@ -6,11 +6,28 @@ import { useAuthStore } from './store/useAuthStore';
 import { validateClientEnv } from './config/env';
 import { initAppCheck } from './lib/appCheck';
 import { isFirestoreQuotaError } from './lib/firestoreErrors';
+import {
+  cleanupStaleOAuthFlags,
+  handleGoogleRedirectOnBoot,
+  isFirebaseAuthReturnUrl,
+  isGoogleRedirectPending,
+  prepareAuthRedirectReturn,
+} from './lib/googleAuth';
+import { registerSW } from 'virtual:pwa-register';
+import './i18n';
+import App from './App';
+import './index.css';
+import { isPwaStandalone } from './lib/pwaInstall';
+import {
+  clearAppCaches,
+  clearChunkReloadFlag,
+  isStaleChunkLoadError,
+  recoverFromStaleChunks,
+} from './lib/appCache';
 
-// Suppress noisy Firebase quota errors
 const originalConsoleError = console.error;
-console.error = (...args: any[]) => {
-  const errorMsg = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
+console.error = (...args: unknown[]) => {
+  const errorMsg = args.map((a) => (typeof a === 'string' ? a : (a as Error)?.message || '')).join(' ');
   if (isFirestoreQuotaError({ message: errorMsg } as Error)) {
     useAuthStore.getState().setQuotaError(true);
     return;
@@ -19,30 +36,10 @@ console.error = (...args: any[]) => {
 };
 
 validateClientEnv();
-void initAppCheck();
 
-// Dopo ogni deploy: controlla aggiornamenti SW e ricarica la pagina (registerType: autoUpdate)
-import { registerSW } from 'virtual:pwa-register';
-
-registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    void clearAppCaches().then(() => window.location.reload());
-  },
-  onRegisteredSW(_swUrl, registration) {
-    if (!registration) return;
-    const checkForUpdate = () => registration.update().catch(() => {});
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkForUpdate();
-    });
-    window.setInterval(checkForUpdate, 60 * 60 * 1000);
-  },
-});
-
-// Initialize tracking and error monitoring
-initLogger();
-initAnalytics();
-
+if (typeof document !== 'undefined' && isPwaStandalone()) {
+  document.documentElement.classList.add('pwa-standalone');
+}
 
 window.addEventListener('unhandledrejection', (event) => {
   if (isStaleChunkLoadError(event.reason)) {
@@ -51,7 +48,6 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 });
 
-// Global error catcher for module loading
 window.addEventListener('error', (event) => {
   if (isStaleChunkLoadError(event.error ?? event.message)) {
     event.preventDefault();
@@ -67,36 +63,16 @@ window.addEventListener('error', (event) => {
     errorDiv.style.background = 'white';
     const h1 = document.createElement('h1');
     h1.textContent = 'Inizializzazione fallita';
-
     const preMessage = document.createElement('pre');
     preMessage.textContent = event.message;
-
     const preLocation = document.createElement('pre');
     preLocation.textContent = `${event.filename}:${event.lineno}`;
-
     errorDiv.appendChild(h1);
     errorDiv.appendChild(preMessage);
     errorDiv.appendChild(preLocation);
     document.body.appendChild(errorDiv);
   }
 });
-
-import './i18n';
-import App from './App';
-import './index.css';
-import { isPwaStandalone } from './lib/pwaInstall';
-import {
-  clearAppCaches,
-  clearChunkReloadFlag,
-  isStaleChunkLoadError,
-  recoverFromStaleChunks,
-} from './lib/appCache';
-
-if (typeof document !== 'undefined' && isPwaStandalone()) {
-  document.documentElement.classList.add('pwa-standalone');
-}
-
-clearChunkReloadFlag();
 
 class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: ReactNode}) {
@@ -141,11 +117,45 @@ class ErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean,
   }
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+async function bootstrap(): Promise<void> {
+  cleanupStaleOAuthFlags();
+  const prep = await prepareAuthRedirectReturn();
+  if (prep === 'reload') return;
 
+  if (isFirebaseAuthReturnUrl() || isGoogleRedirectPending()) {
+    await handleGoogleRedirectOnBoot();
+  }
+
+  void initAppCheck();
+
+  if (!isFirebaseAuthReturnUrl()) {
+    registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        void clearAppCaches().then(() => window.location.reload());
+      },
+      onRegisteredSW(_swUrl, registration) {
+        if (!registration) return;
+        const checkForUpdate = () => registration.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') checkForUpdate();
+        });
+        window.setInterval(checkForUpdate, 60 * 60 * 1000);
+      },
+    });
+  }
+
+  initLogger();
+  initAnalytics();
+  clearChunkReloadFlag();
+
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

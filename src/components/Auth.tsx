@@ -5,10 +5,6 @@ import { z } from 'zod';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   sendEmailVerification,
   sendPasswordResetEmail,
   RecaptchaVerifier,
@@ -30,6 +26,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../types';
 import { useAuthStore } from '../store/useAuthStore';
 import { clearAuthIntent, getAuthIntent, needsProfileCompletion, setAuthIntent } from '../lib/authFlow';
+import {
+  clearGoogleRedirectError,
+  completeGoogleSession,
+  getGoogleRedirectError,
+  isGoogleRedirectPending,
+  setGoogleAuthError,
+  startGoogleSignIn,
+  waitForFirebaseUserAfterOAuth,
+} from '../lib/googleAuth';
 import 'react-phone-number-input/style.css';
 import PhoneInput from 'react-phone-number-input';
 import { useTranslation } from 'react-i18next';
@@ -137,108 +142,50 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
     if (completingProfile) setIsLogin(false);
   }, [completingProfile]);
 
+  React.useEffect(() => {
+    const redirectErr = getGoogleRedirectError();
+    if (redirectErr) {
+      setError(redirectErr);
+      clearGoogleRedirectError();
+    }
+  }, []);
+
   const selectedRole = watch('role');
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError('');
-    if (!isLogin) setAuthIntent('signup');
+    const intent = isLogin ? 'login' : 'signup';
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const googleUser = result.user;
+      const googleUser = await startGoogleSignIn(intent);
+      if (!googleUser) return;
 
-      const userDoc = await getDoc(doc(db, 'users', googleUser.uid)).catch((e) => {
-        handleFirestoreError(e, OperationType.GET, `users/${googleUser.uid}`);
-        throw e;
-      });
-
-      if (userDoc.exists()) {
-        const profile = userDoc.data() as UserProfile;
-        if (googleUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
-          if (profile.role !== 'ADMIN') {
-            await updateDoc(doc(db, 'users', googleUser.uid), { role: 'ADMIN' });
-          }
-          await setDoc(
-            doc(db, 'admins', googleUser.uid),
-            { uid: googleUser.uid, email: googleUser.email, updatedAt: serverTimestamp() },
-            { merge: true }
-          );
-          setRole('ADMIN');
-        } else {
-          setRole(profile.role);
-        }
-        setUser(googleUser);
-        clearAuthIntent();
-      } else {
-        setAuthIntent('signup');
-        setUser(googleUser);
-        setIsLogin(false);
-        setValue('name', googleUser.displayName || '');
-        setValue('email', googleUser.email || '');
-        setValue('isLogin', false);
-      }
-    } catch (err: any) {
-      if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
-        try {
-          setAuthIntent(isLogin ? 'login' : 'signup');
-          await signInWithRedirect(auth, new GoogleAuthProvider());
-        } catch (redirectErr: any) {
-          setError(redirectErr.message || 'Errore durante il login con Google');
-        }
+      const resolvedUser = googleUser ?? (await waitForFirebaseUserAfterOAuth(8000));
+      if (!resolvedUser) {
+        setGoogleAuthError('Accesso Google non completato. Riprova.');
+        setError('Accesso Google non completato. Riprova.');
         return;
       }
-      if (err?.code === 'auth/unauthorized-domain') {
+
+      const resolution = await completeGoogleSession(resolvedUser, intent);
+      if (resolution.status === 'needs_signup') {
+        setIsLogin(false);
+        setValue('name', resolvedUser.displayName || '');
+        setValue('email', resolvedUser.email || '');
+        setValue('isLogin', false);
+      }
+    } catch (err: unknown) {
+      const authErr = err as { code?: string; message?: string };
+      if (authErr?.code === 'auth/unauthorized-domain') {
         setError(t('auth.unauthorizedDomain'));
       } else {
-        setError(err?.message || 'Errore durante il login con Google');
+        setError(authErr?.message || 'Errore durante il login con Google');
       }
+      setGoogleAuthError(authErr?.message || 'Errore durante il login con Google');
     } finally {
-      setLoading(false);
+      if (!isGoogleRedirectPending()) setLoading(false);
     }
   };
-
-  // Gestisce il ritorno dal redirect Google (fallback da popup bloccato)
-  React.useEffect(() => {
-    getRedirectResult(auth)
-      .then(async (result) => {
-        if (!result) return;
-        setLoading(true);
-        const googleUser = result.user;
-        try {
-          const userDoc = await getDoc(doc(db, 'users', googleUser.uid));
-          if (userDoc.exists()) {
-            const profile = userDoc.data() as UserProfile;
-            if (googleUser.email?.toLowerCase() === 'doctorbike34@gmail.com') {
-              setRole('ADMIN');
-            } else {
-              setRole(profile.role);
-            }
-            setUser(googleUser);
-            clearAuthIntent();
-          } else {
-            setAuthIntent('signup');
-            setUser(googleUser);
-            setIsLogin(false);
-            setValue('name', googleUser.displayName || '');
-            setValue('email', googleUser.email || '');
-            setValue('isLogin', false);
-          }
-        } catch (e: any) {
-          console.error('Redirect result Firestore error:', e);
-          setAuthIntent('signup');
-          setUser(googleUser);
-          setIsLogin(false);
-        } finally {
-          setLoading(false);
-        }
-      })
-      .catch((err: any) => {
-        if (err?.code !== 'auth/no-auth-event') {
-          console.warn('getRedirectResult error:', err?.code);
-        }
-      });
-  }, [setUser, setRole, setValue]);
 
 
   const setupRecaptcha = () => {

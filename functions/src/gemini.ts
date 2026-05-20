@@ -5,13 +5,11 @@ import { GoogleGenAI } from '@google/genai';
 const db = admin.firestore();
 
 function getGeminiKey(): string {
-  const key =
-    process.env.GEMINI_API_KEY ||
-    (functions.config().gemini && (functions.config().gemini as { key?: string }).key);
+  const key = process.env.GEMINI_API_KEY;
   if (!key) {
     throw new functions.https.HttpsError(
       'failed-precondition',
-      'GEMINI_API_KEY non configurata sul server.'
+      'GEMINI_API_KEY non configurata sul server. Imposta la variabile d\'ambiente GEMINI_API_KEY.'
     );
   }
   return key;

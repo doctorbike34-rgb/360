@@ -24,6 +24,12 @@ import { captureStripeReturnFromUrl, peekStripeSessionId, clearStripeReturnStora
 import { confirmSubscriptionCheckout } from './lib/subscriptionCheckout';
 import { lazyWithRetry } from './lib/lazyWithRetry';
 import { needsProfileCompletion, setAuthIntent } from './lib/authFlow';
+import {
+  completeGoogleSession,
+  isFirebaseAuthReturnUrl,
+  isGoogleRedirectPending,
+  isGoogleSignedInUser,
+} from './lib/googleAuth';
 
 import { Auth } from './components/Auth';
 import { LandingPage } from './components/LandingPage';
@@ -73,6 +79,10 @@ export default function App() {
   const adminBootstrappedRef = useRef(false);
   const loyaltySanitizeAttemptedRef = useRef<string | null>(null);
   const stripeReturnProcessedRef = useRef(false);
+  const authNullClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [googleRedirectResolving, setGoogleRedirectResolving] = useState(() =>
+    typeof window !== 'undefined' ? isFirebaseAuthReturnUrl() : false
+  );
 
   useEffect(() => {
     const { sessionId, captured } = captureStripeReturnFromUrl();
@@ -399,10 +409,44 @@ export default function App() {
         }
 
       } else {
+        if (auth.currentUser) {
+          if (authNullClearTimerRef.current) {
+            clearTimeout(authNullClearTimerRef.current);
+            authNullClearTimerRef.current = null;
+          }
+          setUser(auth.currentUser);
+          setLoading(true);
+          if (isGoogleSignedInUser(auth.currentUser) && !useAuthStore.getState().role) {
+            void completeGoogleSession(auth.currentUser);
+          }
+          return;
+        }
+
+        const oauthStillExpected =
+          googleRedirectResolving || isGoogleRedirectPending() || isFirebaseAuthReturnUrl();
+
+        if (oauthStillExpected) {
+          if (authNullClearTimerRef.current) clearTimeout(authNullClearTimerRef.current);
+          authNullClearTimerRef.current = setTimeout(() => {
+            authNullClearTimerRef.current = null;
+            if (!auth.currentUser) {
+              setUser(null);
+              setRole(null);
+              setProfile(null);
+              setLoading(false);
+            }
+          }, 5000);
+          return;
+        }
+
+        if (authNullClearTimerRef.current) {
+          clearTimeout(authNullClearTimerRef.current);
+          authNullClearTimerRef.current = null;
+        }
         setUser(null);
         setRole(null);
         setProfile(null);
-        setLoading(false); // Done loading auth state (no user)
+        setLoading(false);
         logger.setUser(null);
         analyticsTracker.resetUser();
       }
@@ -411,8 +455,22 @@ export default function App() {
     return () => {
       unsubscribeAuth();
       unsubscribeProfile();
+      if (authNullClearTimerRef.current) {
+        clearTimeout(authNullClearTimerRef.current);
+      }
     };
-  }, [setUser, setRole, setProfile, setLoading, setQuotaError, setUserLocation]);
+  }, [setUser, setRole, setProfile, setLoading, setQuotaError, setUserLocation, googleRedirectResolving]);
+
+  useEffect(() => {
+    if (isFirebaseAuthReturnUrl()) {
+      setGoogleRedirectResolving(true);
+      setLoading(true);
+      setShowLanding(false);
+      const t = window.setTimeout(() => setGoogleRedirectResolving(false), 8000);
+      return () => window.clearTimeout(t);
+    }
+    setGoogleRedirectResolving(false);
+  }, [setLoading]);
 
   useEffect(() => {
     if (user) {
@@ -622,7 +680,7 @@ export default function App() {
 
   const completingProfile = needsProfileCompletion(user, role);
 
-  if (loading && !user) {
+  if ((loading && !user) || googleRedirectResolving) {
     return (
       <div className="pwa-fixed-shell flex items-center justify-center bg-slate-50">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />

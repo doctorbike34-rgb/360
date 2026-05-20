@@ -15,12 +15,7 @@ service cloud.firestore {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN') ||
-        (request.auth.token.email != null && (
-          request.auth.token.email.lower() == 'doctorbike34@gmail.com' ||
-          request.auth.token.email.lower() == 'doctorbike@gmail.com' ||
-          request.auth.token.email.lower() == 'doctorbike@email.it'
-        ))
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
       );
     }
     function isVerified() { 
@@ -167,13 +162,13 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         isAdmin() || 
         (resource != null && request.auth.uid in resource.data.participants) ||
-        (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+        (chatId.matches('^direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
       );
       allow create, update: if isEmailVerified() && (
         isAdmin() || 
         (resource != null && request.auth.uid in resource.data.participants) ||
         (request.resource != null && request.auth.uid in request.resource.data.participants) ||
-        (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+        (chatId.matches('^direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
       );
       allow delete: if isAdmin();
 
@@ -181,12 +176,12 @@ service cloud.firestore {
         allow read: if isSignedIn() && (
           isAdmin() ||
           (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) ||
-          (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+          (chatId.matches('^direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
         );
         allow create, update, delete: if isEmailVerified() && (
           isAdmin() ||
           (exists(/databases/$(database)/documents/chats/$(chatId)) && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) ||
-          (chatId.startsWith('direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
+          (chatId.matches('^direct_') && chatId.matches('.*' + request.auth.uid + '.*'))
         );
       }
     }
