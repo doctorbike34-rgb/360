@@ -274,7 +274,7 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
       </motion.div>
 
       {/* Header app */}
-      <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between gap-2 px-4 sm:px-6 lg:px-8 pt-2 pb-2 lg:pb-3">
+      <header className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] left-0 right-0 z-50 flex items-center justify-between gap-2 px-4 sm:px-6 lg:px-8 pb-2 lg:pb-3">
         <Logo size="sm" className="brightness-0 invert shrink-0 lg:scale-110" />
         {!installedApp && (
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 lg:px-3 lg:py-2 rounded-full bg-white/5 border border-white/10">

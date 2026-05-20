@@ -1233,7 +1233,7 @@ export function MechanicHome() {
       </div>
 
       {/* Navigation Bottom */}
-      <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-50 transition-all shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
+      <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-[calc(1rem+var(--pwa-inset-bottom,env(safe-area-inset-bottom)))] z-50 transition-all shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           <div className="flex-1 flex justify-around items-center">
             <NavButton active={activeTab === 'MAP'} icon={<MapIcon />} label="Mappa" onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />

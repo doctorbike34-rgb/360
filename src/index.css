@@ -39,7 +39,8 @@ html.pwa-standalone .pwa-shell-padding,
 @media (display-mode: standalone), (display-mode: fullscreen) {
   .pwa-shell-padding {
     padding-top: calc(env(safe-area-inset-top, 0px) + 1cm);
-    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1cm);
+    /* Important: avoid pushing fixed/absolute bottom nav upward (causes white band). */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 
@@ -60,6 +61,8 @@ html.pwa-standalone .bottom-pwa-safe,
 @layer utilities {
   .pt-safe { padding-top: env(safe-area-inset-top); }
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-pwa { padding-top: var(--pwa-inset-top); }
+  .pb-pwa { padding-bottom: var(--pwa-inset-bottom); }
 
   .pwa-shell-padding {
     box-sizing: border-box;
