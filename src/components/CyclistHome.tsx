@@ -329,6 +329,8 @@ export function CyclistHome() {
 
   useEffect(() => {
     if (!user) return;
+    // Open chat listener immediately only if on CHAT tab, OR to keep unread count updated.
+    // This avoids opening a full chat subscription at app mount for non-chat users.
     const q = query(
       collection(db, 'chats'),
       where('participants', 'array-contains', user?.uid),
@@ -353,7 +355,8 @@ export function CyclistHome() {
       }
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, activeTab]); // Re-subscribe when switching to CHAT tab to get fresh data
+
 
   useEffect(() => {
     setHasActiveSOS(Boolean(activeSOS));

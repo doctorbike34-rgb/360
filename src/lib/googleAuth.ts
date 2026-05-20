@@ -245,6 +245,13 @@ export async function completeGoogleSession(
   return resolution;
 }
 
+/**
+ * Provider-agnostic OAuth session completer.
+ * Used by Apple Sign-In (and any future OAuth provider) to run the same
+ * profile-resolution + store-update flow as Google.
+ */
+export const completeOAuthSession = completeGoogleSession;
+
 export async function startGoogleSignIn(intent: AuthIntent): Promise<User | null> {
   clearGoogleRedirectError();
   setAuthIntent(intent);
