@@ -84,10 +84,10 @@
   box-sizing: border-box;
   background-color: #ffffff;
   padding-top: 0.5rem;
-  /* Pull content closer to the home-indicator: reserve only ~half of the
-     iOS safe area instead of the full 34px, so the visible gap between
-     the nav labels and the home-indicator line is tight (~14px). */
-  padding-bottom: max(0.5rem, calc(var(--safe-bottom) - 1rem));
+  /* Pull content as close as possible to the home-indicator: only ~4px
+     below the labels on iPhone (the gesture bar still works on top of
+     the white nav background thanks to iOS handling). */
+  padding-bottom: max(0.25rem, calc(var(--safe-bottom) - 1.75rem));
   padding-left: max(0.25rem, var(--safe-left));
   padding-right: max(0.25rem, var(--safe-right));
   min-height: var(--app-nav-height);
