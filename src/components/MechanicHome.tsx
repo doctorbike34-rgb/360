@@ -856,7 +856,7 @@ export function MechanicHome() {
   }
 
   return (
-    <div className="flex flex-col relative bg-white transition-colors duration-500 h-full min-h-0 w-full flex-1">
+    <div className="home-with-nav flex flex-col relative bg-white transition-colors duration-500 h-full min-h-0 w-full flex-1">
       {/* New SOS Banner */}
       <AnimatePresence>
         {showNewSOSBanner && newSOS && (

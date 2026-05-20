@@ -1059,7 +1059,7 @@ export function CyclistHome() {
   };
 
   return (
-    <div className="flex flex-col relative bg-slate-50 transition-colors duration-500 h-full min-h-0 w-full flex-1 overflow-hidden">
+    <div className="home-with-nav flex flex-col relative bg-slate-50 transition-colors duration-500 h-full min-h-0 w-full flex-1 overflow-hidden">
       <AnimatePresence>
         {showAcceptedToast && (
           <motion.div

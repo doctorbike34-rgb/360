@@ -463,7 +463,7 @@ export function PeerMechanicHome() {
   };
 
   return (
-    <div className="flex flex-col w-full bg-white text-black transition-colors duration-500 h-full min-h-0 flex-1">
+    <div className="home-with-nav flex flex-col w-full bg-white text-black transition-colors duration-500 h-full min-h-0 flex-1">
       <div className="flex-1 overflow-hidden relative">
         <AnimatePresence>
           {showNewSOSBanner && newSOS && (
