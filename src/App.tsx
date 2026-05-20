@@ -731,7 +731,7 @@ export default function App() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className="pwa-app-shell flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-slate-50 text-black">
+    <div className="app-viewport pwa-app-shell flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-slate-50 text-black">
       <>
         <AnimatePresence>
           {quotaError && (

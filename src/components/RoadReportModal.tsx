@@ -257,7 +257,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: '100%', opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="relative pointer-events-auto w-full max-h-[90dvh] sm:max-w-md sm:mx-auto bg-white text-black rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 z-[210] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))] flex flex-col"
+            className="relative pointer-events-auto w-full max-h-[90dvh] sm:max-w-md sm:mx-auto bg-white text-black rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 z-[210] shadow-2xl pad-bottom-sheet flex flex-col"
           >
             <div className="flex justify-between items-center mb-6 shrink-0">
           <h3 className="text-xl font-black uppercase text-black  flex items-center gap-2">

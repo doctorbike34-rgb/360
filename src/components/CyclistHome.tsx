@@ -1265,7 +1265,7 @@ export function CyclistHome() {
           </div>
 
           {/* Profile Tab */}
-          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm scroll-pad-nav transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm app-scroll transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
             <ProfileView isAvailable={profile?.isOnline} onToggleAvailability={toggleOnline} />
           </div>
 
@@ -1503,7 +1503,7 @@ export function CyclistHome() {
             <NavButton active={activeTab === 'COMMUNITY'} onClick={() => setActiveTab('COMMUNITY')} icon={<Bike />} label={t('nav.social')} />
           </div>
           
-          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-10 -translate-y-2">
+          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-10">
               <button 
                 onClick={toggleOnline}
                 aria-label={profile?.isOnline ? 'Visibile sulla mappa' : 'Invisibile sulla mappa'}
@@ -1768,7 +1768,7 @@ export function CyclistHome() {
                 )}
 
                 {/* Actions */}
-                <div className="pt-8 space-y-4 pb-[calc(2rem+env(safe-area-inset-bottom)+5rem)]">
+                <div className="pt-8 space-y-4 pad-bottom-safe">
                    {activeSOS.mechanicConfirmed && activeSOS.status !== 'COMPLETED' && (
                      <div className="bg-accent/10 p-6 rounded-3xl border-2 border-accent border-dashed mb-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         <div className="flex items-center gap-3 mb-4">
@@ -1894,7 +1894,7 @@ export function CyclistHome() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-[2rem] sm:rounded-t-[2.5rem] p-6 sm:p-8 z-[100] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] max-h-[90dvh] overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))] sm:pb-8 flex flex-col"
+              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-[2rem] sm:rounded-t-[2.5rem] p-6 sm:p-8 z-[100] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] max-h-[90dvh] overflow-y-auto pad-bottom-sheet flex flex-col"
             >
               <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6 shrink-0" />
               <button 

@@ -228,7 +228,7 @@ export function AIBikeDoctor({ isOpen, onClose }: AIBikeDoctorProps) {
             </div>
 
             {/* Input Area */}
-            <div className="p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] bg-white border-t border-grey/5">
+            <div className="p-6 pad-bottom-safe bg-white border-t border-grey/5">
               <div className="relative">
                 <input
                   type="text"

@@ -667,7 +667,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
   return (
     <div className="pb-40">
       {/* Profile Header */}
-      <div className="bg-primary pt-[calc(2.5rem+env(safe-area-inset-top))] pb-12 px-8 rounded-b-[3rem] text-center relative">
+      <div className="bg-primary pad-top-header pb-12 px-8 rounded-b-[3rem] text-center relative">
         <div className="absolute top-6 right-6">
            <button onClick={() => i18n.changeLanguage(i18n.language === 'it' ? 'en' : 'it')}
              className="bg-black/10 px-3 py-2 rounded-xl text-black  font-bold text-xs"
@@ -889,7 +889,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
            {showTopUp && (
              <div className="fixed inset-0 z-[100] flex flex-col justify-end sm:justify-center overflow-hidden">
                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={resetTopUp} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[100]"/>
-                <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[110] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+                <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[110] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-sheet">
                  <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                  
                  <div className="flex justify-between items-center mb-4 sm:mb-6">
@@ -1104,7 +1104,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showAvatarPicker && (
             <div className="fixed inset-0 z-[200] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAvatarPicker(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[200]"/>
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 z-[210] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 z-[210] shadow-2xl pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-8"/>
                 
                 <div className="flex justify-between items-center mb-8">
@@ -1231,7 +1231,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showHistory && (
             <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowHistory(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
                   <h3 className="text-2xl font-black text-primary  uppercase italic">{t('profile.history')}</h3>
@@ -1284,7 +1284,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showReviews && (
             <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowReviews(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-8 pt-4 z-[130] shadow-2xl pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
                    <h3 className="text-2xl font-black text-primary  uppercase italic">Le tue Recensioni</h3>
@@ -1345,7 +1345,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showSettings && (
             <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSettings(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.settings')}</h3>
@@ -1398,7 +1398,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showSafety && (
             <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSafety(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.safety')}</h3>
@@ -1432,7 +1432,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showPlans && (
             <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} className="absolute inset-0 bg-dark/60 backdrop-blur-md z-[120]" />
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[130] shadow-2xl pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[130] shadow-2xl pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/20 rounded-full mx-auto mb-6"/>
                 <div className="flex justify-between items-center mb-8">
                    <h3 className="text-2xl font-black text-primary uppercase italic">
@@ -1538,7 +1538,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           {showPrivacy && (
             <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowPrivacy(false)} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
-              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+              <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-sheet">
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.privacyAndLegal')}</h3>
@@ -1662,7 +1662,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                   </div>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 pad-bottom-safe">
                 {[
                   { q: 'Come funziona il SOS?', a: 'Premi il pulsante SOS sulla mappa. I meccanici vicini riceveranno la tua richiesta e potranno accettarla. Vedrai chi ha accettato e il suo percorso verso di te.' },
                   { q: 'Come si pagano gli interventi?', a: 'Puoi pagare con DB Coin (portafoglio interno), carta di credito, PayPal o bonifico. Ricarica il portafoglio dalla sezione "Metodi di Pagamento" nel profilo.' },
@@ -1675,7 +1675,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 ].map((faq, i) => (
                   <FAQItem key={i} question={faq.q} answer={faq.a} />
                 ))}
-                <div className="pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+                <div className="pt-6 pad-bottom-safe">
                   <button 
                     onClick={createTicketFromFAQ}
                     disabled={isCreatingTicket}
@@ -1796,7 +1796,7 @@ function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; o
   return (
     <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center overflow-hidden">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-dark/60 backdrop-blur-xl z-[150]"/>
-      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pb-[calc(7rem+env(safe-area-inset-bottom))]">
+      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="relative overflow-y-auto w-full max-h-[85vh] sm:max-w-2xl sm:mx-auto bg-white text-black rounded-t-[3rem] sm:rounded-[3rem] p-4 sm:p-8 z-[160] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.3)] pad-bottom-sheet">
         <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">Metodi di Pagamento</h3>

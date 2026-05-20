@@ -507,7 +507,7 @@ export function PeerMechanicHome() {
         </AnimatePresence>
 
         {activeTab === 'WORK' && (
-            <div className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm transition-colors z-20 scroll-pad-nav">
+            <div className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm transition-colors z-20 app-scroll">
                 <div className="p-6 w-full max-w-7xl mx-auto space-y-6">
                     <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-grey/10">
                         <div>
@@ -712,7 +712,7 @@ export function PeerMechanicHome() {
               joiningEventId={isJoiningEventId}
             />
             </MapErrorBoundary>
-            <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-40 flex flex-col gap-3">
+            <div className="absolute top-floating right-4 z-40 flex flex-col gap-3">
               <button 
                 onClick={() => setActiveTab('COMMUNITY')}
                 className="bg-primary text-black p-3 rounded-2xl shadow-xl shadow-primary/30 flex justify-center items-center hover:scale-105 active:scale-95 transition-all outline-none"
@@ -742,7 +742,7 @@ export function PeerMechanicHome() {
                   onStartChat={startDirectChat}
                   onViewEventDetails={(event) => setSelectedEventDetails(event)}
                 />
-                <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-40 flex flex-col gap-3">
+                <div className="absolute top-floating right-4 z-40 flex flex-col gap-3">
                   <button 
                     onClick={() => setShowAIDoctor(true)}
                     className="bg-accent text-white p-3 rounded-2xl shadow-xl shadow-accent/30 flex justify-center items-center hover:scale-105 active:scale-95 transition-all outline-none relative group"
@@ -759,7 +759,7 @@ export function PeerMechanicHome() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
-              className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm scroll-pad-nav transition-colors z-20"
+              className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm app-scroll transition-colors z-20"
             >
               <ProfileView isAvailable={isAvailable} onToggleAvailability={toggleAvailability} />
             </motion.div>
@@ -812,7 +812,7 @@ export function PeerMechanicHome() {
               <NavButton active={activeTab === 'WORK'} icon={<Wrench />} label={t('mechanic.work')} onClick={() => { setShowChat(false); setActiveTab('WORK'); }} />
           </div>
           
-          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-10 group -translate-y-2">
+          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-10 group">
               <button 
                 onClick={toggleAvailability}
                 className={`w-14 h-14 sm:w-16 sm:h-16 rounded-[1.75rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 ${isAvailable ? 'bg-primary text-white shadow-primary/40 ring-4 ring-primary/20' : 'bg-white text-grey shadow-none border border-grey/10'}`}

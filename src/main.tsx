@@ -17,7 +17,6 @@ import { registerSW } from 'virtual:pwa-register';
 import './i18n';
 import App from './App';
 import './index.css';
-import { isPwaStandalone } from './lib/pwaInstall';
 import {
   clearAppCaches,
   clearChunkReloadFlag,
@@ -36,10 +35,6 @@ console.error = (...args: unknown[]) => {
 };
 
 validateClientEnv();
-
-if (typeof document !== 'undefined' && isPwaStandalone()) {
-  document.documentElement.classList.add('pwa-standalone');
-}
 
 window.addEventListener('unhandledrejection', (event) => {
   if (isStaleChunkLoadError(event.reason)) {

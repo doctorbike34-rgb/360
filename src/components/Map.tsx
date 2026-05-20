@@ -779,7 +779,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       {mapBootstrapping && !minimal && <MapLoadingOverlay />}
       {/* Top-Left Controls: Online Counters */}
       {!minimal && (
-        <div className="absolute top-[calc(env(safe-area-inset-top)+0.75rem)] left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
+        <div className="absolute top-floating left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
            <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
              <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length} Meccanici online</span>

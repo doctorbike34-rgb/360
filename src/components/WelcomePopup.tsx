@@ -29,7 +29,7 @@ export function WelcomePopup({ userId, onClose }: WelcomePopupProps) {
   };
 
   return (
-    <div className="absolute inset-0 z-[100] flex items-end sm:items-center justify-center p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+    <div className="absolute inset-0 z-[100] flex items-end sm:items-center justify-center p-4 pad-bottom-safe">
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}

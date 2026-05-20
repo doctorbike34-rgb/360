@@ -22,128 +22,45 @@
   --spacing-safe-right: env(safe-area-inset-right);
 }
 
-/* PWA: single safe-area source — shell is full-bleed; children use content-inset vars */
+/*
+ * Global app layout — same rules on browser, PWA, iOS, Android.
+ * Safe areas via env(); bottom nav always in flex flow (never position:fixed).
+ */
 :root {
-  /* Bar content only; safe-area is added once in .home-nav-stack */
-  --home-nav-height: 4.5rem;
-  --home-nav-total-height: calc(var(--home-nav-height) + env(safe-area-inset-bottom, 0px));
-  --content-inset-top: env(safe-area-inset-top, 0px);
-  --content-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --app-nav-height: 4.5rem;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --app-nav-block: calc(var(--app-nav-height) + var(--safe-bottom));
+  /* Legacy aliases */
+  --home-nav-height: var(--app-nav-height);
+  --home-nav-total-height: var(--app-nav-block);
+  --content-inset-top: var(--safe-top);
+  --content-inset-bottom: var(--safe-bottom);
 }
 
+.app-viewport,
+.pwa-app-shell,
 .pwa-fixed-shell {
-  width: 100%;
-  height: 100%;
-  min-height: 100dvh;
-  min-height: 100svh;
-  min-height: -webkit-fill-available;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-html.pwa-standalone .pwa-fixed-shell {
-  position: fixed;
-  inset: 0;
-  width: auto;
-  height: auto;
-  min-height: 0;
-  overflow: hidden;
-  box-sizing: border-box;
-  background-color: var(--app-viewport-bg);
-}
-
-.pwa-app-shell {
-  width: 100%;
-  height: 100%;
-  min-height: 100dvh;
-  min-height: 100svh;
-  min-height: -webkit-fill-available;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+  box-sizing: border-box;
   background-color: var(--app-viewport-bg);
 }
 
-html.pwa-standalone .pwa-app-shell {
-  position: fixed;
-  inset: 0;
-  width: auto;
-  height: auto;
-  min-height: 0;
-}
-
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  .pwa-app-shell,
-  .pwa-fixed-shell {
-    position: fixed;
-    inset: 0;
-    width: auto;
-    height: auto;
-    min-height: 0;
-    overflow: hidden;
-    box-sizing: border-box;
-    background-color: var(--app-viewport-bg);
-  }
-
-  .top-pwa-safe {
-    top: var(--content-inset-top);
-  }
-
-  html,
-  body,
-  #root {
-    height: 100%;
-    min-height: 0;
-    max-height: none;
-    overflow: hidden;
-  }
-}
-
-/*
- * Installed PWA: iOS layout viewport is shorter than the visual screen — max-height:100%
- * on #root clips the shell and leaves a white body strip under the nav. Pin nav to the
- * visual bottom and let the shell fill -webkit-fill-available.
- */
-html.pwa-standalone,
-html.pwa-standalone body,
-html.pwa-standalone #root {
-  height: 100%;
-  height: -webkit-fill-available;
-  min-height: -webkit-fill-available;
-  min-height: 100dvh;
-  max-height: none;
-  overflow: hidden;
-}
-
-html.pwa-standalone .pwa-app-shell,
-html.pwa-standalone .pwa-fixed-shell {
-  top: 0;
-  right: 0;
-  left: 0;
-  bottom: 0;
-  height: 100%;
-  height: -webkit-fill-available;
-  min-height: -webkit-fill-available;
-  min-height: 100dvh;
-  max-height: none;
-}
-
-/*
- * Bottom nav: in browser the nav is the last flex child — no extra padding on the shell.
- * In installed PWA the nav is fixed; reserve space so map/chat are not hidden.
- */
 .home-with-nav {
-  padding-bottom: 0;
-}
-
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  .home-with-nav {
-    padding-bottom: var(--home-nav-total-height);
-  }
-}
-
-html.pwa-standalone .home-with-nav {
-  padding-bottom: var(--home-nav-total-height);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 .home-nav-stack {
@@ -151,96 +68,34 @@ html.pwa-standalone .home-with-nav {
   box-sizing: border-box;
   background-color: #ffffff;
   padding-top: 0.5rem;
-  /* Safe-area once here; min-height is icon row only (see --home-nav-height) */
-  padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
-  min-height: var(--home-nav-height);
+  padding-bottom: max(0.5rem, var(--safe-bottom));
+  padding-left: max(0.25rem, var(--safe-left));
+  padding-right: max(0.25rem, var(--safe-right));
+  min-height: var(--app-nav-height);
   box-shadow: 0 -10px 40px -5px rgba(0, 0, 0, 0.05);
 }
 
-html.pwa-standalone .home-nav-stack {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  margin-top: 0;
-  z-index: 50;
-  /* iOS PWA: layout viewport can end above the home indicator — paint white into the gap */
-  box-shadow:
-    0 env(safe-area-inset-bottom, 0px) 0 0 #ffffff,
-    0 -10px 40px -5px rgba(0, 0, 0, 0.05);
-}
-
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  .home-nav-stack {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    margin-top: 0;
-    z-index: 50;
-    box-shadow:
-      0 env(safe-area-inset-bottom, 0px) 0 0 #ffffff,
-      0 -10px 40px -5px rgba(0, 0, 0, 0.05);
-  }
-}
-
 @layer utilities {
-  .pt-safe { padding-top: env(safe-area-inset-top); }
-  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-  html.pwa-standalone .pb-safe {
-    padding-bottom: var(--content-inset-bottom);
-  }
-  .pt-pwa { padding-top: var(--content-inset-top); }
-  .pb-pwa { padding-bottom: var(--content-inset-bottom); }
+  .pt-safe { padding-top: var(--safe-top); }
+  .pb-safe { padding-bottom: var(--safe-bottom); }
+  .pt-pwa { padding-top: var(--safe-top); }
+  .pb-pwa { padding-bottom: var(--safe-bottom); }
 
-  .pwa-fixed-shell {
-    box-sizing: border-box;
-  }
+  .pad-top-safe { padding-top: calc(0.75rem + var(--safe-top)); }
+  .pad-top-header { padding-top: calc(1.5rem + var(--safe-top)); }
+  .pad-bottom-safe { padding-bottom: max(1rem, var(--safe-bottom)); }
+  .pad-bottom-sheet { padding-bottom: calc(1.5rem + var(--safe-bottom)); }
 
-  .home-nav-stack {
-    flex-shrink: 0;
-    margin-top: auto;
-  }
+  .pt-content-top { padding-top: calc(1rem + var(--safe-top)); }
+  .pt-slide-header { padding-top: calc(3.75rem + var(--safe-top)); }
+  .top-content-banner { top: calc(0.5rem + var(--safe-top)); }
+  .top-floating { top: calc(1rem + var(--safe-top)); }
 
-  .pt-content-top {
-    padding-top: calc(1rem + var(--content-inset-top));
-  }
+  .home-nav-fab-offset { bottom: calc(var(--app-nav-block) + 0.75rem); }
 
-  .pt-slide-header {
-    padding-top: calc(3.75rem + var(--content-inset-top));
-  }
+  .app-scroll { padding-bottom: 1.5rem; }
 
-  .top-content-banner {
-    top: calc(0.5rem + var(--content-inset-top));
-  }
-
-  .home-nav-fab-offset {
-    bottom: calc(var(--home-nav-total-height) + 0.75rem);
-  }
-
-  /* Scrollable tabs: extra pad only when bottom nav is fixed (PWA) */
-  .scroll-pad-nav {
-    padding-bottom: 1.5rem;
-  }
-
-  @media (display-mode: standalone), (display-mode: fullscreen) {
-    .scroll-pad-nav {
-      padding-bottom: calc(var(--home-nav-total-height) + 1rem);
-    }
-  }
-
-  html.pwa-standalone .scroll-pad-nav {
-    padding-bottom: calc(var(--home-nav-total-height) + 1rem);
-  }
-
-  /* Keep Leaflet attribution above fixed bottom nav */
-  .home-with-nav .leaflet-bottom.leaflet-right {
-    bottom: var(--home-nav-total-height) !important;
-  }
-
-  .chat-header-safe {
-    padding-top: calc(0.75rem + var(--content-inset-top));
-  }
+  .chat-header-safe { padding-top: calc(0.75rem + var(--safe-top)); }
 
   .chat-messages-pane {
     flex: 1 1 0%;
@@ -258,17 +113,15 @@ html.pwa-standalone .home-nav-stack {
   }
 
   @media (min-width: 640px) {
-    .home-nav-center-slot {
-      width: 4rem;
-    }
+    .home-nav-center-slot { width: 4rem; }
   }
 
-  .px-safe { 
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+  .px-safe {
+    padding-left: max(var(--safe-left), 0.75rem);
+    padding-right: max(var(--safe-right), 0.75rem);
   }
-  .mt-safe { margin-top: env(safe-area-inset-top); }
-  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+  .mt-safe { margin-top: var(--safe-top); }
+  .mb-safe { margin-bottom: var(--safe-bottom); }
 
   /* Map Marker Dimensions */
   .marker-size-lg { width: 28px; height: 28px; }
@@ -346,7 +199,6 @@ html.pwa-standalone .home-nav-stack {
     min-height: 100%;
     min-height: 100dvh;
     min-height: 100svh;
-    min-height: -webkit-fill-available;
     background-color: var(--app-viewport-bg);
   }
 }
@@ -461,8 +313,8 @@ html, body, #root {
 .content-safe {
   max-width: 100%;
   overflow-x: hidden;
-  padding-left: max(env(safe-area-inset-left), 0.75rem);
-  padding-right: max(env(safe-area-inset-right), 0.75rem);
+  padding-left: max(var(--safe-left), 0.75rem);
+  padding-right: max(var(--safe-right), 0.75rem);
 }
 @media (max-width: 400px) {
   .hide-on-mobile { display: none !important; }

@@ -455,9 +455,8 @@ export function Chat({
   };
 
   const inHomeShell = layout === 'home-tab' || layout === 'home-overlay';
-  const inputBottomPad = inHomeShell
-    ? '10px'
-    : 'calc(10px + env(safe-area-inset-bottom, 0px))';
+  const inputBottomPad = inHomeShell ? '10px' : undefined;
+  const inputPadClass = inHomeShell ? '' : 'pad-bottom-safe';
 
   return (
     <div
@@ -539,9 +538,8 @@ export function Chat({
       )}
       <form 
         onSubmit={sendMessage} 
-        className="shrink-0 bg-white text-black border-t border-grey/10 flex gap-1.5 sm:gap-2 items-end w-full max-w-full box-border"
+        className={`shrink-0 bg-white text-black border-t border-grey/10 flex gap-1.5 sm:gap-2 items-end w-full max-w-full box-border px-3 pt-2.5 ${inputPadClass}`}
         style={{
-          padding: '10px 12px',
           paddingBottom: inputBottomPad,
           position: 'relative',
           zIndex: isAdminSupport ? 300 : 20,

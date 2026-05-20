@@ -935,7 +935,7 @@ export function MechanicHome() {
           </AnimatePresence>
 
           {/* Profile Tab */}
-          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white z-20 scroll-pad-nav transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white z-20 app-scroll transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
             <div className="bg-primary p-4 flex items-center gap-4 text-black sticky top-0 z-10 transition-colors">
               <button onClick={() => setActiveTab('WORK')} className="hover:bg-black/5 p-2 rounded-full transition-colors"><ArrowLeft size={24}/></button>
               <h3 className="font-bold">{t('profile.title')}</h3>
@@ -1001,7 +1001,7 @@ export function MechanicHome() {
              
              <AnimatePresence>
                 {showStats && (
-                  <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto scroll-pad-nav">
+                  <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto app-scroll">
                      <div className="mb-8 flex items-start justify-between">
                         <div>
                           <h2 className="text-2xl font-black text-primary">{t('mechanic.stats')}</h2>
@@ -1099,7 +1099,7 @@ export function MechanicHome() {
           </div>
 
           {/* Work Tab (Home) */}
-          <div className={`absolute inset-0 overflow-y-auto scroll-pad-nav transition-opacity duration-300 ${activeTab === 'WORK' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 overflow-y-auto app-scroll transition-opacity duration-300 ${activeTab === 'WORK' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {/* Header */}
              <div className="bg-primary pt-8 pb-12 px-4 sm:pt-12 sm:pb-16 sm:px-6 rounded-b-[3rem] relative transition-colors">
                 <div className="flex justify-between items-center mb-4 sm:mb-6">
@@ -1262,7 +1262,7 @@ export function MechanicHome() {
             />
           </div>
           
-          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-20 group -translate-y-2">
+          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-20 group">
             {(profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan)) ? (
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-[1.75rem] flex items-center justify-center bg-grey/10 text-grey/40 border border-grey/20 shadow-inner cursor-not-allowed" title="Attiva un piano dal profilo per andare online">
                 <Power size={24} />
