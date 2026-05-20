@@ -108,6 +108,7 @@ html.pwa-standalone,
 html.pwa-standalone body,
 html.pwa-standalone #root {
   height: 100%;
+  height: -webkit-fill-available;
   min-height: -webkit-fill-available;
   min-height: 100dvh;
   max-height: none;
@@ -120,6 +121,8 @@ html.pwa-standalone .pwa-fixed-shell {
   right: 0;
   left: 0;
   bottom: 0;
+  height: 100%;
+  height: -webkit-fill-available;
   min-height: -webkit-fill-available;
   min-height: 100dvh;
   max-height: none;
@@ -148,8 +151,9 @@ html.pwa-standalone .home-with-nav {
   box-sizing: border-box;
   background-color: #ffffff;
   padding-top: 0.5rem;
+  /* Safe-area once here; min-height is icon row only (see --home-nav-height) */
   padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
-  min-height: var(--home-nav-total-height);
+  min-height: var(--home-nav-height);
   box-shadow: 0 -10px 40px -5px rgba(0, 0, 0, 0.05);
 }
 
@@ -160,6 +164,10 @@ html.pwa-standalone .home-nav-stack {
   right: 0;
   margin-top: 0;
   z-index: 50;
+  /* iOS PWA: layout viewport can end above the home indicator — paint white into the gap */
+  box-shadow:
+    0 env(safe-area-inset-bottom, 0px) 0 0 #ffffff,
+    0 -10px 40px -5px rgba(0, 0, 0, 0.05);
 }
 
 @media (display-mode: standalone), (display-mode: fullscreen) {
@@ -170,6 +178,9 @@ html.pwa-standalone .home-nav-stack {
     right: 0;
     margin-top: 0;
     z-index: 50;
+    box-shadow:
+      0 env(safe-area-inset-bottom, 0px) 0 0 #ffffff,
+      0 -10px 40px -5px rgba(0, 0, 0, 0.05);
   }
 }
 
