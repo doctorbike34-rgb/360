@@ -29,10 +29,9 @@ const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const db = admin.firestore();
 function getGeminiKey() {
-    const key = process.env.GEMINI_API_KEY ||
-        (functions.config().gemini && functions.config().gemini.key);
+    const key = process.env.GEMINI_API_KEY;
     if (!key) {
-        throw new functions.https.HttpsError('failed-precondition', 'GEMINI_API_KEY non configurata sul server.');
+        throw new functions.https.HttpsError('failed-precondition', 'GEMINI_API_KEY non configurata sul server. Imposta la variabile d\'ambiente GEMINI_API_KEY.');
     }
     return key;
 }

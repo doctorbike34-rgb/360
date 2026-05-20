@@ -1,154 +1,225 @@
-import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 
 const db = admin.firestore();
 
-async function assertAdmin(uid: string) {
-  const adminDoc = await db.collection('users').doc(uid).get();
-  if (adminDoc.data()?.role !== 'ADMIN') {
-    throw new functions.https.HttpsError('permission-denied', 'Solo admin.');
+async function assertAdmin(uid: string): Promise<void> {
+  const doc = await db.collection('users').doc(uid).get();
+  if (doc.data()?.role !== 'ADMIN') {
+    throw new HttpsError('permission-denied', 'Solo admin.');
   }
 }
 
-async function deleteCollection(path: string, batchSize = 400): Promise<number> {
+/** Deletes all docs in a flat collection in parallel batches of 400. */
+async function deleteCollection(path: string): Promise<number> {
   let deleted = 0;
   while (true) {
-    const snap = await db.collection(path).limit(batchSize).get();
+    const snap = await db.collection(path).limit(400).get();
     if (snap.empty) break;
     const batch = db.batch();
     snap.docs.forEach((d) => batch.delete(d.ref));
     await batch.commit();
     deleted += snap.size;
-    if (snap.size < batchSize) break;
+    if (snap.size < 400) break;
   }
   return deleted;
 }
 
+/** Deletes chats + all their messages sub-collection. */
 async function deleteChatsWithMessages(): Promise<number> {
   let deleted = 0;
   while (true) {
     const chats = await db.collection('chats').limit(50).get();
     if (chats.empty) break;
-
-    for (const chatDoc of chats.docs) {
-      const messages = await chatDoc.ref.collection('messages').limit(400).get();
-      if (!messages.empty) {
-        const msgBatch = db.batch();
-        messages.docs.forEach((m) => msgBatch.delete(m.ref));
-        await msgBatch.commit();
-      }
-      await chatDoc.ref.delete();
-      deleted++;
-    }
+    await Promise.all(
+      chats.docs.map(async (chatDoc) => {
+        // Delete messages sub-collection first
+        while (true) {
+          const msgs = await chatDoc.ref.collection('messages').limit(400).get();
+          if (msgs.empty) break;
+          const b = db.batch();
+          msgs.docs.forEach((m) => b.delete(m.ref));
+          await b.commit();
+          if (msgs.size < 400) break;
+        }
+        await chatDoc.ref.delete();
+        deleted++;
+      })
+    );
   }
   return deleted;
 }
 
-async function resetAdminUsers(adminUid: string): Promise<number> {
+/** Resets all ADMIN user stats to zero (keeps their account). */
+async function resetAdminUsers(): Promise<number> {
   const admins = await db.collection('users').where('role', '==', 'ADMIN').get();
-  let count = 0;
-  for (const docSnap of admins.docs) {
-    await docSnap.ref.update({
-      balance: 0,
-      completedJobs: 0,
-      points: 0,
-      weeklyPoints: 0,
-      peerMechanicEarnings: 0,
-      peerMechanicJobsCompleted: 0,
-      hasWelcomeGift: true,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    count++;
-  }
-  return count;
+  await Promise.all(
+    admins.docs.map((d) =>
+      d.ref.update({
+        balance: 0,
+        completedJobs: 0,
+        points: 0,
+        weeklyPoints: 0,
+        peerMechanicEarnings: 0,
+        peerMechanicJobsCompleted: 0,
+        hasWelcomeGift: true,
+        lastTxId: admin.firestore.FieldValue.delete(),
+        lastSosAt: admin.firestore.FieldValue.delete(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+    )
+  );
+  return admins.size;
 }
 
-async function deleteNonAdminUsers(adminUid: string): Promise<number> {
+/** Deletes all non-ADMIN users from Firestore. */
+async function deleteNonAdminUsersFirestore(): Promise<number> {
   let deleted = 0;
   while (true) {
-    const snap = await db.collection('users').limit(200).get();
+    const snap = await db
+      .collection('users')
+      .where('role', '!=', 'ADMIN')
+      .limit(400)
+      .get();
     if (snap.empty) break;
-
     const batch = db.batch();
-    let ops = 0;
-    for (const docSnap of snap.docs) {
-      if (docSnap.id === adminUid) continue;
-      if (docSnap.data()?.role === 'ADMIN') continue;
-      batch.delete(docSnap.ref);
-      ops++;
-      deleted++;
-    }
-    if (ops > 0) {
-      await batch.commit();
-    } else {
-      break;
-    }
-    if (snap.size < 200) break;
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    deleted += snap.size;
+    if (snap.size < 400) break;
   }
   return deleted;
+}
+
+/** Collects all admin UIDs from Firestore (to protect them). */
+async function getAdminUids(): Promise<Set<string>> {
+  const snap = await db.collection('users').where('role', '==', 'ADMIN').get();
+  return new Set(snap.docs.map((d) => d.id));
+}
+
+/** Deletes all Firebase Auth users except admins. */
+async function deleteNonAdminAuthUsers(adminUids: Set<string>): Promise<number> {
+  const toDelete: string[] = [];
+  let nextPageToken: string | undefined;
+
+  // Collect all non-admin UIDs first (no per-user Firestore reads)
+  do {
+    const page = await admin.auth().listUsers(1000, nextPageToken);
+    for (const u of page.users) {
+      if (!adminUids.has(u.uid)) {
+        toDelete.push(u.uid);
+      }
+    }
+    nextPageToken = page.pageToken;
+  } while (nextPageToken);
+
+  // Delete in parallel chunks of 100 (Auth API limit)
+  await Promise.all(
+    Array.from({ length: Math.ceil(toDelete.length / 100) }, (_, i) =>
+      admin.auth().deleteUsers(toDelete.slice(i * 100, (i + 1) * 100))
+    )
+  );
+
+  return toDelete.length;
 }
 
 /**
- * Reset ambiente produzione: pulisce dati operativi e utenti non-admin (Firestore + Auth).
+ * Full production reset:
+ * - Deletes ALL data collections in parallel
+ * - Deletes ALL non-admin Firestore users
+ * - Deletes ALL non-admin Firebase Auth users
+ * - Resets admin stats to zero
+ * - Resets platformStats
+ *
+ * Uses v2 with 3600s timeout so it never times out.
  */
-export const productionReset = functions
-  .region('europe-west1')
-  .runWith({ timeoutSeconds: 540, memory: '1GB' })
-  .https.onCall(async (_data, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError('unauthenticated', 'Login richiesto.');
+export const productionReset = onCall(
+  {
+    region: 'europe-west1',
+    timeoutSeconds: 3600,
+    memory: '1GiB',
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Login richiesto.');
     }
 
-    const adminUid = context.auth.uid;
-    await assertAdmin(adminUid);
+    const callerUid = request.auth.uid;
+    await assertAdmin(callerUid);
 
     const summary: Record<string, number> = {};
 
-    summary.chats = await deleteChatsWithMessages();
-    summary.sosRequests = await deleteCollection('sosRequests');
-    summary.reviews = await deleteCollection('reviews');
-    summary.supportTickets = await deleteCollection('supportTickets');
-    summary.aiConversations = await deleteCollection('aiConversations');
-    summary.mechanics = await deleteCollection('mechanics');
-    summary.events = await deleteCollection('events');
-    summary.roadReports = await deleteCollection('roadReports');
-    summary.transactions = await deleteCollection('transactions');
-    summary.subscriptions = await deleteCollection('subscriptions');
-    summary.payoutRequests = await deleteCollection('payoutRequests');
-    summary.mapPresence = await deleteCollection('mapPresence');
-    summary.interventions = await deleteCollection('interventions');
+    // 1. Delete all data collections in parallel (fastest possible)
+    const [
+      chats,
+      sosRequests,
+      reviews,
+      supportTickets,
+      aiConversations,
+      mechanics,
+      events,
+      roadReports,
+      transactions,
+      subscriptions,
+      payoutRequests,
+      mapPresence,
+      interventions,
+    ] = await Promise.all([
+      deleteChatsWithMessages(),
+      deleteCollection('sosRequests'),
+      deleteCollection('reviews'),
+      deleteCollection('supportTickets'),
+      deleteCollection('aiConversations'),
+      deleteCollection('mechanics'),
+      deleteCollection('events'),
+      deleteCollection('roadReports'),
+      deleteCollection('transactions'),
+      deleteCollection('subscriptions'),
+      deleteCollection('payoutRequests'),
+      deleteCollection('mapPresence'),
+      deleteCollection('interventions'),
+    ]);
 
-    summary.usersDeleted = await deleteNonAdminUsers(adminUid);
-    summary.adminsReset = await resetAdminUsers(adminUid);
+    summary.chats = chats;
+    summary.sosRequests = sosRequests;
+    summary.reviews = reviews;
+    summary.supportTickets = supportTickets;
+    summary.aiConversations = aiConversations;
+    summary.mechanics = mechanics;
+    summary.events = events;
+    summary.roadReports = roadReports;
+    summary.transactions = transactions;
+    summary.subscriptions = subscriptions;
+    summary.payoutRequests = payoutRequests;
+    summary.mapPresence = mapPresence;
+    summary.interventions = interventions;
 
-    await db.collection('platformStats').doc('global').set({
-      totalFees: 0,
-      totalTransactions: 0,
-      totalSubscriptionRevenue: 0,
-      completedJobs: 0,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // 2. Get admin UIDs (needed for both Firestore and Auth cleanup)
+    const adminUids = await getAdminUids();
 
-    let authDeleted = 0;
-    const usersToDelete: string[] = [];
-    let nextPageToken: string | undefined;
-    do {
-      const page = await admin.auth().listUsers(1000, nextPageToken);
-      for (const u of page.users) {
-        if (u.uid === adminUid) continue;
-        const userDoc = await db.collection('users').doc(u.uid).get();
-        if (!userDoc.exists || userDoc.data()?.role !== 'ADMIN') {
-          usersToDelete.push(u.uid);
-        }
-      }
-      nextPageToken = page.pageToken;
-    } while (nextPageToken);
+    // 3. Delete non-admin users from Firestore + Auth in parallel
+    const [usersDeleted, authDeleted] = await Promise.all([
+      deleteNonAdminUsersFirestore(),
+      deleteNonAdminAuthUsers(adminUids),
+    ]);
 
-    for (let i = 0; i < usersToDelete.length; i += 100) {
-      await admin.auth().deleteUsers(usersToDelete.slice(i, i + 100));
-    }
-    authDeleted = usersToDelete.length;
+    summary.usersDeleted = usersDeleted;
     summary.authDeleted = authDeleted;
 
+    // 4. Reset admin stats + platformStats in parallel
+    const [adminsReset] = await Promise.all([
+      resetAdminUsers(),
+      db.collection('platformStats').doc('global').set({
+        totalFees: 0,
+        totalTransactions: 0,
+        totalSubscriptionRevenue: 0,
+        completedJobs: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }),
+    ]);
+
+    summary.adminsReset = adminsReset;
+
     return { success: true, summary };
-  });
+  }
+);

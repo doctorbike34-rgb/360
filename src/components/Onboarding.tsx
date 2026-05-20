@@ -30,11 +30,13 @@ import { formatFeePercentLabel, PEER_MECHANIC_FEE_PERCENT } from '../lib/platfor
 interface OnboardingProps {
   onComplete: () => void;
   profile: any;
+  /** If provided, skip to this step index on mount (e.g. plan step for plan-less mechanics) */
+  initialStep?: number;
 }
 
-export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) => {
+export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile, initialStep }) => {
   const { t } = useTranslation();
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(initialStep ?? 0);
   const { user, deferredPrompt } = useAuthStore();
   const [isFinishing, setIsFinishing] = useState(false);
   // Pre-populate from profile.plan so returning-from-Stripe users don't get blocked
@@ -743,37 +745,50 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
         </div>
 
         <div className="flex gap-3">
-          {step > 0 && (
+          {/* Back button: also resets confirmingPlan so payment screen can be dismissed */}
+          {(step > 0 || confirmingPlan) && (
             <button
-              onClick={() => setStep(step - 1)}
+              onClick={() => {
+                if (confirmingPlan) {
+                  setConfirmingPlan(null);
+                } else {
+                  setStep(step - 1);
+                }
+              }}
               disabled={isFinishing}
               className="px-6 bg-black/5 text-black py-5 rounded-[2rem] font-black uppercase tracking-widest text-xs shadow-sm hover:bg-black/10 active:scale-95 transition-all flex items-center justify-center"
             >
               Indietro
             </button>
           )}
-          <button
-            onClick={handleNext}
-            disabled={isFinishing}
-            className="flex-1 bg-primary text-white py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            {isFinishing ? (
-              <div className="w-5 h-5 border-2 border-dark/30 border-t-dark rounded-full animate-spin" />
-            ) : (
-              <>
-                {step === activeSteps.length - 1 ? t('auth.onboardingFinish') : (profile?.role === 'MECHANIC' && step === 2 ? 'Conferma Acquisto' : t('auth.onboardingNext'))}
-                <ArrowRight size={16} />
-              </>
-            )}
-          </button>
+          {/* Hide the main Next button while confirming plan (that screen has its own CTA) */}
+          {!confirmingPlan && (
+            <button
+              onClick={handleNext}
+              disabled={isFinishing}
+              className="flex-1 bg-primary text-white py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              {isFinishing ? (
+                <div className="w-5 h-5 border-2 border-dark/30 border-t-dark rounded-full animate-spin" />
+              ) : (
+                <>
+                  {step === activeSteps.length - 1 ? t('auth.onboardingFinish') : t('auth.onboardingNext')}
+                  <ArrowRight size={16} />
+                </>
+              )}
+            </button>
+          )}
         </div>
 
-        <button 
-          onClick={() => onComplete()}
-          className="mt-4 text-[10px] font-black text-black/50 uppercase tracking-widest hover:text-black transition-colors drop-shadow-md"
-        >
-          {t('auth.onboardingSkip')}
-        </button>
+        {/* MECHANIC: never show skip on plan/payment steps — they must pay or choose free */}
+        {!(profile?.role === 'MECHANIC' && (confirmingPlan || activeSteps[step]?.id === 'plan')) && (
+          <button
+            onClick={() => onComplete()}
+            className="mt-4 text-[10px] font-black text-black/50 uppercase tracking-widest hover:text-black transition-colors drop-shadow-md"
+          >
+            {t('auth.onboardingSkip')}
+          </button>
+        )}
       </div>
     </div>
   );

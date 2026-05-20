@@ -712,10 +712,6 @@ export function CyclistHome() {
     (window as any).firebaseTransactionInProgress = true;
     safeStorage.setItem('fb_tx_lock', Date.now().toString());
     
-    // Give a small window for any pending background location updates to finish
-    // before we start the optimistic transaction snapshot
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
     const basePrice = nearestMechanic?.sosPrice || 15;
     let price = basePrice;
     
@@ -756,6 +752,16 @@ export function CyclistHome() {
         
         const userData = userSnap.data();
         
+        // RATE LIMIT: max 1 SOS every 3 minutes per user
+        const lastSosAt = userData.lastSosAt;
+        if (lastSosAt?.seconds) {
+          const secondsElapsed = Date.now() / 1000 - lastSosAt.seconds;
+          if (secondsElapsed < 180) {
+            const remaining = Math.ceil((180 - secondsElapsed) / 60);
+            throw new Error(`RATE_LIMIT:${remaining}`);
+          }
+        }
+
         // IDEMPOTENCY CHECK: If this transaction ID was already processed, skip
         if (userData.lastTxId === txRef.id) {
           return;
@@ -766,7 +772,8 @@ export function CyclistHome() {
         // 1. Deduct balance from cyclist
         const updateData: Record<string, unknown> = {
           updatedAt: serverTimestamp(),
-          lastTxId: txRef.id
+          lastTxId: txRef.id,
+          lastSosAt: serverTimestamp(), // For rate limiting: max 1 SOS per 3 min
         };
         
         // Only decrement if we haven't already (double-safety with lastTxId check above)
@@ -816,7 +823,11 @@ export function CyclistHome() {
       setSelectedFaultType(null);
     } catch (err) {
       console.error(err);
-      if ((err as Error).message === 'Insufficient balance') {
+      const errMsg = (err as Error).message || '';
+      if (errMsg.startsWith('RATE_LIMIT:')) {
+        const minutes = errMsg.split(':')[1];
+        toast.error(`Hai già inviato un SOS di recente. Riprova tra ${minutes} min.`);
+      } else if (errMsg === 'Insufficient balance') {
         setShowInsufficientFunds(true);
       } else {
         handleFirestoreError(err, OperationType.WRITE, 'sosRequests/creation');

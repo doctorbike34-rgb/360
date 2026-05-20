@@ -129,6 +129,15 @@ async function bootstrap(): Promise<void> {
   void initAppCheck();
 
   if (!isFirebaseAuthReturnUrl()) {
+    // When the new SW takes control (skipWaiting), reload the tab
+    // so stale JS chunks in memory are replaced immediately.
+    let swReloading = false;
+    navigator.serviceWorker?.addEventListener('controllerchange', () => {
+      if (swReloading) return;
+      swReloading = true;
+      window.location.reload();
+    });
+
     registerSW({
       immediate: true,
       onNeedRefresh() {
@@ -136,11 +145,13 @@ async function bootstrap(): Promise<void> {
       },
       onRegisteredSW(_swUrl, registration) {
         if (!registration) return;
+        // Poll for updates every 5 min so deploys propagate fast
         const checkForUpdate = () => registration.update().catch(() => {});
         document.addEventListener('visibilitychange', () => {
           if (document.visibilityState === 'visible') checkForUpdate();
         });
-        window.setInterval(checkForUpdate, 60 * 60 * 1000);
+        window.addEventListener('focus', checkForUpdate);
+        window.setInterval(checkForUpdate, 5 * 60 * 1000);
       },
     });
   }

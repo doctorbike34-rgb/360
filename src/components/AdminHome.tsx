@@ -171,7 +171,7 @@ export function AdminHome() {
     }
 
     if (tab === 'FINANCE' || tab === 'STATS') {
-      listeners.push(onSnapshot(query(collection(db, 'subscriptions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+      listeners.push(onSnapshot(query(collection(db, 'subscriptions'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
         setSubscriptions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
       }, (err) => handleSnapError(err, 'subscriptions')));
 
@@ -179,7 +179,7 @@ export function AdminHome() {
         setPayoutRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PayoutRequest)));
       }, (err) => handleSnapError(err, 'payoutRequests')));
 
-      listeners.push(onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+      listeners.push(onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
         setFinancialTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })) as any);
       }, (err) => handleSnapError(err, 'transactions')));
     }

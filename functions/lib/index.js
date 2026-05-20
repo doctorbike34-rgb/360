@@ -366,16 +366,39 @@ exports.rewardRoadReport = (0, firestore_1.onDocumentUpdated)({
     const after = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     if (!before || !after)
         return;
+    // Only fire when status transitions to 'confirmed' for the first time.
     if (before.status !== 'confirmed' && after.status === 'confirmed') {
         const reporterId = after.reporterId;
+        const reportId = event.params.reportId;
         if (!reporterId)
             return;
+        const reportRef = db.collection('roadReports').doc(reportId);
+        const userRef = db.collection('users').doc(reporterId);
         try {
-            await db.collection('users').doc(reporterId).update({
-                balance: admin.firestore.FieldValue.increment(1.0),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            await db.runTransaction(async (t) => {
+                var _a;
+                const reportSnap = await t.get(reportRef);
+                if (!reportSnap.exists)
+                    return;
+                // Idempotency sentinel: skip if reward was already issued on a previous retry.
+                if (((_a = reportSnap.data()) === null || _a === void 0 ? void 0 : _a.reporterRewarded) === true) {
+                    console.log(`Reporter ${reporterId} already rewarded for report ${reportId} — skipping.`);
+                    return;
+                }
+                const userSnap = await t.get(userRef);
+                if (!userSnap.exists)
+                    return;
+                // Atomically increment balance and mark the report as rewarded.
+                t.update(userRef, {
+                    balance: admin.firestore.FieldValue.increment(1.0),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                t.update(reportRef, {
+                    reporterRewarded: true,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
             });
-            console.log(`Rewarded reporter ${reporterId} for confirmed report ${event.params.reportId}`);
+            console.log(`Rewarded reporter ${reporterId} for confirmed report ${reportId}`);
         }
         catch (error) {
             console.error('Error rewarding reporter:', error);
@@ -455,9 +478,13 @@ async function activateSubscriptionFromCheckout(session) {
     const userPlan = planId;
     await db.runTransaction(async (t) => {
         var _a, _b;
+        // --- PHASE 1: ALL READS FIRST (Firestore requires reads before writes) ---
         const userSnap = await t.get(userRef);
         if (!userSnap.exists)
             return;
+        const txRef = db.collection('transactions').doc(paymentIntentId);
+        const txSnap = await t.get(txRef);
+        // --- PHASE 2: ALL WRITES ---
         if (!subsSnap.empty) {
             t.update(subsSnap.docs[0].ref, {
                 status: 'PAID',
@@ -483,8 +510,6 @@ async function activateSubscriptionFromCheckout(session) {
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
         }
-        const txRef = db.collection('transactions').doc(paymentIntentId);
-        const txSnap = await t.get(txRef);
         const txPayload = {
             fromId: userId,
             toId: 'PLATFORM',
@@ -562,11 +587,11 @@ exports.confirmSubscriptionCheckout = functions.region('europe-west1').https.onC
     }
 });
 exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (req, res) => {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f;
     const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || ((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.webhook_secret);
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!endpointSecret) {
-        console.error('Missing STRIPE_WEBHOOK_SECRET — set via .env or functions config.');
+        console.error('Missing STRIPE_WEBHOOK_SECRET — imposta la variabile d\'ambiente STRIPE_WEBHOOK_SECRET.');
         res.status(500).send('Webhook secret not configured.');
         return;
     }
@@ -580,7 +605,7 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
     }
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
-        const sessionType = ((_b = session.metadata) === null || _b === void 0 ? void 0 : _b.type) || 'TOPUP';
+        const sessionType = ((_a = session.metadata) === null || _a === void 0 ? void 0 : _a.type) || 'TOPUP';
         if (sessionType === 'SUBSCRIPTION') {
             try {
                 if (checkoutSessionIsPaid(session)) {
@@ -592,11 +617,11 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
             }
         }
         else {
-            const userId = ((_c = session.metadata) === null || _c === void 0 ? void 0 : _c.userId) || session.client_reference_id;
-            const amountStr = (_d = session.metadata) === null || _d === void 0 ? void 0 : _d.dbcAmount;
+            const userId = ((_b = session.metadata) === null || _b === void 0 ? void 0 : _b.userId) || session.client_reference_id;
+            const amountStr = (_c = session.metadata) === null || _c === void 0 ? void 0 : _c.dbcAmount;
             const paymentIntentId = typeof session.payment_intent === 'string'
                 ? session.payment_intent
-                : (_e = session.payment_intent) === null || _e === void 0 ? void 0 : _e.id;
+                : (_d = session.payment_intent) === null || _d === void 0 ? void 0 : _d.id;
             if (userId && amountStr && paymentIntentId) {
                 const dbcAmount = parseFloat(amountStr);
                 if (!isNaN(dbcAmount)) {
@@ -625,8 +650,8 @@ exports.stripeWebhook = functions.region('europe-west1').https.onRequest(async (
     }
     if (event.type === 'payment_intent.succeeded') {
         const paymentIntent = event.data.object;
-        const userId = (_f = paymentIntent.metadata) === null || _f === void 0 ? void 0 : _f.userId;
-        const amountStr = (_g = paymentIntent.metadata) === null || _g === void 0 ? void 0 : _g.dbcAmount;
+        const userId = (_e = paymentIntent.metadata) === null || _e === void 0 ? void 0 : _e.userId;
+        const amountStr = (_f = paymentIntent.metadata) === null || _f === void 0 ? void 0 : _f.dbcAmount;
         if (userId && amountStr) {
             const dbcAmount = parseFloat(amountStr);
             if (isNaN(dbcAmount)) {

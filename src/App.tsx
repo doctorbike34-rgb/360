@@ -936,6 +936,39 @@ export default function App() {
               )}
             </AnimatePresence>
 
+            {/* 
+              Guard: mechanic who completed onboarding without choosing a paid plan.
+              planStep is index 4 in mechanic steps: [gdpr, contact, mech_step1, mech_step2, plan, final]
+              We send them straight there so they can't skip to KYC without paying.
+            */}
+            {(() => {
+              const PAID_PLANS = ['BASE', 'CLUB', 'PRO'];
+              const needsPlan =
+                profile?.hasCompletedOnboarding &&
+                profile?.role === 'MECHANIC' &&
+                !PAID_PLANS.includes(profile?.plan ?? '');
+              if (!needsPlan) return null;
+              return (
+                <Onboarding
+                  profile={profile}
+                  initialStep={4}
+                  onComplete={async () => {
+                    // After paying the plan is updated via webhook/Stripe return,
+                    // so we just refresh the profile from Firestore.
+                    if (user) {
+                      try {
+                        const { getDoc } = await import('firebase/firestore');
+                        const snap = await getDoc(doc(db, 'users', user.uid));
+                        if (snap.exists()) setProfile({ uid: user.uid, ...snap.data() } as any);
+                      } catch (e) {
+                        console.error('refresh profile after plan', e);
+                      }
+                    }
+                  }}
+                />
+              );
+            })()}
+
             <AnimatePresence>
               {profile && !profile.hasCompletedOnboarding && (
                 <Onboarding 
