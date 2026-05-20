@@ -787,7 +787,7 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
                   type="button"
                   onClick={handleAppleSignIn}
                   disabled={loading}
-                  className="flex-1 bg-black text-white font-bold py-4 rounded-xl hover:bg-black/80 transition-all flex items-center justify-center gap-2 shadow-sm"
+                  className="hidden flex-1 bg-black text-white font-bold py-4 rounded-xl hover:bg-black/80 transition-all flex items-center justify-center gap-2 shadow-sm"
                   title="Accedi con Apple"
                 >
                   {/* Apple logo SVG */}
