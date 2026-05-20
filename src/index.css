@@ -98,21 +98,22 @@ html.pwa-standalone .pwa-app-shell {
 }
 
 /*
- * Tall iPhones in standalone PWA (e.g. 15 Pro Max): pb-safe + full-bleed shell
- * double-counts safe-area-inset-bottom (~1cm gap). Shell absorbs bottom inset;
- * children use --content-inset-bottom: 0. Shorter phones (Galaxy S23) unchanged.
+ * Tall iPhones in standalone PWA (e.g. 15 Pro Max): shrinking the shell with
+ * bottom: env(safe-area-inset-bottom) while zeroing nav pb-safe leaves a ~1cm
+ * strip below the navbar (body/--app-viewport-bg shows through). Keep shell
+ * full-bleed; nav owns safe-area padding once. Shorter phones (Galaxy S23) unchanged.
  */
 @media (display-mode: standalone) and (min-height: 900px) {
-  html.pwa-standalone {
-    --content-inset-bottom: 0px;
-  }
-
   html.pwa-standalone .pwa-app-shell,
   html.pwa-standalone .pwa-fixed-shell {
     top: 0;
     right: 0;
     left: 0;
-    bottom: env(safe-area-inset-bottom, 0px);
+    bottom: 0;
+  }
+
+  html.pwa-standalone .home-nav-stack {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 
