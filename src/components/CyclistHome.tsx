@@ -1422,16 +1422,19 @@ export function CyclistHome() {
 
       {/* Floating SOS Button and Road Report (Only on Map Tab if no active SOS) */}
       {activeTab === 'MAP' && !activeSOS && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-20 flex gap-4">
+        <div
+          className="absolute inset-x-0 z-20 flex justify-center gap-4 pb-2 pointer-events-none"
+          style={{ bottom: 'calc(var(--home-nav-height, 5.75rem) + env(safe-area-inset-bottom, 0px))' }}
+        >
            <button 
              onClick={() => setShowRoadReportModal(true)}
-             className="bg-warning text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg shadow-warning/30 hover:scale-105 active:scale-95 transition-transform"
+             className="pointer-events-auto bg-warning text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg shadow-warning/30 hover:scale-105 active:scale-95 transition-transform"
            >
              <AlertCircle size={24} />
            </button>
            <button 
              onClick={() => setShowSOSForm(true)}
-             className="sos-button group"
+             className="sos-button group pointer-events-auto"
            >
              <motion.div
                animate={{ scale: [1, 1.05, 1] }}
@@ -1446,14 +1449,14 @@ export function CyclistHome() {
       )}
 
       {/* Navigation */}
-      <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-[calc(1rem+var(--pwa-inset-bottom,env(safe-area-inset-bottom)))] z-40 transition-all shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
+      <nav className="home-nav-stack relative z-40 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           <div className="flex-1 flex justify-around items-center">
             <NavButton active={activeTab === 'MAP' && !showChat} onClick={() => { setActiveTab('MAP'); setShowChat(false); }} icon={<MapPin />} label={t('nav.home')} />
             <NavButton active={activeTab === 'COMMUNITY'} onClick={() => setActiveTab('COMMUNITY')} icon={<Bike />} label={t('nav.social')} />
           </div>
           
-          <div className="w-16 sm:w-20 flex-shrink-0 flex flex-col items-center justify-center relative -mt-12 group z-10">
+          <div className="w-16 sm:w-20 flex-shrink-0 flex flex-col items-center justify-center relative z-10 -mb-2">
               <button 
                 onClick={toggleOnline}
                 aria-label={profile?.isOnline ? 'Visibile sulla mappa' : 'Invisibile sulla mappa'}
@@ -1477,7 +1480,7 @@ export function CyclistHome() {
             <NavButton active={activeTab === 'PROFILE'} onClick={() => setActiveTab('PROFILE')} icon={<User />} label={t('nav.profile')} />
           </div>
         </div>
-      </div>
+      </nav>
 
       {/* Full SOS Details Side Panel */}
       <AnimatePresence>

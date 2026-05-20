@@ -262,7 +262,7 @@ export function LandingPage({ onStart, onLogin, onSkip }: LandingPageProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="h-[100dvh] w-full max-w-[100vw] bg-[#020f0e] text-white overflow-hidden relative select-none lg:flex lg:items-stretch lg:justify-center lg:bg-[#010a09] lg:p-4 xl:p-6 pwa-shell-padding box-border"
+      className="h-full w-full max-w-[100vw] bg-[#020f0e] text-white overflow-hidden relative select-none lg:flex lg:items-stretch lg:justify-center lg:bg-[#010a09] lg:p-4 xl:p-6 pwa-fixed-shell"
     >
       <motion.div className="relative h-full w-full min-w-0 lg:max-w-[1280px] xl:max-w-[1400px] lg:rounded-[1.75rem] xl:rounded-[2rem] lg:overflow-hidden lg:shadow-[0_32px_80px_-24px_rgba(0,0,0,0.85)] lg:ring-1 lg:ring-white/10">
       {/* Sfondo 3D laterale */}

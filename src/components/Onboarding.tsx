@@ -360,7 +360,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete, profile }) =
   };
 
   return (
-    <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center px-6 pwa-shell-padding box-border text-center overflow-hidden">
+    <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center px-6 pwa-fixed-shell text-center overflow-hidden">
       
       <button 
         type="button"

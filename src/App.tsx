@@ -542,7 +542,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-[100dvh] flex items-center justify-center bg-white pwa-shell-padding box-border">
+      <div className="pwa-fixed-shell flex items-center justify-center bg-white">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
       </div>
     );
@@ -579,7 +579,7 @@ export default function App() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
   return (
-    <div className="flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black pwa-shell-padding box-border" style={{ height: '100dvh', width: '100%' }}>
+    <div className="pwa-fixed-shell flex flex-col w-full max-w-none relative overflow-hidden transition-colors duration-500 bg-white text-black">
       <>
         <AnimatePresence>
           {quotaError && (
@@ -843,7 +843,7 @@ export default function App() {
       </>
 
       {/* Home Indicator (Barra di movimento) */}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[10000] pointer-events-none bottom-pwa-safe" />
+      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[10000] pointer-events-none pb-safe" />
       <Toaster position="bottom-center" toastOptions={{ style: { background: '#333', color: '#fff', fontSize: '14px', borderRadius: '16px' } }} />
     </div>
   );

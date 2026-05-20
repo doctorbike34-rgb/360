@@ -507,7 +507,7 @@ export function PeerMechanicHome() {
         </AnimatePresence>
 
         {activeTab === 'WORK' && (
-            <div className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm transition-colors z-20 pb-[calc(2rem+env(safe-area-inset-bottom)+110px)]">
+            <div className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm transition-colors z-20 pb-[calc(2rem+env(safe-area-inset-bottom)+5.5rem)]">
                 <div className="p-6 w-full max-w-7xl mx-auto space-y-6">
                     <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-grey/10">
                         <div>
@@ -801,7 +801,7 @@ export function PeerMechanicHome() {
         )}
       </div>
 
-      <nav className="absolute bottom-0 left-0 right-0 bg-white/95  backdrop-blur-2xl border-t border-grey/5  pt-3 pb-[calc(1rem+var(--pwa-inset-bottom,env(safe-area-inset-bottom)))] z-50 transition-all shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
+      <nav className="home-nav-stack relative z-50 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           {/* Left Side (Flex 1) */}
           <div className="flex-1 flex justify-around items-center">
@@ -810,7 +810,7 @@ export function PeerMechanicHome() {
           </div>
           
           {/* Center Area Fixed */}
-          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative -mt-12 z-10 group">
+          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative z-10 group -mb-2">
               <button 
                 onClick={toggleAvailability}
                 className={`w-16 h-16 rounded-[3rem] flex items-center justify-center shadow-2xl transition-all duration-500 active:scale-95 ${isAvailable ? 'bg-primary text-white scale-110 shadow-primary/40 ring-4 ring-primary/20' : 'bg-white text-black text-grey shadow-none border border-grey/10'}`}

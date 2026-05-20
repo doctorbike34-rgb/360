@@ -11,10 +11,18 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/bike.svg" />
   </head>
-  <body style="background-color: var(--app-viewport-bg);">
+  <body style="background-color: var(--app-viewport-bg, #020f0e);">
+    <script>
+      (function () {
+        var m = window.matchMedia('(display-mode: standalone)');
+        if (m.matches || navigator.standalone) {
+          document.documentElement.classList.add('pwa-standalone');
+        }
+      })();
+    </script>
     <div id="root">
       <!-- Initial Splash Screen -->
-      <div id="initial-loader" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: white; z-index: 9999; font-family: sans-serif;">
+      <div id="initial-loader" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #020f0e; z-index: 9999; font-family: sans-serif;">
         <div style="width: 60px; height: 60px; border: 5px solid #f3f3f3; border-top: 5px solid #00847d; border-radius: 50%; animation: spin 1s linear infinite;"></div>
         <p style="margin-top: 20px; font-weight: 900; color: #00847d; text-transform: uppercase; letter-spacing: 2px; font-style: italic;">DoctorBike</p>
         <p style="margin-top: 8px; font-size: 10px; color: #64748b; font-weight: bold;">Avvio assistenza...</p>

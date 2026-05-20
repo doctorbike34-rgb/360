@@ -15,11 +15,13 @@ export default defineConfig(({mode}) => {
       react(), 
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
         manifest: false, // Use public/manifest.json
         injectRegister: false,
         includeManifestIcons: true,
         workbox: {
+          skipWaiting: true,
+          clientsClaim: true,
           importScripts: ['firebase-messaging-sw-import.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           navigateFallback: 'index.html',

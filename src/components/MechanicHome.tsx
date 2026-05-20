@@ -1233,7 +1233,7 @@ export function MechanicHome() {
       </div>
 
       {/* Navigation Bottom */}
-      <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-[calc(1rem+var(--pwa-inset-bottom,env(safe-area-inset-bottom)))] z-50 transition-all shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
+      <nav className="home-nav-stack relative z-50 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           <div className="flex-1 flex justify-around items-center">
             <NavButton active={activeTab === 'MAP'} icon={<MapIcon />} label="Mappa" onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />
@@ -1244,7 +1244,7 @@ export function MechanicHome() {
             />
           </div>
           
-          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative -mt-12 z-20 group">
+          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative z-20 group -mb-2">
             {(profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan)) ? (
               <div className="w-16 h-16 rounded-[2rem] flex items-center justify-center bg-grey/10 text-grey/40 border border-grey/20 z-20 relative shadow-inner cursor-not-allowed" title="Attiva un piano dal profilo per andare online">
                 <Power size={28} />
@@ -1273,7 +1273,7 @@ export function MechanicHome() {
             <NavButton active={activeTab === 'PROFILE'} icon={<User />} label={t('nav.profile')} onClick={() => { setShowChat(false); setActiveTab('PROFILE'); }} />
           </div>
         </div>
-      </div>
+      </nav>
       <PublicProfileModal userId={viewProfileId as string} onClose={() => setViewProfileId(null)} />
       {selectedReport && (
         <ModalSuspense>

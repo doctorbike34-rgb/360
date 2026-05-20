@@ -22,40 +22,66 @@
   --spacing-safe-right: env(safe-area-inset-right);
 }
 
-/* PWA installed: safe area + ~1cm vertical breathing room */
+/* PWA: safe area — top con respiro sotto status bar, bottom solo inset nativo (no banda bianca) */
 html.pwa-standalone {
-  --pwa-inset-top: calc(env(safe-area-inset-top, 0px) + 1cm);
-  --pwa-inset-bottom: calc(env(safe-area-inset-bottom, 0px) + 1cm);
+  --pwa-inset-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  --pwa-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --home-nav-height: 5.75rem;
 }
 
 @media (display-mode: standalone), (display-mode: fullscreen) {
   :root {
-    --pwa-inset-top: calc(env(safe-area-inset-top, 0px) + 1cm);
-    --pwa-inset-bottom: calc(env(safe-area-inset-bottom, 0px) + 1cm);
+    --pwa-inset-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+    --pwa-inset-bottom: env(safe-area-inset-bottom, 0px);
+    --home-nav-height: 5.75rem;
   }
 }
 
-html.pwa-standalone .pwa-shell-padding,
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  .pwa-shell-padding {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 1cm);
-    /* Important: avoid pushing fixed/absolute bottom nav upward (causes white band). */
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
+.pwa-fixed-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  min-height: 100svh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
-html.pwa-standalone .top-pwa-safe,
+/* Shell PWA: riempie lo schermo senza padding che sposta la UI (fix iOS banda bianca) */
+html.pwa-standalone .pwa-fixed-shell {
+  position: fixed;
+  top: var(--pwa-inset-top, env(safe-area-inset-top));
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+  box-sizing: border-box;
+  background-color: var(--app-viewport-bg);
+}
+
 @media (display-mode: standalone), (display-mode: fullscreen) {
+  .pwa-fixed-shell {
+    position: fixed;
+    top: var(--pwa-inset-top, env(safe-area-inset-top));
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    height: auto;
+    overflow: hidden;
+    box-sizing: border-box;
+    background-color: var(--app-viewport-bg);
+  }
+
   .top-pwa-safe {
-    top: calc(env(safe-area-inset-top, 0px) + 1cm);
+    top: var(--pwa-inset-top, env(safe-area-inset-top));
   }
 }
 
-html.pwa-standalone .bottom-pwa-safe,
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  .bottom-pwa-safe {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 1cm);
-  }
+html.pwa-standalone .top-pwa-safe {
+  top: var(--pwa-inset-top, env(safe-area-inset-top));
 }
 
 @layer utilities {
@@ -64,8 +90,16 @@ html.pwa-standalone .bottom-pwa-safe,
   .pt-pwa { padding-top: var(--pwa-inset-top); }
   .pb-pwa { padding-bottom: var(--pwa-inset-bottom); }
 
-  .pwa-shell-padding {
+  .pwa-fixed-shell {
     box-sizing: border-box;
+  }
+
+  .home-nav-stack {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .home-nav-fab-offset {
+    bottom: calc(var(--home-nav-height, 5.75rem) + env(safe-area-inset-bottom, 0px) + 3.5rem);
   }
 
   .px-safe { 
@@ -145,7 +179,13 @@ html.pwa-standalone .bottom-pwa-safe,
     --app-viewport-bg: var(--color-bg);
   }
 
-  html, body {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    min-height: 100dvh;
+    min-height: 100svh;
+    min-height: -webkit-fill-available;
     background-color: var(--app-viewport-bg);
   }
 }

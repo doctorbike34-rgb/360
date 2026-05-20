@@ -26,12 +26,14 @@ import { registerSW } from 'virtual:pwa-register';
 
 registerSW({
   immediate: true,
+  onNeedRefresh() {
+    if (confirm('Nuova versione disponibile. Ricarico per applicare gli aggiornamenti layout.')) {
+      window.location.reload();
+    }
+  },
   onRegisteredSW(_swUrl, registration) {
     if (!registration) return;
-    const checkForUpdate = () => {
-      registration.update().catch(() => {});
-    };
-    // Nuova versione quando l’utente riapre il tab o ogni ora se resta aperto
+    const checkForUpdate = () => registration.update().catch(() => {});
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') checkForUpdate();
     });
