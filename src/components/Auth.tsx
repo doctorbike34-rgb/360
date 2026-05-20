@@ -119,6 +119,17 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
     i18n.changeLanguage(newLang);
   };
 
+  // Paint the viewport (incl. iOS safe-area) the primary green while on Auth
+  // so no white strip can appear behind the shell on standalone PWA.
+  React.useEffect(() => {
+    const prev = document.documentElement.style.getPropertyValue('--app-viewport-bg');
+    document.documentElement.style.setProperty('--app-viewport-bg', '#00847D');
+    return () => {
+      if (prev) document.documentElement.style.setProperty('--app-viewport-bg', prev);
+      else document.documentElement.style.removeProperty('--app-viewport-bg');
+    };
+  }, []);
+
   const firebaseUser = user;
   const isCompletingProfile = completingProfile;
 

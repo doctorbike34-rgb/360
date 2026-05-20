@@ -233,7 +233,11 @@
 }
 
 body {
-  @apply bg-white text-black;
+  /* Body background follows --app-viewport-bg (set per top-level screen)
+     so the iOS safe-area / sub-pixel gaps always match the active screen
+     color instead of forcing white. */
+  background-color: var(--app-viewport-bg);
+  color: #000000;
   font-family: var(--font-sans);
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
