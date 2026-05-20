@@ -92,53 +92,55 @@ html.pwa-standalone .pwa-app-shell {
   #root {
     height: 100%;
     min-height: 0;
-    max-height: 100%;
+    max-height: none;
     overflow: hidden;
   }
 }
 
 /*
- * Tall iPhones in standalone PWA (e.g. 15 Pro Max): flex + margin-top:auto can leave
- * a body-white strip below the nav when the shell ends above the home indicator.
- * Pin the nav to the viewport bottom; reserve space in the home column. Galaxy S23
- * (~780px) keeps flex nav + pb-safe via this min-height gate.
+ * Installed PWA: iOS layout viewport is shorter than the visual screen — max-height:100%
+ * on #root clips the shell and leaves a white body strip under the nav. Pin nav to the
+ * visual bottom and let the shell fill -webkit-fill-available.
  */
-@media (display-mode: standalone) and (min-height: 900px) {
-  html.pwa-standalone .pwa-app-shell,
-  html.pwa-standalone .pwa-fixed-shell {
-    top: 0;
-    right: 0;
-    left: 0;
-    bottom: 0;
-  }
-
-  html.pwa-standalone .home-with-nav {
-    padding-bottom: calc(var(--home-nav-height) + env(safe-area-inset-bottom, 0px));
-  }
-
-  html.pwa-standalone .home-nav-stack {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    margin-top: 0;
-    z-index: 50;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    box-sizing: border-box;
-  }
-
-  html.pwa-standalone .home-nav-stack.pb-safe {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-}
-
 html.pwa-standalone,
 html.pwa-standalone body,
 html.pwa-standalone #root {
   height: 100%;
-  min-height: 0;
-  max-height: 100%;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+  max-height: none;
   overflow: hidden;
+}
+
+html.pwa-standalone .pwa-app-shell,
+html.pwa-standalone .pwa-fixed-shell {
+  top: 0;
+  right: 0;
+  left: 0;
+  bottom: 0;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+  max-height: none;
+}
+
+html.pwa-standalone .home-with-nav {
+  padding-bottom: calc(var(--home-nav-height) + env(safe-area-inset-bottom, 0px));
+}
+
+html.pwa-standalone .home-nav-stack {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin-top: 0;
+  z-index: 50;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  background-color: #ffffff;
+}
+
+html.pwa-standalone .home-nav-stack.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @layer utilities {

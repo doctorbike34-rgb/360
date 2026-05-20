@@ -801,7 +801,7 @@ export function PeerMechanicHome() {
         )}
       </div>
 
-      <nav className="home-nav-stack relative z-50 bg-white/95 backdrop-blur-2xl border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
+      <nav className="home-nav-stack relative z-50 bg-white border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
           {/* Left Side (Flex 1) */}
           <div className="flex-1 flex justify-around items-center">
