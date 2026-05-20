@@ -487,8 +487,48 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           snap = await getDocs(qFallback);
         }
         const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as any[];
+
+        // Backfill from interventions (older SOS flows saved rating only on intervention doc)
+        let fromInterventions: any[] = [];
+        try {
+          const intQ = query(
+            collection(db, 'interventions'),
+            where('mechanicId', '==', user.uid),
+            orderBy('date', 'desc'),
+            limit(40)
+          );
+          const intSnap = await getDocs(intQ);
+          fromInterventions = intSnap.docs
+            .map((d) => {
+              const data = d.data() as any;
+              const rating = data.review?.rating ?? data.rating;
+              if (!rating || rating < 1) return null;
+              return {
+                id: `intervention_${d.id}`,
+                sosId: data.sosId,
+                cyclistId: data.cyclistId,
+                cyclistName: data.cyclistName || 'Ciclista',
+                rating,
+                text: data.review?.comment || data.review?.text || data.comment || '',
+                createdAt: data.date
+                  ? { seconds: Math.floor(new Date(data.date).getTime() / 1000) }
+                  : data.createdAt,
+              };
+            })
+            .filter(Boolean) as any[];
+        } catch (intErr) {
+          console.warn('Interventions review fallback:', intErr);
+        }
+
+        const mergedBySos = new Map<string, any>();
+        [...raw, ...fromInterventions].forEach((review) => {
+          const key = review.sosId || review.id;
+          if (!mergedBySos.has(key)) mergedBySos.set(key, review);
+        });
+        const merged = Array.from(mergedBySos.values());
+
         const enriched = await Promise.all(
-          raw.map(async (review) => {
+          merged.map(async (review) => {
             if (review.cyclistName) return review;
             if (!review.cyclistId) return { ...review, cyclistName: 'Ciclista' };
             try {
@@ -507,6 +547,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
           const toMs = (r: any) => {
             if (r.createdAt?.toDate) return r.createdAt.toDate().getTime();
             if (r.createdAt?.seconds) return r.createdAt.seconds * 1000;
+            if (typeof r.createdAt === 'string') return new Date(r.createdAt).getTime();
             return 0;
           };
           return toMs(b) - toMs(a);
@@ -1371,8 +1412,12 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                                 ))}
                               </div>
                             </div>
-                            {review.text && (
+                            {review.text?.trim() ? (
                               <p className="text-xs text-grey leading-relaxed">{review.text}</p>
+                            ) : (
+                              <p className="text-[10px] text-grey/50 font-bold uppercase tracking-widest italic">
+                                Valutazione senza commento
+                              </p>
                             )}
                           </div>
                         ))}
