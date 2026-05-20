@@ -1,7 +1,8 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
-import { Map } from './Map';
+import { Map, MapErrorBoundary } from './Map';
+import { getSosLatLng, isValidLatLngPair, mapCenterOrDefault } from '../lib/mapCoords';
 import { 
   Bell, 
   MapPin, 
@@ -105,9 +106,14 @@ function SOSLocationSelector({ setLoc, userLoc }: { setLoc: (pos: [number, numbe
 
   useMapEvents({
     moveend() {
-      const center = map.getCenter();
-      setLoc([center.lat, center.lng]);
-    }
+      try {
+        const c = map.getCenter();
+        const pos: [number, number] = [c.lat, c.lng];
+        if (isValidLatLngPair(pos)) setLoc(pos);
+      } catch {
+        /* map tearing down */
+      }
+    },
   });
 
   const [isLocating, setIsLocating] = useState(false);
@@ -265,7 +271,9 @@ export function CyclistHome() {
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
 
   const handleFocusOnEvent = (lat: number, lng: number) => {
-    setFocusedPos([lat, lng]);
+    const pos: [number, number] = [lat, lng];
+    if (!isValidLatLngPair(pos)) return;
+    setFocusedPos(pos);
     setActiveTab('MAP');
   };
   const [isUploading, setIsUploading] = useState(false);
@@ -730,6 +738,8 @@ export function CyclistHome() {
     if ((profile?.balance || 0) < price) {
       setShowInsufficientFunds(true);
       setIsCreatingSOS(false);
+      (window as any).firebaseTransactionInProgress = false;
+      localStorage.removeItem('fb_tx_lock');
       return;
     }
 
@@ -824,13 +834,24 @@ export function CyclistHome() {
     } catch (err) {
       console.error(err);
       const errMsg = (err as Error).message || '';
+      const errCode = (err as { code?: string }).code;
       if (errMsg.startsWith('RATE_LIMIT:')) {
         const minutes = errMsg.split(':')[1];
         toast.error(`Hai già inviato un SOS di recente. Riprova tra ${minutes} min.`);
       } else if (errMsg === 'Insufficient balance') {
         setShowInsufficientFunds(true);
+      } else if (errCode === 'permission-denied') {
+        const needsEmail = user && !user.emailVerified;
+        toast.error(
+          needsEmail
+            ? 'Verifica la tua email per inviare un SOS, poi riprova.'
+            : 'Impossibile inviare il SOS (permessi negati). Riprova tra poco o contatta il supporto.'
+        );
+        setSosStep(1);
       } else {
         handleFirestoreError(err, OperationType.WRITE, 'sosRequests/creation');
+        toast.error('Impossibile inviare il SOS. Riprova tra poco.');
+        setSosStep(1);
       }
     } finally {
       setIsCreatingSOS(false);
@@ -1069,8 +1090,8 @@ export function CyclistHome() {
   };
 
   const handleSosFormBackdropClick = () => {
-    if (sosStep > 1) {
-      toast('Completa o annulla il passaggio corrente prima di chiudere', { icon: 'ℹ️' });
+    if (isCreatingSOS) {
+      toast('Invio SOS in corso… attendi il completamento', { icon: 'ℹ️' });
       return;
     }
     closeSosForm();
@@ -1195,25 +1216,32 @@ export function CyclistHome() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
-                className="absolute inset-0 z-[100] flex flex-col bg-white"
+                className="absolute inset-0 z-[100] flex flex-col bg-white min-h-0"
               >
                 <ChatHeader 
                   chatId={directChat.id} 
                   defaultName={directChat.name} 
+                  safeTop
                   onBack={() => { 
                     setShowChat(false); 
                     setDirectChat(null); 
                   }} 
                   onViewProfile={setViewProfileId}
                 />
-                <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                <Chat
+                  chatId={directChat.id}
+                  otherPartyName={directChat.name}
+                  isAdminSupport={directChat.isAdminSupport}
+                  layout="home-overlay"
+                />
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Map Tab */}
           <div className={`absolute inset-0 transition-opacity duration-300 ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-            <Map 
+            <MapErrorBoundary>
+              <Map 
                 mechanicToTrackId={activeSOS?.mechanicId} 
                 onStartChat={startDirectChat}
                 onViewEventDetails={(event) => setSelectedEventDetails(event)}
@@ -1222,8 +1250,9 @@ export function CyclistHome() {
                 }}
                 onJoinEvent={toggleJoin}
                 joiningEventId={isJoiningEventId}
-                center={focusedPos || undefined}
+                center={focusedPos ?? undefined}
               />
+            </MapErrorBoundary>
           </div>
 
           {/* Social / Community Tab */}
@@ -1236,37 +1265,45 @@ export function CyclistHome() {
           </div>
 
           {/* Profile Tab */}
-          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm pb-48 transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm scroll-pad-nav transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
             <ProfileView isAvailable={profile?.isOnline} onToggleAvailability={toggleOnline} />
           </div>
 
           {/* Chat Tab List */}
-          <div className={`absolute inset-0 z-20 flex flex-col bg-white pb-32 transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 z-20 flex flex-col bg-white min-h-0 transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {directChat && !showChat ? (
                 <>
                   <ChatHeader 
                     chatId={directChat.id} 
                     defaultName={directChat.name} 
+                    safeTop
                     onBack={() => { 
                       setDirectChat(null); 
                     }} 
                     onViewProfile={setViewProfileId}
                   />
-                  <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                  <Chat
+                    chatId={directChat.id}
+                    otherPartyName={directChat.name}
+                    isAdminSupport={directChat.isAdminSupport}
+                    layout="home-tab"
+                  />
                 </>
               ) : (
                 <>
-                  <div className="bg-primary p-4 flex items-center gap-4 text-white">
+                  <div className="bg-primary px-4 pb-4 flex items-center gap-4 text-white shrink-0 chat-header-safe">
                     <h3 className="font-bold text-sm">{t('nav.chat')}</h3>
                   </div>
-                  <ChatListView 
-                    chats={displayChats}
-                    loading={chatsLoading}
-                    onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
-                      setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
-                    }}
-                    currentUserId={user?.uid || ''}
-                  />
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <ChatListView 
+                      chats={displayChats}
+                      loading={chatsLoading}
+                      onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
+                        setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
+                      }}
+                      currentUserId={user?.uid || ''}
+                    />
+                  </div>
                 </>
               )}
           </div>
@@ -1435,10 +1472,7 @@ export function CyclistHome() {
 
       {/* Floating SOS Button and Road Report (Only on Map Tab if no active SOS) */}
       {activeTab === 'MAP' && !activeSOS && (
-        <div
-          className="absolute inset-x-0 z-20 flex justify-center gap-4 pointer-events-none"
-          style={{ bottom: 'calc(var(--home-nav-height, 5.75rem) + var(--content-inset-bottom))' }}
-        >
+        <div className="absolute inset-x-0 z-20 flex justify-center gap-4 pointer-events-none home-nav-fab-offset">
            <button 
              onClick={() => setShowRoadReportModal(true)}
              className="pointer-events-auto bg-warning text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg shadow-warning/30 hover:scale-105 active:scale-95 transition-transform"
@@ -1462,27 +1496,27 @@ export function CyclistHome() {
       )}
 
       {/* Navigation */}
-      <nav className="home-nav-stack relative z-40 bg-white border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
-          <div className="flex-1 flex justify-around items-center">
+      <nav className="home-nav-stack relative z-40 border-t border-grey/5">
+        <div className="flex items-end justify-between px-2 sm:px-4 max-w-xl mx-auto relative min-h-[var(--home-nav-height)]">
+          <div className="flex-1 flex justify-around items-end pb-1">
             <NavButton active={activeTab === 'MAP' && !showChat} onClick={() => { setActiveTab('MAP'); setShowChat(false); }} icon={<MapPin />} label={t('nav.home')} />
             <NavButton active={activeTab === 'COMMUNITY'} onClick={() => setActiveTab('COMMUNITY')} icon={<Bike />} label={t('nav.social')} />
           </div>
           
-          <div className="w-16 sm:w-20 flex-shrink-0 flex flex-col items-center justify-center relative z-10 -mb-2">
+          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-10 -translate-y-2">
               <button 
                 onClick={toggleOnline}
                 aria-label={profile?.isOnline ? 'Visibile sulla mappa' : 'Invisibile sulla mappa'}
-                className={`w-16 h-16 rounded-[2rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 ${profile?.isOnline ? 'bg-primary text-white scale-110 shadow-primary/40 ring-4 ring-primary/20' : 'bg-grey/20  text-grey  shadow-none border border-white/5 rotate-45'}`}
+                className={`w-14 h-14 sm:w-16 sm:h-16 rounded-[1.75rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 ${profile?.isOnline ? 'bg-primary text-white shadow-primary/40 ring-4 ring-primary/20' : 'bg-grey/20 text-grey shadow-none border border-grey/10 rotate-45'}`}
               >
-                 <Power size={28} className={profile?.isOnline ? 'animate-pulse' : ''} />
+                 <Power size={24} className={profile?.isOnline ? 'animate-pulse' : ''} />
               </button>
-              <span className="mt-1 text-[7px] font-black uppercase tracking-widest text-grey text-center leading-tight">
+              <span className="mt-0.5 text-[7px] font-black uppercase tracking-widest text-grey text-center leading-tight max-w-[4.5rem] truncate">
                 {profile?.isOnline ? 'Visibile' : 'Invisibile'}
               </span>
           </div>
 
-          <div className="flex-1 flex justify-around items-center">
+          <div className="flex-1 flex justify-around items-end pb-1">
             <NavButton 
               active={activeTab === 'CHAT' || showChat} 
               onClick={() => { setActiveTab('CHAT'); setDirectChat(null); setShowChat(false); }} 
@@ -1559,7 +1593,7 @@ export function CyclistHome() {
                 </div>
 
                 {/* Embedded Map */}
-                {activeSOS.status === 'ACCEPTED' && activeSOS.mechanicId && (
+                {activeSOS.status === 'ACCEPTED' && activeSOS.mechanicId && getSosLatLng(activeSOS) && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-grey">Tracciamento in tempo reale</p>
@@ -1569,11 +1603,13 @@ export function CyclistHome() {
                       </div>
                     </div>
                     <div className="h-40 rounded-3xl overflow-hidden border border-grey/10 shadow-sm relative z-0">
-                      <Map 
-                        center={[activeSOS.lat, activeSOS.lng]} 
-                        mechanicToTrackId={activeSOS.mechanicId}
-                        minimal={true}
-                      />
+                      <MapErrorBoundary>
+                        <Map 
+                          center={getSosLatLng(activeSOS)!} 
+                          mechanicToTrackId={activeSOS.mechanicId}
+                          minimal={true}
+                        />
+                      </MapErrorBoundary>
                     </div>
                   </div>
                 )}
@@ -1988,7 +2024,7 @@ export function CyclistHome() {
                   <div className="flex-1 rounded-[1.5rem] overflow-hidden relative border-4 border-primary/20 mb-6 shadow-inner min-h-[220px]">
                       <div className="absolute inset-0 z-0 fade-in">
                         <MapContainer 
-                          center={sosLocation || [45.4642, 9.1900]} 
+                          center={mapCenterOrDefault(sosLocation)} 
                           zoom={17} 
                           zoomControl={false} 
                           style={{ width: '100%', height: '100%' }}

@@ -24,7 +24,9 @@
 
 /* PWA: single safe-area source — shell is full-bleed; children use content-inset vars */
 :root {
-  --home-nav-height: 5.75rem;
+  /* Bar content only; safe-area is added once in .home-nav-stack */
+  --home-nav-height: 4.5rem;
+  --home-nav-total-height: calc(var(--home-nav-height) + env(safe-area-inset-bottom, 0px));
   --content-inset-top: env(safe-area-inset-top, 0px);
   --content-inset-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -123,17 +125,32 @@ html.pwa-standalone .pwa-fixed-shell {
   max-height: none;
 }
 
-/* Safe-area for bottom nav — applies in ALL modes (browser + installed PWA).
- * iPhone 15 Pro Max / X / 11-14 have a home indicator that needs this.
- * Samsung Galaxy and Android with gesture nav also benefit (inset = 0 on most). */
+/*
+ * Bottom nav: in browser the nav is the last flex child — no extra padding on the shell.
+ * In installed PWA the nav is fixed; reserve space so map/chat are not hidden.
+ */
 .home-with-nav {
-  padding-bottom: calc(var(--home-nav-height) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: 0;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .home-with-nav {
+    padding-bottom: var(--home-nav-total-height);
+  }
+}
+
+html.pwa-standalone .home-with-nav {
+  padding-bottom: var(--home-nav-total-height);
 }
 
 .home-nav-stack {
-  /* Always pad the nav to cover the home indicator on notched iOS devices */
-  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  flex-shrink: 0;
   box-sizing: border-box;
+  background-color: #ffffff;
+  padding-top: 0.5rem;
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+  min-height: var(--home-nav-total-height);
+  box-shadow: 0 -10px 40px -5px rgba(0, 0, 0, 0.05);
 }
 
 html.pwa-standalone .home-nav-stack {
@@ -143,11 +160,17 @@ html.pwa-standalone .home-nav-stack {
   right: 0;
   margin-top: 0;
   z-index: 50;
-  box-sizing: border-box;
-  background-color: #ffffff;
-  /* Extend background behind safe-area using box-shadow trick */
-  box-shadow: 0 calc(env(safe-area-inset-bottom, 0px) * 2) 0 0 #ffffff,
-              0 -10px 40px -5px rgba(0,0,0,0.05);
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .home-nav-stack {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    margin-top: 0;
+    z-index: 50;
+  }
 }
 
 @layer utilities {
@@ -181,7 +204,52 @@ html.pwa-standalone .home-nav-stack {
   }
 
   .home-nav-fab-offset {
-    bottom: calc(var(--home-nav-height, 5.75rem) + var(--content-inset-bottom, 0px) + 3.5rem);
+    bottom: calc(var(--home-nav-total-height) + 0.75rem);
+  }
+
+  /* Scrollable tabs: extra pad only when bottom nav is fixed (PWA) */
+  .scroll-pad-nav {
+    padding-bottom: 1.5rem;
+  }
+
+  @media (display-mode: standalone), (display-mode: fullscreen) {
+    .scroll-pad-nav {
+      padding-bottom: calc(var(--home-nav-total-height) + 1rem);
+    }
+  }
+
+  html.pwa-standalone .scroll-pad-nav {
+    padding-bottom: calc(var(--home-nav-total-height) + 1rem);
+  }
+
+  /* Keep Leaflet attribution above fixed bottom nav */
+  .home-with-nav .leaflet-bottom.leaflet-right {
+    bottom: var(--home-nav-total-height) !important;
+  }
+
+  .chat-header-safe {
+    padding-top: calc(0.75rem + var(--content-inset-top));
+  }
+
+  .chat-messages-pane {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+
+  .home-nav-center-slot {
+    width: 3.5rem;
+    flex-shrink: 0;
+  }
+
+  @media (min-width: 640px) {
+    .home-nav-center-slot {
+      width: 4rem;
+    }
   }
 
   .px-safe { 

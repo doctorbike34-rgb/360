@@ -11,6 +11,7 @@ import { onSnapshot, doc } from 'firebase/firestore';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import { useTranslation } from 'react-i18next';
 import { defaultMarkerIcon } from '../lib/leafletIcons';
+import { getLatLngFromRecord } from '../lib/mapCoords';
 
 interface RoadReportDetailModalProps {
   report: RoadReport | null;
@@ -157,10 +158,13 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                 </p>
               </div>
 
-              {report?.location && (
+              {(() => {
+                const reportCoords = getLatLngFromRecord(report?.location ? { location: report.location } : null);
+                if (!reportCoords) return null;
+                return (
                 <div className="h-32 w-full rounded-2xl overflow-hidden mb-6 border border-grey/10 shadow-inner">
                   <MapContainer 
-                    center={[report.location.lat, report.location.lng]} 
+                    center={reportCoords} 
                     zoom={15} 
                     zoomControl={false} 
                     dragging={false} 
@@ -168,10 +172,11 @@ export function RoadReportDetailModal({ report: initialReport, onClose }: RoadRe
                     className="w-full h-full"
                   >
                     <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                    <Marker position={[report.location.lat, report.location.lng]} icon={defaultMarkerIcon()} />
+                    <Marker position={reportCoords} icon={defaultMarkerIcon()} />
                   </MapContainer>
                 </div>
-              )}
+                );
+              })()}
 
                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
                  <div className="flex items-center gap-4">

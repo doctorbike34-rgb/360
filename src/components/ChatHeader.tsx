@@ -12,9 +12,19 @@ interface ChatHeaderProps {
   onViewProfile?: (userId: string) => void;
   isAdminSupport?: boolean;
   targetUserId?: string;
+  /** Full-screen chat: keep header below status bar / notch */
+  safeTop?: boolean;
 }
 
-export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onBack, onViewProfile, isAdminSupport, targetUserId }) => {
+export const ChatHeader: React.FC<ChatHeaderProps> = ({
+  chatId,
+  defaultName,
+  onBack,
+  onViewProfile,
+  isAdminSupport,
+  targetUserId,
+  safeTop = false,
+}) => {
   const { user } = useAuthStore();
   const { t } = useTranslation();
   const [profile, setProfile] = useState<any>(null);
@@ -63,7 +73,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatId, defaultName, onB
   const isOnline = profile?.isOnline || profile?.presenceStatus === 'ONLINE';
 
   return (
-    <div className="bg-primary p-3 flex items-center gap-3 text-white transition-colors border-b border-black/10 ">
+    <div
+      className={`bg-primary px-3 pb-3 flex items-center gap-3 text-white transition-colors border-b border-black/10 shrink-0 ${safeTop ? 'chat-header-safe' : 'pt-3'}`}
+    >
       <button onClick={onBack} className="hover:bg-black/10 p-2 -ml-1 rounded-full transition-colors flex-shrink-0">
         <ArrowLeft size={24} />
       </button>

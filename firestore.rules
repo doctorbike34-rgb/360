@@ -87,8 +87,8 @@ service cloud.firestore {
       ) || (
         // Owner can update balance ONLY if backed by a valid linked transaction
         isOwner(userId) && (
-          (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId']) ||
-           incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'firstInterventionDiscount'])) &&
+          (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'lastSosAt']) ||
+           incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'updatedAt', 'lastTxId', 'firstInterventionDiscount', 'lastSosAt'])) &&
           incoming().lastTxId is string &&
           existsAfter(/databases/$(database)/documents/transactions/$(incoming().lastTxId)) &&
           (

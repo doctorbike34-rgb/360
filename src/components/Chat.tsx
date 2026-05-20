@@ -46,7 +46,22 @@ interface Message {
   type: 'TEXT' | 'IMAGE';
 }
 
-export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUserId }: { chatId: string, otherPartyName: string, isAdminSupport?: boolean, targetUserId?: string }) {
+export type ChatLayout = 'default' | 'home-tab' | 'home-overlay';
+
+export function Chat({
+  chatId,
+  isAdminSupport = false,
+  otherPartyName,
+  targetUserId,
+  layout = 'default',
+}: {
+  chatId: string;
+  otherPartyName: string;
+  isAdminSupport?: boolean;
+  targetUserId?: string;
+  /** home-tab/overlay: bottom nav already handles safe-area — avoid double padding */
+  layout?: ChatLayout;
+}) {
   const { user } = useAuthStore();
   const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -439,17 +454,17 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
     setNewMessage(prev => prev + emojiData.emoji);
   };
 
+  const inHomeShell = layout === 'home-tab' || layout === 'home-overlay';
+  const inputBottomPad = inHomeShell
+    ? '10px'
+    : 'calc(10px + env(safe-area-inset-bottom, 0px))';
+
   return (
-    <div className={`flex flex-col ${isAdminSupport ? 'flex-1 min-h-0' : 'h-full'} relative bg-white w-full max-w-full overflow-hidden`} style={{ minHeight: 0 }}>
-      {/* Messages */}
-      <div 
-        className="overflow-y-auto px-4 py-6 space-y-4 min-h-0" 
-        style={{ 
-          flex: 1,
-          paddingBottom: '12px',
-          WebkitOverflowScrolling: 'touch'
-        }}
-      >
+    <div
+      className={`flex flex-col flex-1 min-h-0 relative bg-white w-full max-w-full overflow-hidden ${isAdminSupport || inHomeShell ? '' : 'h-full'}`}
+    >
+      {/* Messages — anchored to bottom when few messages */}
+      <div className="chat-messages-pane px-4 py-4 space-y-3">
         {isAdminSupport && (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
@@ -525,12 +540,12 @@ export function Chat({ chatId, isAdminSupport = false, otherPartyName, targetUse
       <form 
         onSubmit={sendMessage} 
         className="shrink-0 bg-white text-black border-t border-grey/10 flex gap-1.5 sm:gap-2 items-end w-full max-w-full box-border"
-        style={{ 
+        style={{
           padding: '10px 12px',
-          paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
+          paddingBottom: inputBottomPad,
           position: 'relative',
           zIndex: isAdminSupport ? 300 : 20,
-          minHeight: '52px'
+          minHeight: '52px',
         }}
       >
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">

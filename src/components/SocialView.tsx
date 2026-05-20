@@ -9,6 +9,7 @@ import { defaultMarkerIcon } from '../lib/leafletIcons';
 import { gamificationService } from '../services/gamificationService';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { isFirestoreQuotaError } from '../lib/firestoreErrors';
+import { getLatLngFromRecord } from '../lib/mapCoords';
 
 function DraggableMarker({ position, setPosition }: { position: [number, number], setPosition: (pos: [number, number]) => void }) {
   const map = useMap();
@@ -421,7 +422,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
   };
 
   return (
-    <div className="flex-1 bg-white text-black border border-grey/10 shadow-sm overflow-y-auto p-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-48 relative transition-colors duration-500">
+    <div className="flex-1 bg-white text-black border border-grey/10 shadow-sm overflow-y-auto p-6 pt-[calc(1.5rem+env(safe-area-inset-top))] scroll-pad-nav relative transition-colors duration-500">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-3xl font-black text-primary  transition-colors">{t('social.title')}</h2>
@@ -509,8 +510,9 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (event.lastLat && event.lastLng) {
-                            onFocusEvent?.(event.lastLat, event.lastLng);
+                          const coords = getLatLngFromRecord(event);
+                          if (coords) {
+                            onFocusEvent?.(coords[0], coords[1]);
                           }
                         }}
                         className="p-3 bg-accent/10 text-accent rounded-xl hover:bg-accent/20 transition-all active:scale-90"

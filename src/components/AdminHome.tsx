@@ -43,7 +43,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { Transaction, Subscription, SupportTicket, AIConversation, PlatformStats, UserProfile, SOSRequest, RoadReport, PayoutRequest } from '../types';
 import { processEurPayout } from '../lib/payoutService';
 import { sanitizeAllLoyaltyPoints, runProductionReset } from '../lib/adminTools';
-import { Map } from './Map';
+import { Map as BicycleMap, MapErrorBoundary } from './Map';
 import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
@@ -51,28 +51,6 @@ import { ManualInvoiceModal } from './ManualInvoiceModal';
 import ReactMarkdown from 'react-markdown';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { getSosPlatformFeePercent } from '../lib/platformFees';
-
-class MapErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: Error) { console.error('Map crashed:', error); }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="absolute inset-0 flex items-center justify-center bg-white">
-          <div className="text-center p-8">
-            <p className="font-black text-primary uppercase tracking-widest text-sm mb-4">Mappa non disponibile</p>
-            <button onClick={() => this.setState({ hasError: false })} className="bg-primary text-white px-6 py-3 rounded-xl text-xs font-black uppercase">Riprova</button>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 type AdminTab = 'STATS' | 'USERS' | 'MAP' | 'SUPPORT' | 'DISPUTES' | 'AI_ASSISTANCE' | 'REPORTS' | 'PROFILE' | 'FINANCE';
 
@@ -1021,7 +999,7 @@ export function AdminHome() {
               className="absolute inset-0 lg:rounded-[3rem] overflow-hidden border-0 lg:border-8 border-white shadow-2xl"
             >
               <MapErrorBoundary>
-              <Map
+              <BicycleMap
                 isAdmin={true} 
                 adminUsers={allUsers}
                 onViewReportDetails={(report) => setSelectedReport(report)}

@@ -25,7 +25,7 @@ import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTimestamp, getDocs, runTransaction, arrayUnion, arrayRemove, orderBy, limit, increment, GeoPoint } from 'firebase/firestore';
 import { useAuthStore } from '../store/useAuthStore';
 import { ProfileView } from './ProfileView';
-import { Map as BicycleMap } from './Map';
+import { Map as BicycleMap, MapErrorBoundary } from './Map';
 import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { ChatListView } from './ChatListView';
 import { ChatHeader } from './ChatHeader';
@@ -507,7 +507,7 @@ export function PeerMechanicHome() {
         </AnimatePresence>
 
         {activeTab === 'WORK' && (
-            <div className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm transition-colors z-20 pb-[calc(2rem+env(safe-area-inset-bottom)+5.5rem)]">
+            <div className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm transition-colors z-20 scroll-pad-nav">
                 <div className="p-6 w-full max-w-7xl mx-auto space-y-6">
                     <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-grey/10">
                         <div>
@@ -703,6 +703,7 @@ export function PeerMechanicHome() {
         )}
         {activeTab === 'MAP' && (
            <>
+            <MapErrorBoundary>
             <BicycleMap 
               onStartChat={startDirectChat}
               onViewEventDetails={(event) => setSelectedEventDetails(event)}
@@ -710,6 +711,7 @@ export function PeerMechanicHome() {
               onJoinEvent={toggleJoin}
               joiningEventId={isJoiningEventId}
             />
+            </MapErrorBoundary>
             <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-40 flex flex-col gap-3">
               <button 
                 onClick={() => setActiveTab('COMMUNITY')}
@@ -757,17 +759,18 @@ export function PeerMechanicHome() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
-              className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm pb-[calc(2rem+env(safe-area-inset-bottom)+110px)] transition-colors z-20"
+              className="absolute inset-0 overflow-y-auto scroll-smooth bg-white text-black border border-grey/10 shadow-sm scroll-pad-nav transition-colors z-20"
             >
               <ProfileView isAvailable={isAvailable} onToggleAvailability={toggleAvailability} />
             </motion.div>
         )}
         {activeTab === 'CHAT' && (
-            <motion.div key="chat-tab" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-20 flex flex-col bg-white  pb-[110px]">
+            <motion.div key="chat-tab" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-20 flex flex-col bg-white min-h-0">
               {directChat ? (
                 <ChatHeader 
                   chatId={directChat.id} 
                   defaultName={directChat.name} 
+                  safeTop
                   onBack={() => {
                     setDirectChat(null);
                     setShowChat(false);
@@ -775,16 +778,17 @@ export function PeerMechanicHome() {
                   onViewProfile={setViewProfileId}
                 />
               ) : (
-                <div className="bg-primary p-4 flex items-center gap-4 text-black  transition-colors">
-                  <h3 className="font-bold text-black  transition-colors">{t('nav.chat')}</h3>
+                <div className="bg-primary px-4 pb-4 flex items-center gap-4 text-black shrink-0 chat-header-safe transition-colors">
+                  <h3 className="font-bold text-black transition-colors">{t('nav.chat')}</h3>
                 </div>
               )}
-      <div className="overflow-hidden relative" style={{ flex: '1 1 0%', minHeight: 0 }}>
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden relative">
                 {directChat ? (
                   <Chat
                     chatId={directChat.id}
                     otherPartyName={directChat.name}
                     isAdminSupport={directChat.isAdminSupport}
+                    layout="home-tab"
                   />
                 ) : (
                   <div className="h-full overflow-y-auto">
@@ -801,29 +805,26 @@ export function PeerMechanicHome() {
         )}
       </div>
 
-      <nav className="home-nav-stack relative z-50 bg-white border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
-          {/* Left Side (Flex 1) */}
-          <div className="flex-1 flex justify-around items-center">
+      <nav className="home-nav-stack relative z-50 border-t border-grey/5">
+        <div className="flex items-end justify-between px-2 sm:px-4 max-w-xl mx-auto relative min-h-[var(--home-nav-height)]">
+          <div className="flex-1 flex justify-around items-end pb-1">
               <NavButton active={activeTab === 'MAP'} icon={<Navigation2 />} label="Mappa" onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />
               <NavButton active={activeTab === 'WORK'} icon={<Wrench />} label={t('mechanic.work')} onClick={() => { setShowChat(false); setActiveTab('WORK'); }} />
           </div>
           
-          {/* Center Area Fixed */}
-          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative z-10 group -mb-2">
+          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-10 group -translate-y-2">
               <button 
                 onClick={toggleAvailability}
-                className={`w-16 h-16 rounded-[3rem] flex items-center justify-center shadow-2xl transition-all duration-500 active:scale-95 ${isAvailable ? 'bg-primary text-white scale-110 shadow-primary/40 ring-4 ring-primary/20' : 'bg-white text-black text-grey shadow-none border border-grey/10'}`}
+                className={`w-14 h-14 sm:w-16 sm:h-16 rounded-[1.75rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 ${isAvailable ? 'bg-primary text-white shadow-primary/40 ring-4 ring-primary/20' : 'bg-white text-grey shadow-none border border-grey/10'}`}
               >
-                {isAvailable ? <Bike className="animate-bounce" size={28} /> : <Power size={28} />}
+                {isAvailable ? <Bike className="animate-bounce" size={24} /> : <Power size={24} />}
               </button>
               <div className={`absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity ${isAvailable ? 'bg-primary text-white' : 'bg-grey text-white'}`}>
                 {isAvailable ? t('mechanic.online') : t('mechanic.offline')}
               </div>
           </div>
 
-          {/* Right Side (Flex 1) */}
-          <div className="flex-1 flex justify-around items-center">
+          <div className="flex-1 flex justify-around items-end pb-1">
               <NavButton 
                 active={activeTab === 'CHAT' || showChat} 
                 icon={<MessageSquare />} 

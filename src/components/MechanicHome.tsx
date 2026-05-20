@@ -37,7 +37,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { signOut } from 'firebase/auth';
 import { Chat } from './Chat';
 import { ProfileView } from './ProfileView';
-import { Map as BicycleMap } from './Map';
+import { Map as BicycleMap, MapErrorBoundary } from './Map';
 import { ModalSuspense, RoadReportDetailModalLazy } from './lazyModals';
 import { ChatListView } from './ChatListView';
 import { ChatHeader } from './ChatHeader';
@@ -912,24 +912,30 @@ export function MechanicHome() {
                 initial={{ opacity: 0, x: 20 }} 
                 animate={{ opacity: 1, x: 0 }} 
                 exit={{ opacity: 0, x: 20 }} 
-                className="absolute inset-0 z-[100] flex flex-col bg-white transition-colors"
+                className="absolute inset-0 z-[100] flex flex-col bg-white min-h-0 transition-colors"
               >
                 <ChatHeader 
                   chatId={directChat.id} 
                   defaultName={directChat.name} 
+                  safeTop
                   onBack={() => { 
                     setShowChat(false); 
                     setDirectChat(null); 
                   }} 
                   onViewProfile={setViewProfileId}
                 />
-                <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                <Chat
+                  chatId={directChat.id}
+                  otherPartyName={directChat.name}
+                  isAdminSupport={directChat.isAdminSupport}
+                  layout="home-overlay"
+                />
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Profile Tab */}
-          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white z-20 pb-48 transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white z-20 scroll-pad-nav transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
             <div className="bg-primary p-4 flex items-center gap-4 text-black sticky top-0 z-10 transition-colors">
               <button onClick={() => setActiveTab('WORK')} className="hover:bg-black/5 p-2 rounded-full transition-colors"><ArrowLeft size={24}/></button>
               <h3 className="font-bold">{t('profile.title')}</h3>
@@ -938,45 +944,55 @@ export function MechanicHome() {
           </div>
 
           {/* Chat Tab List */}
-          <div className={`absolute inset-0 z-20 flex flex-col bg-white pb-[110px] transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 z-20 flex flex-col bg-white min-h-0 transition-opacity duration-300 ${activeTab === 'CHAT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {directChat && !showChat ? (
                 <>
                   <ChatHeader 
                     chatId={directChat.id} 
                     defaultName={directChat.name} 
+                    safeTop
                     onBack={() => {
                       setDirectChat(null);
                       setShowChat(false);
                     }} 
                     onViewProfile={setViewProfileId}
                   />
-                  <Chat chatId={directChat.id} otherPartyName={directChat.name} isAdminSupport={directChat.isAdminSupport} />
+                  <Chat
+                    chatId={directChat.id}
+                    otherPartyName={directChat.name}
+                    isAdminSupport={directChat.isAdminSupport}
+                    layout="home-tab"
+                  />
                 </>
               ) : (
                 <>
-                  <div className="bg-primary p-4 flex items-center gap-4 text-black transition-colors">
+                  <div className="bg-primary px-4 pb-4 flex items-center gap-4 text-black shrink-0 chat-header-safe transition-colors">
                     <h3 className="font-bold text-sm text-black transition-colors">{t('nav.chat')}</h3>
                   </div>
-                  <ChatListView 
-                    chats={displayChats}
-                    loading={chatsLoading}
-                    onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
-                      setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
-                    }}
-                    currentUserId={user?.uid || ''}
-                  />
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <ChatListView 
+                      chats={displayChats}
+                      loading={chatsLoading}
+                      onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
+                        setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
+                      }}
+                      currentUserId={user?.uid || ''}
+                    />
+                  </div>
                 </>
               )}
           </div>
 
           {/* Map Tab */}
           <div className={`absolute inset-0 transition-opacity duration-300 ${activeTab === 'MAP' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+             <MapErrorBoundary>
              <BicycleMap 
                onStartChat={startDirectChat}
                onViewReportDetails={(report) => {
                  setSelectedReport(report);
                }}
              />
+             </MapErrorBoundary>
              <div className="absolute top-24 right-4 z-20">
                <button onClick={() => setShowStats(!showStats)} className="w-12 h-12 bg-white rounded-full shadow-lg border border-grey/10 flex items-center justify-center text-primary hover:bg-grey/5 transition-colors">
                  <TrendingUp size={24} />
@@ -985,7 +1001,7 @@ export function MechanicHome() {
              
              <AnimatePresence>
                 {showStats && (
-                  <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto pb-48">
+                  <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-x-0 bottom-0 top-[120px] bg-white rounded-t-3xl shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.1)] z-30 p-6 overflow-y-auto scroll-pad-nav">
                      <div className="mb-8 flex items-start justify-between">
                         <div>
                           <h2 className="text-2xl font-black text-primary">{t('mechanic.stats')}</h2>
@@ -1083,7 +1099,7 @@ export function MechanicHome() {
           </div>
 
           {/* Work Tab (Home) */}
-          <div className={`absolute inset-0 overflow-y-auto pb-48 transition-opacity duration-300 ${activeTab === 'WORK' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+          <div className={`absolute inset-0 overflow-y-auto scroll-pad-nav transition-opacity duration-300 ${activeTab === 'WORK' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
              {/* Header */}
              <div className="bg-primary pt-8 pb-12 px-4 sm:pt-12 sm:pb-16 sm:px-6 rounded-b-[3rem] relative transition-colors">
                 <div className="flex justify-between items-center mb-4 sm:mb-6">
@@ -1235,9 +1251,9 @@ export function MechanicHome() {
       </div>
 
       {/* Navigation Bottom */}
-      <nav className="home-nav-stack relative z-50 bg-white border-t border-grey/5 pt-3 pb-safe shadow-[0_-10px_40px_-5px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center justify-between px-1 sm:px-4 max-w-xl mx-auto relative">
-          <div className="flex-1 flex justify-around items-center">
+      <nav className="home-nav-stack relative z-50 border-t border-grey/5">
+        <div className="flex items-end justify-between px-2 sm:px-4 max-w-xl mx-auto relative min-h-[var(--home-nav-height)]">
+          <div className="flex-1 flex justify-around items-end pb-1">
             <NavButton active={activeTab === 'MAP'} icon={<MapIcon />} label="Mappa" onClick={() => { setShowChat(false); setActiveTab('MAP'); }} />
             <NavButton active={activeTab === 'WORK'} icon={<Wrench />} 
               label={t('mechanic.work')} 
@@ -1246,14 +1262,14 @@ export function MechanicHome() {
             />
           </div>
           
-          <div className="w-16 sm:w-20 flex-shrink-0 flex justify-center relative z-20 group -mb-2">
+          <div className="home-nav-center-slot flex flex-col items-center justify-end relative z-20 group -translate-y-2">
             {(profile?.plan === 'MECHANIC_FREE' || (profile?.role === 'MECHANIC' && !profile?.plan)) ? (
-              <div className="w-16 h-16 rounded-[2rem] flex items-center justify-center bg-grey/10 text-grey/40 border border-grey/20 z-20 relative shadow-inner cursor-not-allowed" title="Attiva un piano dal profilo per andare online">
-                <Power size={28} />
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-[1.75rem] flex items-center justify-center bg-grey/10 text-grey/40 border border-grey/20 shadow-inner cursor-not-allowed" title="Attiva un piano dal profilo per andare online">
+                <Power size={24} />
               </div>
             ) : (
-              <button onClick={toggleAvailability} className={`w-16 h-16 rounded-[2rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 z-20 relative ${isAvailable ? 'bg-primary text-white scale-110 shadow-primary/40 ring-4 ring-primary/20' : 'bg-grey/20  text-grey  shadow-none border border-white/5 rotate-45'}`}>
-                <Power size={28} className={isAvailable ? 'animate-pulse' : ''} />
+              <button onClick={toggleAvailability} className={`w-14 h-14 sm:w-16 sm:h-16 rounded-[1.75rem] flex items-center justify-center shadow-xl transition-all duration-500 active:scale-95 z-20 relative ${isAvailable ? 'bg-primary text-white shadow-primary/40 ring-4 ring-primary/20' : 'bg-grey/20 text-grey shadow-none border border-grey/10 rotate-45'}`}>
+                <Power size={24} className={isAvailable ? 'animate-pulse' : ''} />
               </button>
             )}
 
@@ -1266,7 +1282,7 @@ export function MechanicHome() {
             </AnimatePresence>
           </div>
 
-          <div className="flex-1 flex justify-around items-center">
+          <div className="flex-1 flex justify-around items-end pb-1">
             <NavButton active={activeTab === 'CHAT'} icon={<MessageSquare />} 
               label={t('nav.chat')} 
               onClick={() => { setDirectChat(null); setShowChat(false); setActiveTab('CHAT'); }} 

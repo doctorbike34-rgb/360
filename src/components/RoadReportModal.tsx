@@ -7,6 +7,7 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import imageCompression from 'browser-image-compression';
 import { useAuthStore } from '../store/useAuthStore';
 import { roadReportService } from '../services/roadReportService';
+import { isValidLatLngPair, mapCenterOrDefault } from '../lib/mapCoords';
 import { fileToBase64 } from '../lib/fileUtils';
 const SEVERITIES = [
   { id: 'low', color: 'bg-yellow-500' },
@@ -55,9 +56,14 @@ function LocationSelector({ setLoc, userLoc, onRefresh }: { setLoc: (pos: [numbe
 
   useMapEvents({
     moveend() {
-      const center = map.getCenter();
-      setLoc([center.lat, center.lng]);
-    }
+      try {
+        const c = map.getCenter();
+        const pos: [number, number] = [c.lat, c.lng];
+        if (isValidLatLngPair(pos)) setLoc(pos);
+      } catch {
+        /* map tearing down */
+      }
+    },
   });
 
   return (
@@ -345,7 +351,7 @@ export function RoadReportModal({ isOpen, onClose }: { isOpen: boolean, onClose:
                 <div className="flex-1 rounded-2xl overflow-hidden relative border-4 border-primary/20 mb-4 shadow-inner">
                      {pos && (
                         <MapContainer 
-                          center={pos} 
+                          center={mapCenterOrDefault(pos)} 
                           zoom={16} 
                           zoomControl={false} 
                           style={{ width: '100%', height: '100%' }}

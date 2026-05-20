@@ -18,6 +18,7 @@ import { User as FirebaseUser } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc, limit, getDocs, updateDoc, serverTimestamp, orderBy, startAt, endAt, runTransaction } from 'firebase/firestore';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 import { filterItemsNearMapCenter } from '../lib/mapGeoFilter';
+import { isValidLatLngPair, mapCenterOrDefault } from '../lib/mapCoords';
 import { MAP_VISIBLE_ROLES } from '../services/mapPresenceService';
 import { useTranslation } from 'react-i18next';
 import { useThemeStore } from '../store/useThemeStore';
@@ -381,8 +382,12 @@ function MapFlyController({ flyTarget }: { flyTarget: { pos: [number, number]; n
   const map = useMap();
 
   useEffect(() => {
-    if (!flyTarget) return;
-    map.flyTo(flyTarget.pos, 15, { animate: true, duration: 0.35 });
+    if (!flyTarget || !isValidLatLngPair(flyTarget.pos)) return;
+    try {
+      map.flyTo(flyTarget.pos, 15, { animate: true, duration: 0.35 });
+    } catch {
+      /* map may be unmounting */
+    }
   }, [flyTarget?.nonce, flyTarget?.pos, map]);
 
   return null;
@@ -442,7 +447,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   const [debouncedUserPos, setDebouncedUserPos] = useState<[number, number] | null>(null);
   const userPosDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null); 
   const [flyTarget, setFlyTarget] = useState<{ pos: [number, number]; nonce: number } | null>(
-    center ? { pos: center, nonce: 0 } : null
+    isValidLatLngPair(center) ? { pos: center, nonce: 0 } : null
   );
   const [trackedMechanic, setTrackedMechanic] = useState<any>(null);
   const [selectedObj, setSelectedObj] = useState<any>(null);
@@ -459,6 +464,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   const mapLayersReadyRef = useRef({ events: false, reports: false });
 
   const flyToPosition = useCallback((pos: [number, number], syncLayers = true) => {
+    if (!isValidLatLngPair(pos)) return;
     setUserPos(pos);
     if (syncLayers) setDebouncedUserPos(pos);
     setFlyTarget({ pos, nonce: Date.now() });
@@ -480,8 +486,10 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   useEffect(() => {
     if (storeLocation) {
       const pos: [number, number] = [storeLocation.lat, storeLocation.lng];
-      setUserPos(pos);
-      setDebouncedUserPos((prev) => prev ?? pos);
+      if (isValidLatLngPair(pos)) {
+        setUserPos(pos);
+        setDebouncedUserPos((prev) => prev ?? pos);
+      }
     }
   }, [storeLocation]);
 
@@ -548,7 +556,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
   }, [storeLocation, flyToPosition]);
 
   useEffect(() => {
-    if (center) {
+    if (isValidLatLngPair(center)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       flyToPosition(center, false);
     }
@@ -785,7 +793,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
       {/* Bottom-Right Controls: Map Type, Dark Mode, AI, Locate */}
       {!minimal && (
-        <div className="absolute bottom-28 right-4 z-[999] flex flex-col gap-3 pointer-events-auto items-end">
+        <div className="absolute home-nav-fab-offset right-4 z-[999] flex flex-col gap-3 pointer-events-auto items-end">
            {/* Map Type Selector */}
            <div className="relative flex flex-col items-end gap-2">
              {showMapTypes && (
@@ -881,7 +889,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
 
       <MapContainer 
         {...({
-          center: userPos || [45.4642, 9.1900],
+          center: mapCenterOrDefault(userPos),
           zoom: minimal ? 15 : 13,
           scrollWheelZoom: !minimal,
           dragging: !minimal,
@@ -1025,5 +1033,45 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
       </MapContainer>
     </div>
   );
+}
+
+export class MapErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Map crashed:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center bg-white">
+          <div className="text-center p-8">
+            <p className="font-black text-primary uppercase tracking-widest text-sm mb-4">
+              Mappa non disponibile
+            </p>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false })}
+              className="bg-primary text-white px-6 py-3 rounded-xl text-xs font-black uppercase"
+            >
+              Riprova
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
