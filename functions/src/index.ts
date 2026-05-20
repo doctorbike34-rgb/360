@@ -502,6 +502,8 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
   const userRef = db.collection('users').doc(userId);
   const userPlan = planId as string;
 
+  let shouldRecordRevenue = false;
+
   await db.runTransaction(async (t) => {
     // --- PHASE 1: ALL READS FIRST (Firestore requires reads before writes) ---
     const userSnap = await t.get(userRef);
@@ -511,9 +513,11 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
     const txRef = db.collection('transactions').doc(paymentIntentId);
     const txSnap = await t.get(txRef);
 
+    const alreadyPaid = subSnap.exists && subSnap.data()?.status === 'PAID';
+    shouldRecordRevenue = !alreadyPaid;
+
     // --- PHASE 2: ALL WRITES ---
     if (subSnap.exists) {
-      // Already exists — just update status (idempotent)
       t.update(subRef, {
         status: 'PAID',
         stripePaymentIntentId: paymentIntentId,
@@ -567,6 +571,12 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   });
+
+  // Webhook + client confirm both call this — increment platform revenue only once per checkout session.
+  if (!shouldRecordRevenue) {
+    console.log(`activateSubscriptionFromCheckout: revenue already recorded for ${session.id}`);
+    return;
+  }
 
   const statsRef = db.collection('platformStats').doc('global');
   await db.runTransaction(async (t) => {
@@ -921,7 +931,8 @@ export const createCheckoutSession = functions.region('europe-west1').https.onRe
     if (isSubscription && planId) {
       const userSnap = await db.collection('users').doc(userId).get();
       const userData = userSnap.data() || {};
-      const subRef = db.collection('subscriptions').doc();
+      // Same doc id as activateSubscriptionFromCheckout — avoids duplicate PENDING + PAID rows.
+      const subRef = db.collection('subscriptions').doc(`checkout_${session.id}`);
       await subRef.set({
         userId,
         userName: userData.name || decodedToken.name || 'Meccanico',
@@ -933,7 +944,7 @@ export const createCheckoutSession = functions.region('europe-west1').https.onRe
         stripeCheckoutSessionId: session.id,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      }, { merge: true });
       await db.collection('users').doc(userId).set(
         {
           subscriptionPendingPlan: planId,

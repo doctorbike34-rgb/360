@@ -469,24 +469,26 @@ async function activateSubscriptionFromCheckout(session) {
     const paymentIntentId = resolveCheckoutPaymentId(session);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + PLAN_DURATION_DAYS);
-    const subsSnap = await db
-        .collection('subscriptions')
-        .where('stripeCheckoutSessionId', '==', session.id)
-        .limit(1)
-        .get();
+    // Use session.id as deterministic subscription doc ID to prevent duplicates
+    // from concurrent webhook + client calls
+    const subRef = db.collection('subscriptions').doc(`checkout_${session.id}`);
     const userRef = db.collection('users').doc(userId);
     const userPlan = planId;
+    let shouldRecordRevenue = false;
     await db.runTransaction(async (t) => {
-        var _a, _b;
+        var _a, _b, _c;
         // --- PHASE 1: ALL READS FIRST (Firestore requires reads before writes) ---
         const userSnap = await t.get(userRef);
         if (!userSnap.exists)
             return;
+        const subSnap = await t.get(subRef);
         const txRef = db.collection('transactions').doc(paymentIntentId);
         const txSnap = await t.get(txRef);
+        const alreadyPaid = subSnap.exists && ((_a = subSnap.data()) === null || _a === void 0 ? void 0 : _a.status) === 'PAID';
+        shouldRecordRevenue = !alreadyPaid;
         // --- PHASE 2: ALL WRITES ---
-        if (!subsSnap.empty) {
-            t.update(subsSnap.docs[0].ref, {
+        if (subSnap.exists) {
+            t.update(subRef, {
                 status: 'PAID',
                 stripePaymentIntentId: paymentIntentId,
                 expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
@@ -494,11 +496,10 @@ async function activateSubscriptionFromCheckout(session) {
             });
         }
         else {
-            const subRef = db.collection('subscriptions').doc();
             t.set(subRef, {
                 userId,
-                userName: ((_a = userSnap.data()) === null || _a === void 0 ? void 0 : _a.name) || 'Meccanico',
-                userEmail: ((_b = userSnap.data()) === null || _b === void 0 ? void 0 : _b.email) || '',
+                userName: ((_b = userSnap.data()) === null || _b === void 0 ? void 0 : _b.name) || 'Meccanico',
+                userEmail: ((_c = userSnap.data()) === null || _c === void 0 ? void 0 : _c.email) || '',
                 planId: userPlan,
                 amount: (session.amount_total || 0) / 100,
                 currency: session.currency || 'eur',
@@ -537,6 +538,11 @@ async function activateSubscriptionFromCheckout(session) {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
     });
+    // Webhook + client confirm both call this — increment platform revenue only once per checkout session.
+    if (!shouldRecordRevenue) {
+        console.log(`activateSubscriptionFromCheckout: revenue already recorded for ${session.id}`);
+        return;
+    }
     const statsRef = db.collection('platformStats').doc('global');
     await db.runTransaction(async (t) => {
         const snap = await t.get(statsRef);
@@ -869,7 +875,8 @@ exports.createCheckoutSession = functions.region('europe-west1').https.onRequest
         if (isSubscription && planId) {
             const userSnap = await db.collection('users').doc(userId).get();
             const userData = userSnap.data() || {};
-            const subRef = db.collection('subscriptions').doc();
+            // Same doc id as activateSubscriptionFromCheckout — avoids duplicate PENDING + PAID rows.
+            const subRef = db.collection('subscriptions').doc(`checkout_${session.id}`);
             await subRef.set({
                 userId,
                 userName: userData.name || decodedToken.name || 'Meccanico',
@@ -881,7 +888,7 @@ exports.createCheckoutSession = functions.region('europe-west1').https.onRequest
                 stripeCheckoutSessionId: session.id,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+            }, { merge: true });
             await db.collection('users').doc(userId).set({
                 subscriptionPendingPlan: planId,
                 subscriptionCheckoutSessionId: session.id,

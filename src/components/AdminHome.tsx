@@ -91,6 +91,22 @@ export function AdminHome() {
   const [aiGuidelines, setAiGuidelines] = useState('');
   const [isSavingAI, setIsSavingAI] = useState(false);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  /** One row per Stripe checkout session (hides legacy PENDING+PAID duplicate docs). */
+  const subscriptionsForDisplay = React.useMemo(() => {
+    const bySession = new Map<string, Subscription>();
+    for (const sub of subscriptions) {
+      const key = sub.stripeCheckoutSessionId || sub.id;
+      const prev = bySession.get(key);
+      if (!prev) {
+        bySession.set(key, sub);
+        continue;
+      }
+      const rank = (s: Subscription) =>
+        s.status === 'PAID' ? 3 : s.status === 'PENDING' ? 2 : 1;
+      if (rank(sub) > rank(prev)) bySession.set(key, sub);
+    }
+    return Array.from(bySession.values());
+  }, [subscriptions]);
   const [financialTransactions, setFinancialTransactions] = useState<Transaction[]>([]);
   const [isRefunding, setIsRefunding] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
@@ -1795,7 +1811,7 @@ export function AdminHome() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-grey/5">
-                        {subscriptions.map(sub => (
+                        {subscriptionsForDisplay.map(sub => (
                           <tr key={sub.id} className="text-xs">
                             <td className="py-4">
                               <p className="font-black text-black">{sub.userName || 'Utente'}</p>
