@@ -1889,12 +1889,15 @@ export function AdminHome() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-grey/5">
-                        {financialTransactions.map(tx => (
+                        {financialTransactions
+                          .filter(tx => tx.type !== 'SUBSCRIPTION')
+                          .map(tx => (
                           <tr key={tx.id} className="text-xs">
                             <td className="py-4">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
                                 tx.type === 'SOS_PAYMENT' ? 'bg-danger/10 text-danger' : 
-                                tx.type === 'SUBSCRIPTION' ? 'bg-primary/10 text-primary' : 
+                                tx.type === 'ADMIN_DISPUTE_RELEASE' ? 'bg-accent/10 text-accent' :
+                                tx.type === 'ADMIN_DISPUTE_REFUND' ? 'bg-warning/10 text-warning' :
                                 'bg-grey/10 text-grey'
                               }`}>
                                 {tx.type?.replace(/_/g, ' ')}

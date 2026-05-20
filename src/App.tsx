@@ -680,12 +680,21 @@ export default function App() {
 
   const completingProfile = needsProfileCompletion(user, role);
 
-  if ((loading && !user) || googleRedirectResolving) {
+  // Show spinner if: initial load, Google redirect resolving,
+  // OR user is authenticated but profile hasn't loaded yet (role still null).
+  // This prevents the role-selection screen from flashing for existing users.
+  if ((loading && !user) || googleRedirectResolving || (user && role === null && loading)) {
     return (
       <div className="pwa-fixed-shell flex items-center justify-center bg-slate-50">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
       </div>
     );
+  }
+
+  // Extra guard: user logged in but role still undefined after loading — wait silently
+  if (user && role === null && !loading) {
+    // Profile loaded but no role set: genuine new user — fall through to Auth
+    // (completingProfile will be true and Auth will show role selection correctly)
   }
 
   const dismissLanding = (toLogin: boolean) => {

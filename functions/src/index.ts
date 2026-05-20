@@ -495,11 +495,9 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + PLAN_DURATION_DAYS);
 
-  const subsSnap = await db
-    .collection('subscriptions')
-    .where('stripeCheckoutSessionId', '==', session.id)
-    .limit(1)
-    .get();
+  // Use session.id as deterministic subscription doc ID to prevent duplicates
+  // from concurrent webhook + client calls
+  const subRef = db.collection('subscriptions').doc(`checkout_${session.id}`);
 
   const userRef = db.collection('users').doc(userId);
   const userPlan = planId as string;
@@ -509,19 +507,20 @@ async function activateSubscriptionFromCheckout(session: Stripe.Checkout.Session
     const userSnap = await t.get(userRef);
     if (!userSnap.exists) return;
 
+    const subSnap = await t.get(subRef);
     const txRef = db.collection('transactions').doc(paymentIntentId);
     const txSnap = await t.get(txRef);
 
     // --- PHASE 2: ALL WRITES ---
-    if (!subsSnap.empty) {
-      t.update(subsSnap.docs[0].ref, {
+    if (subSnap.exists) {
+      // Already exists — just update status (idempotent)
+      t.update(subRef, {
         status: 'PAID',
         stripePaymentIntentId: paymentIntentId,
         expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     } else {
-      const subRef = db.collection('subscriptions').doc();
       t.set(subRef, {
         userId,
         userName: userSnap.data()?.name || 'Meccanico',
