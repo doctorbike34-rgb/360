@@ -33,6 +33,7 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --app-nav-block: calc(var(--app-nav-height) + var(--safe-bottom));
+  --fab-gap-above-nav: 1.25rem;
   /* Legacy aliases */
   --home-nav-height: var(--app-nav-height);
   --home-nav-total-height: var(--app-nav-block);
@@ -91,7 +92,7 @@
   .top-content-banner { top: calc(0.5rem + var(--safe-top)); }
   .top-floating { top: calc(1rem + var(--safe-top)); }
 
-  .home-nav-fab-offset { bottom: calc(var(--app-nav-block) + 0.75rem); }
+  .home-nav-fab-offset { bottom: calc(var(--app-nav-block) + var(--fab-gap-above-nav)); }
 
   .app-scroll { padding-bottom: 1.5rem; }
 
