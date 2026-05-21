@@ -1,0 +1,3 @@
+## 2024-05-21 - [Map Markers Memoization with Leaflet]
+**Learning:** React Leaflet markers wrapped in `React.memo` are defeated by inline functions like `onClick={() => setSomething(item)}` created in the parent `Map` component. This causes very expensive map re-renders on every state change (e.g. tracking a user's location).
+**Action:** Always pass a stable state setter (`setSelectedObj`) directly to the map markers as `onMarkerClick={setSelectedObj}` and handle the payload/item within the marker component (`onClick={() => onMarkerClick(item)}`) to preserve memoization and prevent re-renders.
