@@ -182,6 +182,10 @@ export function MechanicHome() {
     return unsub;
   }, [user]);
 
+  const handleSelectChat = React.useCallback((chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
+    setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
+  }, [setDirectChat]);
+
   const displayChats = React.useMemo(() => {
     const list = [...recentChats];
     activeJobs.forEach(job => {
@@ -973,9 +977,7 @@ export function MechanicHome() {
                     <ChatListView 
                       chats={displayChats}
                       loading={chatsLoading}
-                      onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
-                        setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
-                      }}
+                      onSelectChat={handleSelectChat}
                       currentUserId={user?.uid || ''}
                     />
                   </div>

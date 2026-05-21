@@ -310,6 +310,10 @@ export function CyclistHome() {
     return unsub;
   }, [user]);
 
+  const handleSelectChat = React.useCallback((chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
+    setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
+  }, [setDirectChat]);
+
   const displayChats = React.useMemo(() => {
     const list = [...recentChats];
     if (activeSOS && activeSOS.mechanicId) {
@@ -1299,9 +1303,7 @@ export function CyclistHome() {
                     <ChatListView 
                       chats={displayChats}
                       loading={chatsLoading}
-                      onSelectChat={(chat: { id: string; fetchedProfileName?: string; otherPartyName?: string; title?: string }) => {
-                        setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' });
-                      }}
+                      onSelectChat={handleSelectChat}
                       currentUserId={user?.uid || ''}
                     />
                   </div>

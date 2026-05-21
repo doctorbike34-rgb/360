@@ -20,7 +20,7 @@ type ChatItem = {
   [key: string]: any;
 };
 
-const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: ChatItem, currentUserId: string, onSelectChat: (c: ChatItem) => void }) => {
+const ChatListItem = React.memo(({ chat, currentUserId, onSelectChat }: { chat: ChatItem, currentUserId: string, onSelectChat: (c: ChatItem) => void }) => {
   const isDirect = chat.type === 'DIRECT';
   const isGroup = chat.type === 'GROUP';
   const isSOS = !!chat.sosRequestId;
@@ -109,7 +109,7 @@ const ChatListItem = ({ chat, currentUserId, onSelectChat }: { chat: ChatItem, c
       </div>
     </motion.button>
   );
-};
+});
 
 interface ChatListViewProps {
   chats: ChatItem[];
@@ -117,7 +117,7 @@ interface ChatListViewProps {
   currentUserId: string;
 }
 
-export const ChatListView: React.FC<ChatListViewProps & { loading?: boolean }> = ({ chats, onSelectChat, currentUserId, loading }) => {
+export const ChatListView: React.FC<ChatListViewProps & { loading?: boolean }> = React.memo(({ chats, onSelectChat, currentUserId, loading }) => {
   const { t } = useTranslation();
 
   if (loading) {
@@ -146,4 +146,4 @@ export const ChatListView: React.FC<ChatListViewProps & { loading?: boolean }> =
       </div>
     </div>
   );
-};
+});

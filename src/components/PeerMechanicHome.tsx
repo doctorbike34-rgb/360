@@ -298,6 +298,8 @@ export function PeerMechanicHome() {
   const [recentChats, setRecentChats] = useState<any[]>([]);
   const [chatsLoading, setChatsLoading] = useState(true);
 
+  const handleSelectChat = React.useCallback((chat: any) => setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' }), [setDirectChat]);
+
   const displayChats = React.useMemo(() => {
     const list = [...recentChats];
     
@@ -798,7 +800,7 @@ export function PeerMechanicHome() {
                       chats={displayChats}
                       loading={chatsLoading}
                       currentUserId={user?.uid || ''}
-                      onSelectChat={(chat: any) => setDirectChat({ id: chat.id, name: chat.fetchedProfileName || chat.otherPartyName || chat.title || 'Chat' })}
+                      onSelectChat={handleSelectChat}
                     />
                   </div>
                 )}
