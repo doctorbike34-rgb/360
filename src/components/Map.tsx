@@ -210,13 +210,13 @@ const TrackedMechanicMarker = React.memo(function TrackedMechanicMarker({ mechan
   );
 });
 
-const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick, sos, currentUser, currentUserRole }: {
+const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onMarkerClick, sos, currentUser, currentUserRole }: {
   user: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
   roleColor: string;
-  onClick?: () => void;
+  onMarkerClick?: (u: any) => void;
   sos?: SOSRequest;
   currentUser?: FirebaseUser | null;
   currentUserRole?: string | null;
@@ -235,7 +235,7 @@ const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, get
   );
 
   return (
-    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
+    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onMarkerClick ? { click: () => onMarkerClick(u) } : undefined}>
       <Popup>
         <MechanicPopup
           mechanic={u}
@@ -251,12 +251,12 @@ const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, get
   );
 });
 
-const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
+const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onMarkerClick, onViewDetails }: {
   report: any;
   isSelected: boolean;
   t: TFunction;
-  onClick: () => void;
-  onViewDetails?: () => void;
+  onMarkerClick: (r: any) => void;
+  onViewDetails?: (r: any) => void;
 }) {
   const icon = useMemo(
     () => reportMarkerIcon(report.category || 'other', report.severity),
@@ -273,8 +273,8 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
       icon={icon}
       eventHandlers={{
         click: () => {
-          onClick();
-          onViewDetails?.();
+          onMarkerClick(report);
+          onViewDetails?.(report);
         },
       }}
     >
@@ -291,7 +291,7 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onViewDetails();
+                onViewDetails(report);
               }}
               className="w-full bg-primary text-white text-[9px] py-2 rounded-lg font-black uppercase tracking-widest active:scale-95 transition-all"
             >
@@ -304,10 +304,10 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
   );
 });
 
-const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
+const EventMarker = React.memo(function EventMarker({ event, onMarkerClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
   event: any;
-  onClick: () => void;
-  onViewDetails?: () => void;
+  onMarkerClick: (r: any) => void;
+  onViewDetails?: (r: any) => void;
   onJoin?: (event: any) => void;
   isJoining?: boolean;
   currentUser: any;
@@ -326,8 +326,8 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
       icon={icon}
       eventHandlers={{
         click: () => {
-          onClick();
-          onViewDetails?.();
+          onMarkerClick(event);
+          onViewDetails?.(event);
         },
       }}
     >
@@ -348,7 +348,7 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onViewDetails();
+                onViewDetails(event);
               }}
               className="w-full mb-2 bg-grey/10 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center active:scale-95 transition-all"
             >
@@ -514,6 +514,21 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
     () => filterItemsNearMapCenter(rawReports, userPos),
     [rawReports, userPos]
   );
+
+
+  const onlineMechanicsCount = useMemo(() => visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length, [visibleUsers]);
+  const onlineCyclistsCount = useMemo(() => visibleUsers.filter(u => u.role === 'CYCLIST').length, [visibleUsers]);
+
+  const filteredUsersToRender = useMemo(() => {
+    return visibleUsers.filter(u => {
+      if (u.id === mechanicToTrackId) return false;
+      const isMechanic = u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC';
+      const isCyclist = u.role === 'CYCLIST';
+      if (isMechanic && !showMechanics) return false;
+      if (isCyclist && !showCyclists) return false;
+      return true;
+    });
+  }, [visibleUsers, mechanicToTrackId, showMechanics, showCyclists]);
 
   const lastUpdateRef = useRef<{ time: number, pos: [number, number] | null }>({ time: 0, pos: null });
 
@@ -784,11 +799,11 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         <div className="absolute top-floating left-4 z-[999] flex flex-col gap-2 pointer-events-auto items-start">
            <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-             <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC').length} Meccanici online</span>
+             <span className="text-[9px] font-bold uppercase">{onlineMechanicsCount} Meccanici online</span>
            </div>
            <div className="bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md flex items-center gap-2">
              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-             <span className="text-[9px] font-bold uppercase">{visibleUsers.filter(u => u.role === 'CYCLIST').length} Ciclisti online</span>
+             <span className="text-[9px] font-bold uppercase">{onlineCyclistsCount} Ciclisti online</span>
            </div>
         </div>
       )}
@@ -961,14 +976,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
         )}
 
         {/* Regular Users (Mechanics, Peer Mechanics & Cyclists) */}
-        {visibleUsers.filter(u => {
-          if (u.id === mechanicToTrackId) return false;
-          const isMechanic = u.role === 'MECHANIC' || u.role === 'PEER_MECHANIC';
-          const isCyclist = u.role === 'CYCLIST';
-          if (isMechanic && !showMechanics) return false;
-          if (isCyclist && !showCyclists) return false;
-          return true;
-        }).map((u: any) => {
+        {filteredUsersToRender.map((u: any) => {
           if (!u.lastLat || !u.lastLng) return null;
           let roleColor = 'primary';
           if (u.role === 'MECHANIC') roleColor = 'warning';
@@ -982,7 +990,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               t={t}
               getFaultTypeTranslation={getFaultTypeTranslation}
               roleColor={roleColor}
-              onClick={() => setSelectedObj(u)}
+              onMarkerClick={setSelectedObj}
               sos={u.role === 'CYCLIST' ? activeSOSs[u.id] : undefined}
               currentUser={currentUser}
               currentUserRole={currentUserRole}
@@ -1003,8 +1011,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               report={report}
               isSelected={isSelected}
               t={t}
-              onClick={() => setSelectedObj(report)}
-              onViewDetails={onViewReportDetails ? () => onViewReportDetails(report) : undefined}
+              onMarkerClick={setSelectedObj}
+              onViewDetails={onViewReportDetails}
             />
           );
         })}
@@ -1020,11 +1028,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
             <EventMarker
               key={event.id}
               event={event}
-              onClick={() => {
-                setSelectedObj(event);
-                onViewEventDetails?.(event);
-              }}
-              onViewDetails={onViewEventDetails ? () => onViewEventDetails(event) : undefined}
+              onMarkerClick={setSelectedObj}
+              onViewDetails={onViewEventDetails}
               onJoin={onJoinEvent}
               isJoining={joiningEventId === event.id}
               currentUser={currentUser}
