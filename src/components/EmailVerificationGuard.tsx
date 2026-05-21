@@ -178,9 +178,6 @@ export function EmailVerificationGuard({ children }: { children: React.ReactNode
            </button>
         </div>
       </motion.div>
-
-      {/* Home Indicator */}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-grey/20 rounded-full" />
     </div>
   );
 }

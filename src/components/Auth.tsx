@@ -865,9 +865,6 @@ export function Auth({ initialIsLogin, onShowLanding }: AuthProps = {}) {
         )}
       </motion.div>
       </div>
-      
-      {/* Home Indicator (Barra di movimento) */}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-white/40  rounded-full z-[10000] pointer-events-none" />
     </div>
   );
 }

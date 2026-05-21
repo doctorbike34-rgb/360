@@ -716,15 +716,13 @@ export default function App() {
       );
     }
     return (
-      <div className="h-full w-full min-h-0 overflow-hidden">
-        <Auth
-          initialIsLogin={completingProfile ? false : authStartLogin}
-          onShowLanding={() => {
-            void signOut(auth).catch(() => {});
-            setShowLanding(true);
-          }}
-        />
-      </div>
+      <Auth
+        initialIsLogin={completingProfile ? false : authStartLogin}
+        onShowLanding={() => {
+          void signOut(auth).catch(() => {});
+          setShowLanding(true);
+        }}
+      />
     );
   }
 
