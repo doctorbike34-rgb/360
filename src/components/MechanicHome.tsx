@@ -937,7 +937,7 @@ export function MechanicHome() {
           {/* Profile Tab */}
           <div className={`absolute inset-0 overflow-y-auto scroll-smooth bg-white z-20 app-scroll transition-opacity duration-300 ${activeTab === 'PROFILE' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
             <div className="bg-primary p-4 flex items-center gap-4 text-black sticky top-0 z-10 transition-colors">
-              <button onClick={() => setActiveTab('WORK')} className="hover:bg-black/5 p-2 rounded-full transition-colors"><ArrowLeft size={24}/></button>
+              <button onClick={() => setActiveTab('WORK')} className="hover:bg-black/5 p-2 rounded-full transition-colors" aria-label={t('common.back')}><ArrowLeft size={24}/></button>
               <h3 className="font-bold">{t('profile.title')}</h3>
             </div>
             <ProfileView isAvailable={isAvailable} onToggleAvailability={toggleAvailability}/>
