@@ -96,27 +96,34 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
             }
             const validStatuses = ['ACCEPTED', 'IN_PROGRESS'];
             const currentStatus = (sosData === null || sosData === void 0 ? void 0 : sosData.status) || 'Sconosciuto';
-            // If already completed, just handle review if provided
+            // SOS already completed (payment released) — cyclist may still submit stars-only review
             if (currentStatus === 'COMPLETED') {
-                const rating = data.rating;
-                const text = data.text || '';
-                if (rating && !sosData.isReviewed) {
+                const lateRating = data.rating;
+                const lateText = data.text || '';
+                if (lateRating) {
                     const mechanicId = sosData.mechanicId;
+                    if (!mechanicId) {
+                        throw new functions.https.HttpsError('failed-precondition', 'Meccanico non associato a questo SOS.');
+                    }
                     const mechanicRef = db.collection('users').doc(mechanicId);
-                    const reviewRef = db.collection('reviews').doc();
-                    t.set(reviewRef, {
-                        sosId: sosId,
-                        cyclistId: cyclistId,
-                        mechanicId: mechanicId,
-                        rating: rating,
-                        text: text,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    t.update(mechanicRef, {
-                        ratingSum: admin.firestore.FieldValue.increment(rating),
-                        reviews: admin.firestore.FieldValue.increment(1)
-                    });
-                    t.update(sosRef, { isReviewed: true });
+                    const reviewRef = db.collection('reviews').doc(sosId);
+                    const reviewSnap = await t.get(reviewRef);
+                    if (!reviewSnap.exists) {
+                        t.set(reviewRef, {
+                            sosId,
+                            cyclistId,
+                            mechanicId,
+                            cyclistName: sosData.cyclistName || '',
+                            rating: lateRating,
+                            text: lateText,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        });
+                        t.update(mechanicRef, {
+                            ratingSum: admin.firestore.FieldValue.increment(lateRating),
+                            reviews: admin.firestore.FieldValue.increment(1),
+                        });
+                    }
+                    t.update(sosRef, { isReviewed: true, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
                 }
                 return { success: true, message: 'Operazione completata.' };
             }
@@ -217,13 +224,14 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
             }
             // Update completed jobs count
             mechanicUpdates.completedJobs = admin.firestore.FieldValue.increment(1);
-            // Add Review if provided (use atomic FieldValue.increment for ratingSum + reviews)
+            // Add Review if provided (stars-only is valid; text optional)
             if (rating) {
-                const reviewRef = db.collection('reviews').doc();
+                const reviewRef = db.collection('reviews').doc(sosId);
                 t.set(reviewRef, {
                     mechanicId: mechanicId,
                     cyclistId: cyclistId,
                     sosId: sosId,
+                    cyclistName: sosData.cyclistName || '',
                     rating: rating,
                     text: text || '',
                     createdAt: admin.firestore.FieldValue.serverTimestamp()
@@ -272,9 +280,8 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
-            // Finalize SOS
-            t.update(sosRef, {
-                isReviewed: true,
+            // Finalize SOS — isReviewed only after a review exists (rating may come in a follow-up call)
+            const sosFinalize = {
                 cyclistConfirmed: true,
                 status: 'COMPLETED',
                 paymentStatus: 'RELEASED',
@@ -283,8 +290,12 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
                 mechanicNet: netAmount,
                 finalPrice: amount,
                 releaseTxId: txRef.id,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (rating) {
+                sosFinalize.isReviewed = true;
+            }
+            t.update(sosRef, sosFinalize);
             // Finalize Cyclist Profile & Award Points (Balance already deducted during HELD phase)
             t.update(cyclistRef, cyclistUpdates);
             t.set(txRef, txData);
