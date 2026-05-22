@@ -1,0 +1,3 @@
+## 2024-05-24 - Inline functions defeat React.memo in Map
+**Learning:** In `Map.tsx`, passing inline closures like `onClick={() => setSelectedObj(event)}` inside render loops completely defeated the `React.memo` optimization on marker components (`UserMarker`, `ReportMarker`, `EventMarker`), causing expensive map re-renders on every state change because new function references were created each time.
+**Action:** Pass stable references like `setSelectedObj` directly to child components instead, and let the child components handle applying the arguments (e.g. calling `onClick(event)` internally).
