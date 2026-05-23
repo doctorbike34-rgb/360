@@ -78,7 +78,11 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn() && (canReadOwnOrAdminUser(userId) || canReadUserForMapDiscovery());
-      allow create: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin() || (
+        isOwner(userId) &&
+        incoming().get('role', '') != 'ADMIN' &&
+        incoming().get('balance', 0) <= 10
+      );
       allow update: if isAdmin() || (
         // Owner can update own profile fields — but NEVER the role field (prevents privilege escalation)
         isOwner(userId) &&
