@@ -658,7 +658,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center px-4 pointer-events-none"
+            className="absolute inset-0 z-[100] flex items-start justify-center px-4 pt-4 pb-6 overflow-y-auto no-scrollbar pointer-events-none"
           >
             <motion.div 
               initial={{ opacity: 0 }}
@@ -672,7 +672,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="bg-white text-black w-full max-w-[calc(100vw-2rem)] sm:max-w-md max-h-[85vh] overflow-y-auto no-scrollbar rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-8 relative shadow-2xl mx-auto pointer-events-auto"
+              className="bg-white text-black w-full max-w-[calc(100vw-2rem)] sm:max-w-md max-h-full overflow-y-auto no-scrollbar rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-8 relative shadow-2xl mx-auto pointer-events-auto"
             >
               <button 
                 onClick={() => setShowCreate(false)}
@@ -683,7 +683,7 @@ export function SocialView({ onStartChat, onFocusEvent, onViewEventDetails }: {
               
               <h3 className="text-2xl font-black text-primary mb-6">{t('social.createGroup')}</h3>
               
-              <form onSubmit={createEvent} className="space-y-6">
+              <form onSubmit={createEvent} className="space-y-6 pb-6">
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-grey mb-2 block">{t('social.groupTitle')}</label>
                   <input 

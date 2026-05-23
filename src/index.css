@@ -91,9 +91,9 @@
   box-sizing: border-box;
   background-color: #ffffff;
   padding-top: 0.25rem;
-  /* Extend the nav background through the iOS home-indicator safe area
-     so no white/blank strip appears below the nav bar. */
-  padding-bottom: var(--safe-bottom);
+  /* Keep the nav visually attached to the bottom edge. On large iPhones the
+     safe-area inset is ~34px, which looked like a 1cm blank strip below nav. */
+  padding-bottom: 0.25rem;
   padding-left: max(0.25rem, var(--safe-left));
   padding-right: max(0.25rem, var(--safe-right));
   min-height: var(--app-nav-height);
@@ -389,5 +389,4 @@ html, body, #root {
   height: 100% !important;
   overflow: hidden !important;
 }
-
 
