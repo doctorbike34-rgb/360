@@ -1063,7 +1063,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
             <motion.div className="relative w-full sm:max-w-md sm:mx-auto bg-white text-black rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 z-[110] shadow-2xl">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-black uppercase text-primary italic">Prelievo in EUR</h3>
-                <button type="button" onClick={() => setShowPayout(false)} className="p-2 text-grey"><X size={20} /></button>
+                <button type="button" onClick={() => setShowPayout(false)} aria-label={t('common.close')} className="p-2 text-grey"><X size={20} /></button>
               </div>
               <p className="text-[10px] text-grey font-bold mb-4">1 DB Coin = 1 €. Minimo €20. Il saldo viene bloccato fino all&apos;approvazione admin.</p>
               {role === 'MECHANIC' && profile?.kycStatus !== 'APPROVED' && (
@@ -1438,7 +1438,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.settings')}</h3>
-                  <button onClick={() => setShowSettings(false)} className="p-2 text-grey"><X size={24}/></button>
+                <button onClick={() => setShowSettings(false)} aria-label={t('common.close')} className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 <div className="space-y-6">
                   <div className="bg-grey/5 p-6 rounded-[2rem]">
@@ -1491,7 +1491,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.safety')}</h3>
-                  <button onClick={() => setShowSafety(false)} className="p-2 text-grey"><X size={24}/></button>
+                <button onClick={() => setShowSafety(false)} aria-label={t('common.close')} className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 <div className="space-y-6">
                   <div className="bg-accent/5 p-6 rounded-[2rem] border border-accent/10">
@@ -1527,7 +1527,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                    <h3 className="text-2xl font-black text-primary uppercase italic">
                      {planUpgradeStep === 'SELECT' ? 'Piani Abbonamento' : 'Conferma Piano'}
                    </h3>
-                   <button onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} className="p-2 text-grey"><X size={24}/></button>
+                   <button onClick={() => { setShowPlans(false); setPlanUpgradeStep('SELECT'); setSelectedPlanForUpgrade(null); }} aria-label={t('common.close')} className="p-2 text-grey"><X size={24}/></button>
                 </div>
 
                 {planUpgradeStep === 'SELECT' ? (
@@ -1631,7 +1631,7 @@ export function ProfileView({ isAvailable, onToggleAvailability }: ProfileViewPr
                 <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">{t('profile.privacyAndLegal')}</h3>
-                  <button onClick={() => setShowPrivacy(false)} className="p-2 text-grey"><X size={24}/></button>
+                <button onClick={() => setShowPrivacy(false)} aria-label={t('common.close')} className="p-2 text-grey"><X size={24}/></button>
                 </div>
                 <div className="space-y-6">
                   <div className="bg-grey/5 p-6 rounded-[2rem] border border-grey/10 space-y-6">
@@ -1849,6 +1849,7 @@ function LegalItem({ label, checked, onChange, isRequired = false }: { label: st
 }
 
 function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; onAddPayment: () => void }) {
+  const { t } = useTranslation();
   const { user, profile } = useAuthStore();
   const [savedMethods, setSavedMethods] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1890,7 +1891,7 @@ function PaymentMethodsModal({ onClose, onAddPayment }: { onClose: () => void; o
         <div className="w-12 h-1.5 bg-grey/10 rounded-full mx-auto mb-4 sm:mb-8"/>
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl sm:text-2xl font-black text-primary uppercase italic">Metodi di Pagamento</h3>
-          <button onClick={onClose} className="p-2 text-grey"><X size={24}/></button>
+          <button onClick={onClose} aria-label={t('common.close')} className="p-2 text-grey"><X size={24}/></button>
         </div>
 
         {isLoading ? (
