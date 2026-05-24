@@ -148,7 +148,7 @@ export function P2PWalletModal({ onClose }: P2PWalletModalProps) {
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className="relative bg-white text-black rounded-[2.5rem] w-full max-w-md overflow-hidden z-10 shadow-2xl p-6 pointer-events-auto"
       >
-         <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-grey/10 rounded-full text-grey">
+         <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-grey/10 rounded-full text-grey" aria-label={t('common.close')}>
             <X size={20} />
          </button>
 

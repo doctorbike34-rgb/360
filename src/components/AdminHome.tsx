@@ -508,7 +508,7 @@ export function AdminHome() {
                   </div>
                   <h1 className="text-lg font-black text-black uppercase">Admin</h1>
                 </div>
-                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-grey">
+                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-grey" aria-label={t("common.close")}>
                   <X size={24} />
                 </button>
               </div>
