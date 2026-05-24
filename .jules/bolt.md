@@ -1,0 +1,3 @@
+## 2023-10-27 - [Map Marker Re-renders]
+**Learning:** Passing inline objects like `{ click: onClick }` to React Leaflet's `eventHandlers` prop on the `Marker` component completely defeats `React.memo` for custom marker components and triggers excessive re-renders whenever the parent `<Map>` component updates its state (e.g., when `selectedObj` changes).
+**Action:** Always extract `eventHandlers` into a `useMemo` hook inside memoized marker components. Furthermore, always pass stable state setter references (like `setSelectedObj`) directly as props from the parent map component instead of creating new inline arrow functions (e.g. `() => setSelectedObj(u)`) inside loops during render.
