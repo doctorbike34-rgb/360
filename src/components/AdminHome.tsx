@@ -334,13 +334,19 @@ export function AdminHome() {
     }
   };
 
-  const filteredUsers = allUsers.filter(u => {
-    const matchesSearch = u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.id?.includes(searchQuery);
-    const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
-    return matchesSearch && matchesKyc;
-  });
+  // ⚡ Bolt: Memoize filtered list to prevent O(n) recalculations on every render.
+  // ⚡ Bolt: Also hoists search string parsing outside the filter loop.
+  // 📊 Impact: O(n) array iteration combined with string processing no longer runs on trivial state updates.
+  const filteredUsers = React.useMemo(() => {
+    const searchLower = searchQuery.toLowerCase();
+    return allUsers.filter(u => {
+      const matchesSearch = u.name?.toLowerCase().includes(searchLower) ||
+        u.email?.toLowerCase().includes(searchLower) ||
+        u.id?.includes(searchQuery);
+      const matchesKyc = kycFilter === 'ALL' || u.kycStatus === 'PENDING';
+      return matchesSearch && matchesKyc;
+    });
+  }, [allUsers, searchQuery, kycFilter]);
 
   const updateUserRole = async (userId: string, newRole: string) => {
     try {
