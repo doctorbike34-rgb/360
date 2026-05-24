@@ -50,7 +50,9 @@ service cloud.firestore {
       return data.keys().hasAll(['cyclistId', 'faultType', 'status', 'createdAt']) &&
              data.cyclistId == request.auth.uid &&
              data.status == 'PENDING' &&
-             data.faultType is string;
+             data.faultType is string &&
+             (!data.keys().hasAny(['paymentStatus']) || data.paymentStatus == 'ESCROW') &&
+             (!data.keys().hasAny(['mechanicId']) || data.mechanicId == null);
     }
 
     function isValidRoadReport(data) {
