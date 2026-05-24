@@ -3,6 +3,7 @@ import { X, Receipt, Download, Send, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
+import { useTranslation } from 'react-i18next';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -13,6 +14,7 @@ interface ManualInvoiceModalProps {
 }
 
 export function ManualInvoiceModal({ isOpen, onClose, user }: ManualInvoiceModalProps) {
+  const { t } = useTranslation();
   const [amount, setAmount] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [isSending, setIsSending] = React.useState(false);
@@ -125,7 +127,7 @@ export function ManualInvoiceModal({ isOpen, onClose, user }: ManualInvoiceModal
                     <p className="text-[10px] font-bold text-grey uppercase tracking-widest">Generazione PDF e Registro</p>
                   </div>
                 </div>
-                <button onClick={onClose} className="p-2 hover:bg-grey/5 rounded-full transition-colors text-grey">
+                <button onClick={onClose} className="p-2 hover:bg-grey/5 rounded-full transition-colors text-grey" aria-label={t('common.close')}>
                   <X size={24} />
                 </button>
               </div>
