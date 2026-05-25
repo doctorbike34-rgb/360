@@ -68,13 +68,21 @@ export function setupLeafletDefaults(): void {
   L.Marker.prototype.options.icon = defaultIcon;
 }
 
+const iconCache = new Map<string, L.Icon>();
+
 export function makeSvgIcon(svg: string, size: number, anchor: [number, number]): L.Icon {
-  return L.icon({
+  const cacheKey = `${size}-${anchor[0]}-${anchor[1]}-${svg}`;
+  const cached = iconCache.get(cacheKey);
+  if (cached) return cached;
+
+    const icon = L.icon({
     iconUrl: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
     iconSize: [size, size],
     iconAnchor: anchor,
     popupAnchor: [0, -size / 2],
   });
+  iconCache.set(cacheKey, icon);
+  return icon;
 }
 
 export function defaultMarkerIcon(): L.Icon {
