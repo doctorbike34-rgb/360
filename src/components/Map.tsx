@@ -210,13 +210,13 @@ const TrackedMechanicMarker = React.memo(function TrackedMechanicMarker({ mechan
   );
 });
 
-const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick, sos, currentUser, currentUserRole }: {
+const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onSelect, sos, currentUser, currentUserRole }: {
   user: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
   roleColor: string;
-  onClick?: () => void;
+  onSelect?: (item: any) => void;
   sos?: SOSRequest;
   currentUser?: FirebaseUser | null;
   currentUserRole?: string | null;
@@ -234,8 +234,14 @@ const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, get
     [u.id, u.role, u.name, borderColor, u.isOnline, sos]
   );
 
+  // OPTIMIZATION: Memoize event handlers to prevent react-leaflet Marker from breaking React.memo on parent map state updates.
+  const eventHandlers = useMemo(() => {
+    if (!onSelect) return undefined;
+    return { click: () => onSelect(u) };
+  }, [onSelect, u]);
+
   return (
-    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
+    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={eventHandlers}>
       <Popup>
         <MechanicPopup
           mechanic={u}
@@ -251,12 +257,12 @@ const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, get
   );
 });
 
-const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
+const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onSelect, onViewDetails }: {
   report: any;
   isSelected: boolean;
   t: TFunction;
-  onClick: () => void;
-  onViewDetails?: () => void;
+  onSelect: (item: any) => void;
+  onViewDetails?: (report: any) => void;
 }) {
   const icon = useMemo(
     () => reportMarkerIcon(report.category || 'other', report.severity),
@@ -267,16 +273,19 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
   const lng = report.location?.lng ?? report.location?.longitude;
   if (!lat || !lng) return null;
 
+  // OPTIMIZATION: Memoize event handlers to prevent react-leaflet Marker from breaking React.memo on parent map state updates.
+  const eventHandlers = useMemo(() => ({
+    click: () => {
+      onSelect(report);
+      if (onViewDetails) onViewDetails(report);
+    },
+  }), [onSelect, onViewDetails, report]);
+
   return (
     <Marker
       position={[lat, lng]}
       icon={icon}
-      eventHandlers={{
-        click: () => {
-          onClick();
-          onViewDetails?.();
-        },
-      }}
+      eventHandlers={eventHandlers}
     >
       <Popup>
         <div className="p-1 min-w-[140px]">
@@ -291,7 +300,7 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onViewDetails();
+                onViewDetails(report);
               }}
               className="w-full bg-primary text-white text-[9px] py-2 rounded-lg font-black uppercase tracking-widest active:scale-95 transition-all"
             >
@@ -304,10 +313,10 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
   );
 });
 
-const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
+const EventMarker = React.memo(function EventMarker({ event, onSelect, onJoin, onViewDetails, isJoining, currentUser, t }: {
   event: any;
-  onClick: () => void;
-  onViewDetails?: () => void;
+  onSelect: (item: any) => void;
+  onViewDetails?: (event: any) => void;
   onJoin?: (event: any) => void;
   isJoining?: boolean;
   currentUser: any;
@@ -320,16 +329,19 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
   const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
   if (!lat || !lng) return null;
 
+  // OPTIMIZATION: Memoize event handlers to prevent react-leaflet Marker from breaking React.memo on parent map state updates.
+  const eventHandlers = useMemo(() => ({
+    click: () => {
+      onSelect(event);
+      if (onViewDetails) onViewDetails(event);
+    },
+  }), [onSelect, onViewDetails, event]);
+
   return (
     <Marker
       position={[lat, lng]}
       icon={icon}
-      eventHandlers={{
-        click: () => {
-          onClick();
-          onViewDetails?.();
-        },
-      }}
+      eventHandlers={eventHandlers}
     >
       <Popup>
         <div className="p-1 min-w-[160px]">
@@ -348,7 +360,7 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onViewDetails();
+                onViewDetails(event);
               }}
               className="w-full mb-2 bg-grey/10 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center active:scale-95 transition-all"
             >
@@ -982,7 +994,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               t={t}
               getFaultTypeTranslation={getFaultTypeTranslation}
               roleColor={roleColor}
-              onClick={() => setSelectedObj(u)}
+              onSelect={setSelectedObj}
               sos={u.role === 'CYCLIST' ? activeSOSs[u.id] : undefined}
               currentUser={currentUser}
               currentUserRole={currentUserRole}
@@ -1003,8 +1015,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               report={report}
               isSelected={isSelected}
               t={t}
-              onClick={() => setSelectedObj(report)}
-              onViewDetails={onViewReportDetails ? () => onViewReportDetails(report) : undefined}
+              onSelect={setSelectedObj}
+              onViewDetails={onViewReportDetails}
             />
           );
         })}
@@ -1020,11 +1032,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
             <EventMarker
               key={event.id}
               event={event}
-              onClick={() => {
-                setSelectedObj(event);
-                onViewEventDetails?.(event);
-              }}
-              onViewDetails={onViewEventDetails ? () => onViewEventDetails(event) : undefined}
+              onSelect={setSelectedObj}
+              onViewDetails={onViewEventDetails}
               onJoin={onJoinEvent}
               isJoining={joiningEventId === event.id}
               currentUser={currentUser}
