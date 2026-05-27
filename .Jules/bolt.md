@@ -1,0 +1,3 @@
+## 2024-05-27 - [Map Rendering Optimization]
+**Learning:** React-Leaflet's map rendering loop is extremely sensitive to inline function generation. Passing inline functions like `onClick={() => setSelectedObj(event)}` to `React.memo`-wrapped components (like custom markers) defeats memoization. Worse, binding inline functions to Leaflet's `eventHandlers` prop forces React-Leaflet to re-bind Leaflet events on every single re-render of the map.
+**Action:** Always pass stable references (like React state setters or memoized functions) as props to map marker components. Use `useMemo` to construct the `eventHandlers` object for Leaflet so that Leaflet events are not unnecessarily unbound and re-bound.
