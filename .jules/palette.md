@@ -1,0 +1,3 @@
+## 2024-05-30 - Localized ARIA labels for icon-only close buttons
+**Learning:** Hardcoded english strings like 'Close history' or missing labels entirely on icon-only buttons reduce accessibility for non-english screen reader users, and this codebase has central translations ready (e.g. `t('common.close')`). Also, replacing missing accessibility tags indiscriminately without verifying their contexts is dangerous, e.g. using a `t('common.close')` label for a destructive delete action.
+**Action:** Replace hardcoded or missing aria-labels on icon-only buttons with the i18next translation `t('common.close')` for uniformity and correct localization, and verify the action performed.
