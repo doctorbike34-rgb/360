@@ -1,0 +1,3 @@
+## 2024-05-24 - Map Marker Memoization Defeated by Inline Event Handlers
+**Learning:** `React.memo` on React Leaflet markers (`UserMarker`, `EventMarker`, `ReportMarker`) was being defeated because they were passed inline closures for event handlers (`onClick={() => setSelectedObj(u)}`) and were creating inline `eventHandlers` objects inside the marker component. This caused all map markers to re-render whenever the parent `Map` component rendered.
+**Action:** When working with React Leaflet, avoid passing inline functions to memoized marker components. Pass stable references (like state setters e.g. `setSelectedObj`) as props, and always memoize the `eventHandlers` object using `useMemo` to preserve `React.memo` performance benefits.
