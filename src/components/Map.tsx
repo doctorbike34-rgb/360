@@ -210,13 +210,13 @@ const TrackedMechanicMarker = React.memo(function TrackedMechanicMarker({ mechan
   );
 });
 
-const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onClick, sos, currentUser, currentUserRole }: {
+const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, getFaultTypeTranslation, roleColor, onSelect, sos, currentUser, currentUserRole }: {
   user: any;
   onStartChat?: (userId: string, userName: string) => void;
   t: TFunction;
   getFaultTypeTranslation: (faultType: string | undefined) => string;
   roleColor: string;
-  onClick?: () => void;
+  onSelect?: (user: any) => void;
   sos?: SOSRequest;
   currentUser?: FirebaseUser | null;
   currentUserRole?: string | null;
@@ -234,8 +234,12 @@ const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, get
     [u.id, u.role, u.name, borderColor, u.isOnline, sos]
   );
 
+  const eventHandlers = useMemo(() => {
+    return onSelect ? { click: () => onSelect(u) } : undefined;
+  }, [onSelect, u]);
+
   return (
-    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={onClick ? { click: onClick } : undefined}>
+    <Marker position={[u.lastLat, u.lastLng]} icon={icon} eventHandlers={eventHandlers}>
       <Popup>
         <MechanicPopup
           mechanic={u}
@@ -251,12 +255,12 @@ const UserMarker = React.memo(function UserMarker({ user: u, onStartChat, t, get
   );
 });
 
-const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onClick, onViewDetails }: {
+const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, onSelect, onViewDetailsFunc }: {
   report: any;
   isSelected: boolean;
   t: TFunction;
-  onClick: () => void;
-  onViewDetails?: () => void;
+  onSelect: (report: any) => void;
+  onViewDetailsFunc?: (report: any) => void;
 }) {
   const icon = useMemo(
     () => reportMarkerIcon(report.category || 'other', report.severity),
@@ -267,16 +271,18 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
   const lng = report.location?.lng ?? report.location?.longitude;
   if (!lat || !lng) return null;
 
+  const eventHandlers = useMemo(() => ({
+    click: () => {
+      onSelect(report);
+      onViewDetailsFunc?.(report);
+    },
+  }), [onSelect, onViewDetailsFunc, report]);
+
   return (
     <Marker
       position={[lat, lng]}
       icon={icon}
-      eventHandlers={{
-        click: () => {
-          onClick();
-          onViewDetails?.();
-        },
-      }}
+      eventHandlers={eventHandlers}
     >
       <Popup>
         <div className="p-1 min-w-[140px]">
@@ -286,12 +292,12 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
             <span>Conferme: {report?.upvotes?.length || 0}</span>
             <span className="bg-grey/10 px-1.5 py-0.5 rounded-md">{report?.status}</span>
           </div>
-          {onViewDetails && (
+          {onViewDetailsFunc && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onViewDetails();
+                onViewDetailsFunc(report);
               }}
               className="w-full bg-primary text-white text-[9px] py-2 rounded-lg font-black uppercase tracking-widest active:scale-95 transition-all"
             >
@@ -304,10 +310,10 @@ const ReportMarker = React.memo(function ReportMarker({ report, isSelected, t, o
   );
 });
 
-const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, onViewDetails, isJoining, currentUser, t }: {
+const EventMarker = React.memo(function EventMarker({ event, onSelect, onJoin, onViewDetailsFunc, isJoining, currentUser, t }: {
   event: any;
-  onClick: () => void;
-  onViewDetails?: () => void;
+  onSelect: (event: any) => void;
+  onViewDetailsFunc?: (event: any) => void;
   onJoin?: (event: any) => void;
   isJoining?: boolean;
   currentUser: any;
@@ -320,16 +326,18 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
   const lng = event.lastLng ?? event.lng ?? event.location?.longitude;
   if (!lat || !lng) return null;
 
+  const eventHandlers = useMemo(() => ({
+    click: () => {
+      onSelect(event);
+      onViewDetailsFunc?.(event);
+    },
+  }), [onSelect, onViewDetailsFunc, event]);
+
   return (
     <Marker
       position={[lat, lng]}
       icon={icon}
-      eventHandlers={{
-        click: () => {
-          onClick();
-          onViewDetails?.();
-        },
-      }}
+      eventHandlers={eventHandlers}
     >
       <Popup>
         <div className="p-1 min-w-[160px]">
@@ -343,12 +351,12 @@ const EventMarker = React.memo(function EventMarker({ event, onClick, onJoin, on
           <div className="flex items-center gap-2 text-[10px] font-bold text-grey uppercase tracking-widest mb-2">
             <div className="flex items-center gap-1">👥 {event.participantCount}/{event.maxParticipants}</div>
           </div>
-          {onViewDetails && (
+          {onViewDetailsFunc && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onViewDetails();
+                onViewDetailsFunc(event);
               }}
               className="w-full mb-2 bg-grey/10 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-center active:scale-95 transition-all"
             >
@@ -982,7 +990,7 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               t={t}
               getFaultTypeTranslation={getFaultTypeTranslation}
               roleColor={roleColor}
-              onClick={() => setSelectedObj(u)}
+              onSelect={setSelectedObj}
               sos={u.role === 'CYCLIST' ? activeSOSs[u.id] : undefined}
               currentUser={currentUser}
               currentUserRole={currentUserRole}
@@ -1003,8 +1011,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
               report={report}
               isSelected={isSelected}
               t={t}
-              onClick={() => setSelectedObj(report)}
-              onViewDetails={onViewReportDetails ? () => onViewReportDetails(report) : undefined}
+              onSelect={setSelectedObj}
+              onViewDetailsFunc={onViewReportDetails}
             />
           );
         })}
@@ -1020,11 +1028,8 @@ export function Map({ center, mechanicToTrackId, onStartChat, onViewEventDetails
             <EventMarker
               key={event.id}
               event={event}
-              onClick={() => {
-                setSelectedObj(event);
-                onViewEventDetails?.(event);
-              }}
-              onViewDetails={onViewEventDetails ? () => onViewEventDetails(event) : undefined}
+              onSelect={setSelectedObj}
+              onViewDetailsFunc={onViewEventDetails}
               onJoin={onJoinEvent}
               isJoining={joiningEventId === event.id}
               currentUser={currentUser}
