@@ -307,7 +307,7 @@ exports.completeSOS = functions.region('europe-west1').https.onCall(async (data,
         console.error("Escrow Release Failed:", error);
         if (error instanceof functions.https.HttpsError)
             throw error;
-        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Transaction failed');
+        throw new functions.https.HttpsError('internal', 'Transaction failed');
     }
 });
 exports.transferFunds = functions.region('europe-west1').https.onCall(async (data, context) => {
@@ -365,7 +365,7 @@ exports.transferFunds = functions.region('europe-west1').https.onCall(async (dat
         console.error("Transfer Failed:", error);
         if (error instanceof functions.https.HttpsError)
             throw error;
-        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Transfer failed');
+        throw new functions.https.HttpsError('internal', 'Transfer failed');
     }
 });
 exports.rewardRoadReport = (0, firestore_1.onDocumentUpdated)({
@@ -809,7 +809,7 @@ exports.createStripePayment = functions.region('europe-west1').https.onRequest(a
     }
     catch (error) {
         console.error('Stripe Payment Error:', error);
-        res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 /**
@@ -913,7 +913,7 @@ exports.createCheckoutSession = functions.region('europe-west1').https.onRequest
     }
     catch (error) {
         console.error('Checkout Session Error:', error);
-        res.status(500).json({ error: error instanceof Error && error.message ? error.message : 'Internal Server Error' });
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 /**
@@ -994,7 +994,7 @@ exports.refundPayment = functions.region('europe-west1').https.onCall(async (dat
     }
     catch (error) {
         console.error('Stripe Refund Error:', error);
-        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Refund failed');
+        throw new functions.https.HttpsError('internal', 'Refund failed');
     }
 });
 /**
@@ -1123,8 +1123,13 @@ exports.notifyUserKycStatus = (0, firestore_1.onDocumentUpdated)({
  * Send KYC Notification Email (Manual Trigger)
  */
 exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data, context) => {
+    var _a;
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+    }
+    const adminDoc = await db.collection('users').doc(context.auth.uid).get();
+    if (((_a = adminDoc.data()) === null || _a === void 0 ? void 0 : _a.role) !== 'ADMIN') {
+        throw new functions.https.HttpsError('permission-denied', 'Only admins can send KYC emails.');
     }
     const { userId, status, reason } = data;
     if (!userId || !status) {
@@ -1163,7 +1168,7 @@ exports.sendKycEmail = functions.region('europe-west1').https.onCall(async (data
     }
     catch (error) {
         console.error('Error sending KYC email:', error);
-        throw new functions.https.HttpsError('internal', error instanceof Error && error.message ? error.message : 'Email failed');
+        throw new functions.https.HttpsError('internal', 'Email failed');
     }
 });
 /**
