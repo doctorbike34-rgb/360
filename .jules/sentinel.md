@@ -1,0 +1,4 @@
+## 2024-05-30 - Information Disclosure via Error Messages
+**Vulnerability:** In the `functions/src/index.ts` Cloud Functions file, error catching blocks were returning `error.message` to the client whenever a standard javascript Error was thrown, such as when executing firestore transactions or calling third party services like Stripe. This can inadvertently leak stack traces, database schema, or internal logic to the client.
+**Learning:** Returning `error.message` directly in a production environment via `HttpsError` causes the raw error string to be accessible by potential attackers on the frontend.
+**Prevention:** Avoid exposing error messages directly. Substitute `error.message` with a generic fallback message string (e.g. 'Internal Server Error' or 'Refund failed') in your catch blocks when throwing an `HttpsError('internal', ...)` or returning a 500 status code.
